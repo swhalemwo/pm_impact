@@ -58,10 +58,10 @@ gp_pminfl_surv(rd1)
 
 gp_pminfl_cbn <- function(rb1, rc1, rd1) {
 
-    imap(list("exhibitions (nonpm)" = rb1, "auction turnover" = rc1, survival = rd1),
+    imap(list("exhibitions (pes)" = rb1, "auction turnover" = rc1, "survival" = rd1),
          ~adt(tidy(.x))[, src := .y]) %>% rbindlist %>%
         .[src == "survival", estimate := estimate *-1] %>%
-        .[, src := factor(src, levels = c("exhibitions (nonpm)", "auction 1turnover", "survival"))] %>% 
+        .[, src := factor(src, levels = c("exhibitions (pes)", "auction turnover", "survival"))] %>% 
         .[, term := str_extract_all(term, "(?<=exhbN_)[a-zA-Z]+(?=_cum)")[[1]], .I] %>%
         ggplot(aes(x = estimate, y = term, xmin = estimate - 1.96 *std.error, xmax = estimate + 1.96 *std.error,
                    color = term)) +
