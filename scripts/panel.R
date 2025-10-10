@@ -1,10 +1,23 @@
-rd1 <- coxph(Surv(career_year, career_year_end, last_exhb) ~ log1p(exhbN_nonpm_cum) + log1p(exhbN_pm_cum) +
+# * panel models
+
+## outcome survival: not cute -> probably yeet
+rd1 <- coxph(Surv(career_year, career_year_end, last_exhb) ~ log1p(exhbN_pes_cum) + log1p(exhbN_pm_cum) +
                  log1p(exhbN_gallery_cum) + log1p(exhbN_event_cum) + strata(year), dt_atyear_surv[year < 2015])
 
-rc1 <- fepois(auc_turnover ~ log1p(exhbN_pm_cum) + log1p(exhbN_nonpm_cum) + log1p(exhbN_gallery_cum) + log1p(exhbN_event_cum) | PeopleID + year, dt_atyear, fixef.rm = "singleton")
+## outcome auction turnover
+rc1 <- fepois(auc_turnover ~ log1p(exhbN_pm_cum) + log1p(exhbN_pes_cum) + log1p(exhbN_gallery_cum) + log1p(exhbN_event_cum) | PeopleID + year, dt_atyear, fixef.rm = "singleton")
+
+# outcome exhb in PES
+rb1 <- fepois(exhbN_pes ~ log1p(exhbN_pm_cum) + log1p(exhbN_gallery_cum) + log1p(exhbN_pes_cum) + log1p(exhbN_event_cum) | PeopleID + year, dt_atyear, fixef.rm = "none")
+
+# outcome PES with interaction
+rb2 <- fepois(exhbN_pes ~ log1p(exhbN_gallery_cum) + log1p(exhbN_pes_cum)*log1p(exhbN_pm_cum) + log1p(exhbN_event_cum) | PeopleID + year, dt_atyear, fixef.rm = "none")
+
+rb3 <- fepois(exhbN_pes ~ log1p(exhbN_pes_cum)*log1p(exhbN_pm_cum) + log1p(exhbN_pm_cum)*log1p(exhbN_gallery_cum) + log1p(exhbN_event_cum)*log1p(exhbN_pm_cum) | PeopleID + year, dt_atyear, fixef.rm = "none")
+
+screenreg(list(rb1,rb2,rb3))
 
 
-rb1 <- fepois(exhbN_nonpm ~ log1p(exhbN_pm_cum) + log1p(exhbN_gallery_cum) + log1p(exhbN_nonpm_cum) + log1p(exhbN_event_cum) | PeopleID + year, dt_atyear, fixef.rm = "none")
 
 
 gp_pminfl_nonpm <- function(rb1) {
