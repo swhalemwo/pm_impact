@@ -18,38 +18,89 @@ c_filters_atyear <- list(
     yeet_baby_exhbs = expr(begin_year > BirthYear + 16),
     yeet_babies_completely = expr(first_year > BirthYear + 16))
 
-
+## calculate some before/after steps
 dt_atyear_foster <- gd_atyear_foster(dt_atyear_raw, c_filters_atyear$yeet_babies_completely)
 
-dt_exhbppl_sample <- dt_exhbppl[sample(1:.N, size = 1e5)]
+# dt_exhbppl_sample <- dt_exhbppl[sample(1:.N, size = 1e5)]
+
+## hacky way of integrating EVC, if decided to keep integrate better
+
+source(paste0(c_dirs$code, "network.R"))
+dt_edges <- gd_edges(dt_exhbppl)
+dt_edges_wtd <- gd_edges_wtd(dt_edges)
+
+g_insflow <- gg_insflow(dt_edges_wtd)
+dt_insevc <- gd_insevc(g_insflow, dt_af_instns_rcd)
+
+dt_insevc[order(-evc), .(Name, evc)] # moma, Zentrum für Kunst und Medien Karlsruhe, vienna huh
+
+dt_exhbppl_evc <- gd_exhbppl_evc(dt_exhbppl, dt_insevc)
+## dt_ppl_evcsum <- gd_ppl_evcsum(dt_exhbppl_evc)
+dt_atyear_evc <- gd_atyear_evc(dt_exhbppl_evc, dt_atyear)
+## dt_atofyear <- gd_atofyear(dt_atyear_evc)
+
+## check EVC developments: looks ok? 
+dt_atyear_evc[, c(list(PeopleID = PeopleID, year = year), .SD), .SDcols = patterns("^evc")] %>%
+    print(n=50)
+
+
+dt_atyear_foster2 <- merge(dt_atyear_foster,
+                           dt_atyear_evc[, c(list(PeopleID = PeopleID, year = year), .SD),
+                                         .SDcols =patterns("^evc")],
+                           by = c("PeopleID", "year"))
 
 
 
 
+## manually switch in EVC; fuck me that's ugly
 dt_exhbppl_watyear <- merge(
     dt_exhbppl,
-    dt_atyear_foster[, c(list(PeopleID = PeopleID, begin_year = year), .SD), .SDcols = patterns("exhbN")],
+    ## dt_atyear_foster[, c(list(PeopleID = PeopleID, begin_year = year), .SD), .SDcols = patterns("exhbN")],
+    dt_atyear_foster2[, c(list(PeopleID = PeopleID, begin_year = year), .SD), .SDcols = patterns("exhbN|evc")],
     by = c("PeopleID", "begin_year")) %>%
     .[order(PeopleID, begin_year)]
 
 ## minor differences between cnt_prevexhb and exhbN_all_cum: exhbN_all_cum is only previous year?
 ## hmm not quite: diffs can also be negative -> FIXME: make sure there's no ambiguity
 
-dt_exhbppl_watyear[, .(PeopleID, begin_year, cnt_prevexhb, exhbN_all_cum, diff_cum = cnt_prevexhb - exhbN_all_cum)] %>%
+dt_exhbppl_watyear[, .(PeopleID, begin_year, cnt_prevexhb, exhbN_all_cum,
+                       diff_cum = cnt_prevexhb - exhbN_all_cum)] %>%
     .[, .N, diff_cum] %>% .[order(diff_cum)] %>% print(n=80)
 
 ## now can calculate institution-specific effect: total count, relative
-dt_exhbppl_watyear[, `:=`(exhbN_grow5_cnt = exhbN_all_cum_n5 - cnt_prevexhb, # how many new exhibitions are in the next 5 years
-                          exhbN_grow5_perc =  100*((exhbN_all_cum_n5/cnt_prevexhb)-1) # by how much does the total exhibition count grow
-                          )]
-dt_exhbppl_watyear[PeopleID ==44 & begin_year > 2005, .(PeopleID, begin_year, exhbN_all, exhbN_all_cum_n5, cnt_prevexhb,
-                                                        exhbN_grow5_cnt, exhbN_grow5_perc)] %>% print(n=40)
+# how many new exhibitions are in the next 5 years
+dt_exhbppl_watyear[, `:=`(exhbN_grow5_cnt = exhbN_all_cum_n5 - cnt_prevexhb,
+                          # by how much does the total exhibition count grow
+                          exhbN_grow5_perc =  100*((exhbN_all_cum_n5/cnt_prevexhb)-1),
+                          evc_grow5_cnt = evc_n5 - evc_s5,
+                          evc_grow5_prop = evc_n5/evc_s5) # hmm do i need log here? 
+                          ]
+
+dt_exhbppl_watyear[PeopleID ==44 & begin_year > 2005, .(PeopleID, begin_year, exhbN_all, exhbN_all_cum_n5,
+                                                        cnt_prevexhb, exhbN_grow5_cnt, exhbN_grow5_perc,
+                                                        evc_grow5_cnt, evc_grow5_perc)] %>%
+    print(n=40)
+
+
+dt_exhbppl_watyear[PeopleID ==44 & begin_year > 2005, .(PeopleID, begin_year, exhbN_all, evc_ay_ttl, evc_s5,
+                                                        evc_n5, evc_grow5_cnt, evc_grow5_prop)] %>%
+    print(n=80)
     
 
 dt_exhbppl_watyear[, .(mean_grow5_cnt = mean(exhbN_grow5_cnt, na.rm = T))]
 
+l_cols_summary <- c("exhbN_grow5_cnt", "exhbN_grow5_perc", "evc_grow5_cnt", "evc_grow5_prop")
+
 dt_exhbppl_watyear[, .(mean_grow5_cnt = mean(exhbN_grow5_cnt, na.rm = T),
-                       mean_grow5_perc = mean(exhbN_grow5_perc[!is.infinite(exhbN_grow5_perc)], na.rm = T)), InstitutionType]
+                       mean_grow5_perc = mean(exhbN_grow5_perc[!is.infinite(exhbN_grow5_perc)], na.rm = T)),
+                   InstitutionType]
+
+dt_exhbppl_watyear[, map(.SD, ~mean(.x[!is.infinite(.x)], na.rm = T)), InstitutionType, .SDcols = l_cols_summary]
+
+## super weird EVC values: maybe extreme cases?
+dt_exhbppl_watyear %>% ggplot(aes(x=evc_grow5_prop, color = InstitutionType)) + geom_density() +
+    scale_x_continuous(trans = scales::log10_trans()) +
+    coord_cartesian(xlim = c(1e-3,1e3))
 
 
 dt_exhbppl_watyear[is.infinite(exhbN_grow5_perc), uniqueN(PeopleID)]
@@ -57,9 +108,12 @@ dt_exhbppl_watyear[is.infinite(exhbN_grow5_perc), uniqueN(PeopleID)]
 dt_atyear_foster
 
 ## distribution of institution-level growth factors (ability of individual museums to promote)
-dt_insgrow5 <- dt_exhbppl_watyear[, .(mean_grow5_perc = mean(exhbN_grow5_perc[!is.infinite(exhbN_grow5_perc)], na.rm =T),
-                                      mean_grow5_cnt = mean(exhbN_grow5_cnt, na.rm =T)),
-                                  .(InstitutionID, InstitutionType)]
+dt_insgrow5 <- dt_exhbppl_watyear %>%
+    .[, .(mean_grow5_perc = mean(exhbN_grow5_perc[!is.infinite(exhbN_grow5_perc)], na.rm =T),
+          mean_grow5_cnt = mean(exhbN_grow5_cnt, na.rm =T)), .(InstitutionID, InstitutionType)]
+
+dt_insgrow5 <- dt_exhbppl_watyear[, map(.SD, ~mean(.x[!is.infinite(.x)], na.rm = T)),
+                                  .(InstitutionType, InstitutionID), .SDcols = l_cols_summary]
 
 ## growth count by growth perc: basically shows that PM grow less percent for same count -> orientation towards established
 dt_insgrow5 %>% # [sample(1:.N, size = 5000)] %>%
