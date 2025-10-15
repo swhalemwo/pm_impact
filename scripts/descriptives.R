@@ -1,3 +1,4 @@
+## distribution of exhibitions by form: mostly gallery and pes
 melt(dt_atyear, id.vars = c("PeopleID", "year"), measure.vars = patterns("exhbN_.*_s5"),
      variable.name = "vrbl", value.name = "vlu") %>%
     .[grepl("s5", vrbl)] %>% na.omit %>%

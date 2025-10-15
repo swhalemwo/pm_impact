@@ -1,4 +1,18 @@
-# * panel models
+
+## * panel v0,
+## idk when they were added.. 
+fepois(exhbN_all ~ exhbN_pm_s5 + exhbN_event_s5 + exhbN_gallery_s5 + exhbN_nonpm_s5 | PeopleID, dt_atyear)
+
+r_auc_ols <- feols(auc_turnover ~ exhbN_pm_s5 + exhbN_event_s5 + exhbN_gallery_s5 + exhbN_nonpm_s5 | PeopleID,
+                   dt_atyear, fixef.rm = "singleton")
+
+r_auc_poi <- fepois(auc_turnover ~ exhbN_pm_s5 + exhbN_event_s5 + exhbN_gallery_s5 + exhbN_nonpm_s5 | PeopleID,
+                    dt_atyear, fixef.rm = "singleton")
+
+screenreg(list(r_auc_ols, r_auc_poi))
+
+
+## * panel models
 
 ## outcome survival: not cute -> probably yeet
 rd1 <- coxph(Surv(career_year, career_year_end, last_exhb) ~ log1p(exhbN_pes_cum) + log1p(exhbN_pm_cum) +
@@ -125,5 +139,9 @@ dt_topred[, `:=`(pred1 = predict(rs3, dt_topred),
 ## rs3 figure
 ggplot(dt_topred, aes(x=exhbN_all_cum, y = eff1)) + geom_point()
 
+## rs1 figure
 ggplot(dt_topred, aes(x=exhbN_all_cum, y = eff2, color = exhbN_all_s5)) + geom_point()
+
+
+
 

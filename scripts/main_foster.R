@@ -1,16 +1,9 @@
 
 
 ## ** for now, use dt_atyear from infl
+## FIXME: make independent from infl
 
-fepois(exhbN_all ~ exhbN_pm_s5 + exhbN_event_s5 + exhbN_gallery_s5 + exhbN_nonpm_s5 | PeopleID, dt_atyear)
 
-r_auc_ols <- feols(auc_turnover ~ exhbN_pm_s5 + exhbN_event_s5 + exhbN_gallery_s5 + exhbN_nonpm_s5 | PeopleID,
-                   dt_atyear, fixef.rm = "singleton")
-
-r_auc_poi <- fepois(auc_turnover ~ exhbN_pm_s5 + exhbN_event_s5 + exhbN_gallery_s5 + exhbN_nonpm_s5 | PeopleID,
-                    dt_atyear, fixef.rm = "singleton")
-
-screenreg(list(r_auc_ols, r_auc_poi))
 
 
 
@@ -83,16 +76,20 @@ dt_insgrow5 %>% ggplot(aes(log10(mean_grow5_perc), x = log10(mean_grow5_cnt), gr
 
 ## distribution of percentage count/growth of institutions by institution type
 melt(dt_insgrow5, id.vars = c("InstitutionID", "InstitutionType"), variable.name = "mes", value.name = "vlu") %>%
-    ggplot(aes(x=log10(vlu), color = InstitutionType)) + geom_density(alpha = 0.1) +
-    facet_wrap(~mes, ncol =1, scale = "free")
+    ggplot(aes(x=vlu, color = InstitutionType)) + geom_density(alpha = 0.1) +
+    facet_wrap(~mes, ncol =1, scale = "free") +
+    scale_x_continuous(trans = scales::log10_trans())
     
 
 
-dt_insgrow5 %>% ggplot(aes(x=log10(mean_grow5_perc), fill = InstitutionType)) + geom_density(alpha = 0.1)
 
+# most influential orgs by type in terms of percent
 dt_insgrow5[order(-mean_grow5_perc)][, head(.SD), InstitutionType] %>% 
-    dt_af_instns[., on = "InstitutionID"] %>% print(n=80)
+    dt_af_instns[, .(InstitutionID, Name, City, Country)][., on = "InstitutionID"] %>% print(n=80)
 
+## most influential in exhibition count
 dt_insgrow5[order(-mean_grow5_cnt)][, head(.SD), InstitutionType] %>% 
     copy(dt_af_instns)[, InstitutionType := NULL][., on = "InstitutionID"] %>% print(n=80)
+
+
 
