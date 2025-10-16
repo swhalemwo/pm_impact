@@ -1,22 +1,104 @@
+options(width = 115)
+
+library(pmdata)    # for private museum data
+library(jtls)      # custom funcs for tables/figure/number management
+library(purrr)     # comfy mapping
+library(fixest)    # for fast FE estimation
+library(texreg)    # for plotting
+library(survival)  # survival models
+library(ggsurvfit) # survival models
+library(ggplot2)   # plotting
+library(countrycode)
+library(igraph)    # for flow graph calculations
+library(splines)   # for fancy convoluted regression models
+library(marginaleffects) # for good predictions
+library(Hmisc, include.only = "latexTranslate") # for dealing with nasty names
+library(collapse, include.only = c("fcumsum", "funique", "join", ".c"))     # for fast cumsum in data prep
+library(scales, include.only = "label_number") # comfy suffix labels (e.g. 2K, 2B )for ranges across magnitudes
+library(broom, include.only = "tidy") # model extracting
+set.seed(42)
 
 
-## ** for now, use dt_atyear from infl
+DIR_PROJ <- "~/Dropbox/phd/papers/foster/"
+c_dirs <- gc_dirs(dir_proj = DIR_PROJ)
+c_dirs <- c(c_dirs, list(tempdata = paste0(DIR_PROJ, "tempdata/")))
+
+l_tbls <- list()
+l_plts <- list()
+c_tblargs <- list()
+c_pltargs <- list()
+system(sprintf("rm %s", paste0(c_dirs$misc, "farg_calls.csv")))
+
+
+PMDATA_LOCS <- gc_pmdata_locs()
+
+END_YEAR <- 2022
+
+l_funcfiles <- c(
+    paste0(c_dirs$code, "cfg.R"),
+    paste0(c_dirs$code, "data_prep.R")
+    ## paste0(c_dirs$code, "regression.R"),
+    ## paste0(c_dirs$code, "descriptives.R"), ## FIXME: first into plots/figures
+    ## source(paste0(c_dirs$code, "network.R")) # don't need network measures atm
+    ## paste0(c_dirs$code, "rem_funcs.R")
+    ## paste0(c_dirs$code, "network.R") ## FIXME: add after basic stuff works
+)
+
+invisible(lapply(l_funcfiles, \(x) source(x, echo = F, verbose = F, print.eval = F)))
+
+
+if (interactive()) {stop("it's interactive time")}
+## ** main
+
+
 ## FIXME: make independent from infl
 
 
+dt_pmdb <- gd_pmdb_excl(sel = "any_ever_pm") %>% gd_pmdb
+
+## read in AF data, make IDs a bit more meaningful
+dt_af_exhbs <- gd_af_exhbs() %>% setnames(old = "ID", new = "ExhibitionID") %>% 
+    .[, begin_year := year(BeginDate)]
+
+dt_af_instns <- gd_af_instns() %>% setnames(old = "ID", new = "InstitutionID") %>%
+    .[Country %!in% c("NULL", "Others")]
+
+dt_af_people <- gd_af_people() %>% setnames(old = "ID", new = "PeopleID") %>%
+    .[Nationality != "NULL"] # no actual nationality
+
+dt_af_links_exhb_ppl <- gd_af_links_exhb_ppl() 
+
+dt_af_pmdb_matches <- gd_af_pmdb_matches() %>%
+    .[dt_pmdb[museum_status %in% c("private museum", "closed"), .(PMDB_ID = ID)], on = "PMDB_ID"]
 
 
+## set up flags/switches how to convert data
+c_datargs <- list(
+    clsfcn_to_use = "clsfcn4",
+    b_rcd_to_pm = T,
+    b_sample_dt_atyear = T)
 
-
-
-
-
-# add some code
 
 c_filters_atyear <- list(
     keep_all = expr(T),
     yeet_baby_exhbs = expr(begin_year > BirthYear + 16),
     yeet_babies_completely = expr(first_year > BirthYear + 16))
+
+
+## auction data
+dt_ls_aucres <- gd_ls_aucres() %>% adt
+dt_af_ls_matches <- gd_af_ls_matches()
+dt_ls_af_aucres <- gd_ls_af_aucres(dt_ls_aucres, dt_af_ls_matches)
+
+
+dt_af_instns_rcd <- md_instns_rcd(c_datargs$clsfcn_to_use, dt_af_instns, c_datargs$b_rcd_to_pm, dt_af_pmdb_matches)
+
+## --------- artist-year data
+dt_atyear_raw <- gd_atyear_raw(dt_af_exhbs, dt_af_people, dt_af_links_exhb_ppl, dt_af_instns_rcd, dt_ls_af_aucres)
+
+
+
+
 
 ## calculate some before/after steps
 dt_atyear_foster <- gd_atyear_foster(dt_atyear_raw, c_filters_atyear$yeet_babies_completely)
