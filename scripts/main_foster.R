@@ -16,8 +16,11 @@ library(Hmisc, include.only = "latexTranslate") # for dealing with nasty names
 library(collapse, include.only = c("fcumsum", "funique", "join", ".c"))     # for fast cumsum in data prep
 library(scales, include.only = "label_number") # comfy suffix labels (e.g. 2K, 2B )for ranges across magnitudes
 library(broom, include.only = "tidy") # model extracting
+library(MASS, include.only = "kde2d")
+library(zeallot)
 set.seed(42)
 
+l_asinh_breaks <- c(0, 10^(0:10), 3*10^(0:10)) %>% sort # breaks for asinh ggplots
 
 DIR_PROJ <- "~/Dropbox/phd/papers/foster/"
 c_dirs <- gc_dirs(dir_proj = DIR_PROJ)
@@ -39,8 +42,7 @@ l_funcfiles <- c(
     paste0(c_dirs$code, "data_prep.R"),
     ## paste0(c_dirs$code, "regression.R"),
     ## paste0(c_dirs$code, "descriptives.R"), ## FIXME: first into plots/figures
-    ## source(paste0(c_dirs$code, "network.R")) # don't need network measures atm
-    ## paste0(c_dirs$code, "rem_funcs.R")
+     ## paste0(c_dirs$code, "rem_funcs.R")
     paste0(c_dirs$code, "network.R") ## FIXME: add after basic stuff works
 )
 
@@ -110,7 +112,7 @@ dt_exhbppl <- dt_exhbppl_wyeet[InstitutionType != "yeet"] %>%
 
 
 source(paste0(c_dirs$code, "network.R"))
-dt_edges <- gd_edges(dt_exhbppl, sample_artists = 1e3)
+dt_edges <- gd_edges(dt_exhbppl, sample_artists = 5e3)
 dt_edges_wtd <- gd_edges_wtd(dt_edges) %>% .[InstitutionID != InstitutionID2]
     
 g_insflow <- gg_insflow(dt_edges_wtd)
@@ -122,7 +124,7 @@ dt_insevc[order(-evc), .(Name, evc)] # moma, Zentrum für Kunst und Medien Karls
 
 dt_exhbppl_evc <- gd_exhbppl_evc(dt_exhbppl, dt_insevc)
 
-dt_atyear_evc <- gd_atyear_evc(dt_exhbppl_evc, dt_atyear)
+dt_atyear_evc <- gd_atyear_evc(dt_exhbppl_evc, dt_atyear_foster)
 
 
 ## check EVC developments: looks ok? 
@@ -130,50 +132,54 @@ dt_atyear_evc[, c(list(PeopleID = PeopleID, year = year), .SD), .SDcols = patter
     print(n=50)
 
 
-dt_atyear_foster2 <- merge(dt_atyear_foster,
+
+
+gd_exhbppl_watyear <- function(dt_exhbppl, dt_atyear_evc) {
+
+    dt_atyear_foster2 <- merge(dt_atyear_foster,
                            dt_atyear_evc[, c(list(PeopleID = PeopleID, year = year), .SD),
                                          .SDcols =patterns("^evc")],
                            by = c("PeopleID", "year"))
 
 
+    ## manually switch in EVC; fuck me that's ugly
+    dt_exhbppl_watyear <- merge(
+        dt_exhbppl,
+        ## dt_atyear_foster[, c(list(PeopleID = PeopleID, begin_year = year), .SD), .SDcols = patterns("exhbN")],
+        dt_atyear_foster2[, c(list(PeopleID = PeopleID, begin_year = year), .SD), .SDcols = patterns("exhbN|evc")],
+        by = c("PeopleID", "begin_year")) %>%
+        .[order(PeopleID, begin_year)]
 
+    ## minor differences between cnt_prevexhb and exhbN_all_cum: exhbN_all_cum is only previous year?
+    ## hmm not quite: diffs can also be negative -> FIXME: make sure there's no ambiguity
 
-## manually switch in EVC; fuck me that's ugly
-dt_exhbppl_watyear <- merge(
-    dt_exhbppl,
-    ## dt_atyear_foster[, c(list(PeopleID = PeopleID, begin_year = year), .SD), .SDcols = patterns("exhbN")],
-    dt_atyear_foster2[, c(list(PeopleID = PeopleID, begin_year = year), .SD), .SDcols = patterns("exhbN|evc")],
-    by = c("PeopleID", "begin_year")) %>%
-    .[order(PeopleID, begin_year)]
+    dt_exhbppl_watyear[, .(PeopleID, begin_year, cnt_prevexhb, exhbN_all_cum,
+                           diff_cum = cnt_prevexhb - exhbN_all_cum)] %>%
+        .[, .N, diff_cum] %>% .[order(diff_cum)] %>% print(n=80)
 
-## minor differences between cnt_prevexhb and exhbN_all_cum: exhbN_all_cum is only previous year?
-## hmm not quite: diffs can also be negative -> FIXME: make sure there's no ambiguity
-
-dt_exhbppl_watyear[, .(PeopleID, begin_year, cnt_prevexhb, exhbN_all_cum,
-                       diff_cum = cnt_prevexhb - exhbN_all_cum)] %>%
-    .[, .N, diff_cum] %>% .[order(diff_cum)] %>% print(n=80)
-
-## now can calculate institution-specific effect: total count, relative
-# how many new exhibitions are in the next 5 years
-dt_exhbppl_watyear[, `:=`(exhbN_grow5_cnt = exhbN_all_cum_n5 - cnt_prevexhb,
-                          # by how much does the total exhibition count grow
-                          exhbN_grow5_perc =  100*((exhbN_all_cum_n5/cnt_prevexhb)-1),
-                          evc_grow5_cnt = evc_n5 - evc_s5,
-                          evc_grow5_prop = evc_n5/evc_s5) # hmm do i need log here? 
+    ## now can calculate institution-specific effect: total count, relative
+    ## how many new exhibitions are in the next 5 years
+    dt_exhbppl_watyear[, `:=`(exhbN_grow5_cnt = exhbN_all_cum_n5 - cnt_prevexhb,
+                                        # by how much does the total exhibition count grow
+                              exhbN_grow5_perc =  100*((exhbN_all_cum_n5/cnt_prevexhb)-1),
+                              evc_grow5_cnt = evc_n5 - evc_s5,
+                              evc_grow5_prop = evc_n5/evc_s5) # hmm do i need log here? 
                           ]
 
-dt_exhbppl_watyear[PeopleID ==44 & begin_year > 2005, .(PeopleID, begin_year, exhbN_all, exhbN_all_cum_n5,
-                                                        cnt_prevexhb, exhbN_grow5_cnt, exhbN_grow5_perc,
-                                                        evc_grow5_cnt, evc_grow5_perc)] %>%
-    print(n=40)
+    dt_exhbppl_watyear[PeopleID ==44 & begin_year > 2005, .(PeopleID, begin_year, exhbN_all, exhbN_all_cum_n5,
+                                                            cnt_prevexhb, exhbN_grow5_cnt, exhbN_grow5_perc,
+                                                            evc_grow5_cnt, evc_grow5_prop)] %>%
+        print(n=40)
 
 
-dt_exhbppl_watyear[PeopleID ==44 & begin_year > 2005, .(PeopleID, begin_year, exhbN_all, evc_ay_ttl, evc_s5,
-                                                        evc_n5, evc_grow5_cnt, evc_grow5_prop)] %>%
-    print(n=80)
+    dt_exhbppl_watyear[PeopleID ==44 & begin_year > 2005, .(PeopleID, begin_year, exhbN_all, evc_ay_ttl, evc_s5,
+                                                            evc_n5, evc_grow5_cnt, evc_grow5_prop)] %>%
+        print(n=80)
     
+    return(dt_exhbppl_watyear)
+}
 
-dt_exhbppl_watyear[, .(mean_grow5_cnt = mean(exhbN_grow5_cnt, na.rm = T))]
+    dt_exhbppl_watyear[, .(mean_grow5_cnt = mean(exhbN_grow5_cnt, na.rm = T))]
 
 l_cols_summary <- c("exhbN_grow5_cnt", "exhbN_grow5_perc", "evc_grow5_cnt", "evc_grow5_prop")
 
@@ -194,25 +200,17 @@ dt_exhbppl_watyear[is.infinite(exhbN_grow5_perc), uniqueN(PeopleID)]
 dt_atyear_foster
 
 ## distribution of institution-level growth factors (ability of individual museums to promote)
-dt_insgrow5 <- dt_exhbppl_watyear %>%
-    .[, .(mean_grow5_perc = mean(exhbN_grow5_perc[!is.infinite(exhbN_grow5_perc)], na.rm =T),
-          mean_grow5_cnt = mean(exhbN_grow5_cnt, na.rm =T)), .(InstitutionID, InstitutionType)]
 
-dt_insgrow5 <- dt_exhbppl_watyear[, map(.SD, ~mean(.x[!is.infinite(.x)], na.rm = T)),
+dt_insgrow5 <- dt_exhbppl_watyear[, lapply(.SD, \(x) mean(x[!is.infinite(x)], na.rm = T)),
                                   .(InstitutionType, InstitutionID), .SDcols = l_cols_summary]
 
-## growth count by growth perc: basically shows that PM grow less percent for same count -> orientation towards established
-dt_insgrow5 %>% # [sample(1:.N, size = 5000)] %>%
-    ggplot(aes(y=log10(mean_grow5_perc), x = log10(mean_grow5_cnt), color = InstitutionType)) +
-    geom_point(size = 0.1, alpha = 0.1) +
-    geom_smooth(se = F)
 
 
-## https://stackoverflow.com/questions/48282989/show-only-high-density-areas-with-ggplot2s-stat-density-2d
-dt_insgrow5 %>% ggplot(aes(log10(mean_grow5_perc), x = log10(mean_grow5_cnt), group = InstitutionType)) +
-    stat_density_2d(geom = "polygon", aes(alpha = ..level.., fill = InstitutionType), bin = 1)
-## idk if 2d distribution is necessary, facetted dens plot show it pretty much as well
 
+    
+
+
+    
 
 ## distribution of percentage count/growth of institutions by institution type
 melt(dt_insgrow5, id.vars = c("InstitutionID", "InstitutionType"), variable.name = "mes", value.name = "vlu") %>%

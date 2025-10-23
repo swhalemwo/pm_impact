@@ -1,38 +1,149 @@
-## distribution of exhibitions by form: mostly gallery and pes
-melt(dt_atyear, id.vars = c("PeopleID", "year"), measure.vars = patterns("exhbN_.*_s5"),
-     variable.name = "vrbl", value.name = "vlu") %>%
-    .[grepl("s5", vrbl)] %>% na.omit %>%
-    ggplot(aes(x=log1p(vlu), color = vrbl)) +
-    ## geom_density(bw = 0.2) +
-    geom_histogram() + 
-    facet_grid(vrbl~., switch = "y", scales = "free") +
-    theme(strip.text.y.left = element_text(angle = 0))
+
+gp_hist_crap <- function(dt_atyear_foster) {
+    gw_fargs(match.call())
+    ## distribution of exhibitions by form: mostly gallery and pes
+    ## fixme: ugly af, idk what's the point
 
 
-## descriptive plots
-## exhbN_all_cum ~ cy: looks cute, but color is essentially also only cumulative advantage
-dt_atyear_foster %>% .[sample(1:.N, size = 1e4)] %>%
-    ggplot(aes(x=career_year, y = exhbN_all_cum, color = exhbN_all)) +
-    geom_jitter(size = 0.4, height = 0.01) +
-    scale_y_continuous(trans = scales::log10_trans()) +
-    scale_color_gradient(low = "red", high = "yellow",
-                         trans = scales::log10_trans()) +
-    theme(panel.background = element_rect(fill = "black"),
-          panel.grid.major = element_line(color = "black"),
-          panel.grid.minor = element_line(color = "black")
-          )
+    melt(dt_atyear_foster, id.vars = c("PeopleID", "year"), measure.vars = patterns("exhbN_.*_s5"),
+         variable.name = "vrbl", value.name = "vlu") %>%
+        .[grepl("s5", vrbl)] %>% na.omit %>%
+        ggplot(aes(x=vlu, fill = vrbl)) +
+        ## geom_density(bw = 0.2) +
+        geom_histogram(alpha = 0.5) + 
+        facet_grid(vrbl~., switch = "y", scales = "free") +
+        theme(strip.text.y.left = element_text(angle = 0)) +
+        scale_x_continuous(trans = scales::transform_asinh(), breaks = c(0,3,10,30,100,300,600))
+
+}
+
+gp_mainseq <- function(dt_atyear_foster = dt_atyear_foster) {
+    gw_fargs(match.call())
+    #' main-sequence inspired scatterplot: exhb_all_cum ~ career_year, with color of exhbN_all
+    #' basically only shows cumulative advantage tho...
+    #' more informative would be tiles
+    
+
+    ## descriptive plots
+    ## exhbN_all_cum ~ cy: looks cute, but color is essentially also only cumulative advantage
+    dt_atyear_foster %>% .[sample(1:.N, size = 1e4)] %>%
+        ggplot(aes(x=career_year, y = exhbN_all_cum, color = exhbN_all)) +
+        geom_jitter(size = 0.4, height = 0.01) +
+        ## scale_y_continuous(trans = scales::log10_trans()) +
+        scale_y_continuous(trans = scales::asinh_trans(), breaks = c(0,3, 10, 30,100,300,750)) +
+        scale_color_gradient(low = "red", high = "yellow",
+                             trans = scales::asinh_trans(), breaks = c(0,3, 10,30,80)) +
+        theme(panel.background = element_rect(fill = "black"),
+              panel.grid.major = element_line(color = "black"),
+              panel.grid.minor = element_line(color = "black")
+              )
+
+}
 
 
-## exhbN_all ~ cy: idk what's the point
-dt_atyear_foster %>% .[sample(1:.N, size = 1e4)] %>%
-    ggplot(aes(x=career_year, y = exhbN_all + 1)) + geom_jitter(size = 0.1, height = 0.03) +
-    scale_y_continuous(trans = scales::log10_trans())
+gp_activity_jitter <- function(dt_atyear_foster) {
 
-## exhbN_all ~ exhnb_all_cum: muh cumulative advantage
-dt_atyear_foster %>% .[sample(1:.N, size = 1e4)] %>%
-    ggplot(aes(x=exhbN_all_cum, y = exhbN_all + 1)) +
-    geom_jitter(size = 0.1, # width = 0.003, if x not log
-                width = 0.03, # if x log
-                height = 0.03) +
-    scale_y_continuous(trans = scales::log10_trans()) +
-    scale_x_continuous(trans = scales::log10_trans()) 
+    ## exhbN_all ~ cy: idk what's the point
+    dt_atyear_foster %>% .[sample(1:.N, size = 1e4)] %>% 
+        ggplot(aes(x=career_year, y = exhbN_all)) + geom_jitter(size = 0.1, height = 0.03) +
+        scale_y_continuous(trans = scales::asinh_trans(), breaks = c(0, 3, 10, 30, 60))
+    }
+
+
+gp_cumad_jitter <- function(dt_atyear_foster) {
+    ## exhbN_all ~ exhnb_all_cum: muh cumulative advantage
+    dt_atyear_foster %>% .[sample(1:.N, size = 1e4)] %>%
+        ggplot(aes(x=exhbN_all_cum, y = exhbN_all)) +
+        geom_jitter(size = 0.1, # width = 0.003, if x not log
+                    ## width = 0.03, # if x log
+                    width = 0.05,
+                    height = 0.2) +
+        scale_y_continuous(trans = scales::asinh_trans(), breaks = c(0,3,10,30,60)) +
+        scale_x_continuous(trans = scales::asinh_trans(), breaks = c(0,3,10,30,100,300,1000))
+}
+
+
+gp_insgrow5 <- function(dt_insgrow5) {
+    ## growth count by growth perc: basically shows that PM grow less percent for same count -> orientation towards established
+
+
+
+    dt_insgrow5 %>% .[, .SD[sample(1:.N, size = min(.N, 500))], InstitutionType] %>% 
+        ggplot(aes(y=exhbN_grow5_perc, x = exhbN_grow5_cnt, color = InstitutionType)) +
+        geom_point(size = 0.4) + 
+        ## geom_smooth(se = F) +
+        scale_x_continuous(trans = scales::transform_asinh(), breaks = l_asinh_breaks) +
+        scale_y_continuous(trans = scales::transform_asinh(), breaks = l_asinh_breaks) +
+        theme(legend.position = "bottom")
+    
+
+}
+
+
+gp_insgrow5_contours <- function(dt_insgrow5) {
+
+    p_insgrow5 <- gp_insgrow5(dt_insgrow5)
+
+    dt_contours <- dt_insgrow5 %>% na.omit %>%
+        .[, kde2d_tidy(asinh(exhbN_grow5_cnt), asinh(exhbN_grow5_perc),n=150), InstitutionType] %>%
+        .[, contourLines_tidy(x,y,z, levels = gd_zlvls(z, c(0.1, 0.2, 0.5, 0.8))[, z]), InstitutionType] %>% 
+        .[, level2 := as.integer(factor(level)), InstitutionType] %>% #  .[, .N, level2]
+        .[level2 == 4, .(x = sinh(x), y= sinh(y), InstitutionType)]
+
+    p_insgrow5 + 
+        geom_path(dt_contours, mapping = aes(x=x, y=y, color = InstitutionType), linewidth = 2) 
+}
+
+
+kde2d_tidy <- function(x,y, ...) {
+    #' tidy interface for kde2d: reshape matrix to x-y-vlu data.table
+    c(gx, gy, z) %<-% kde2d(x,y, ...)
+
+    dt_gx <- adt(gx)[, ix := 1:.N]
+    dt_gy <- adt(gy)[, iy := 1:.N]
+
+    ## i: index 
+    dt_z_long <- adt(z)[, ix := 1:.N] %>% melt(id.vars = "ix") %>%
+        .[, `:=`(iy = as.integer(gsub("V", "", variable)), variable = NULL)]
+
+    merge(dt_z_long, dt_gx, by = "ix") %>%
+        merge(dt_gy, by = "iy") %>%
+        .[, .(x=gx, y=gy, z = value)]
+    
+        
+}
+
+contourLines_tidy <- function(x,y,z, ...)  {
+    ## hacky way of getting contourlines from tidy input
+
+    ## first need to transform z into matrix, this is slow af
+    m_z <- data.table(x=x, y=y, z=z) %>% 
+        .[, .(xfac = as.integer(factor(x, levels = sort(unique(x)))),
+              yfac = as.integer(factor(y, levels = sort(unique(y)))), z)] %>%
+        dcast(xfac~yfac, value.var = "z") %>% .[, xfac := NULL] %>% as.matrix
+
+    x_unq <- unique(x) %>% sort
+    y_unq <- unique(y) %>% sort
+    
+    
+    contourLines(x_unq,y_unq,m_z, ...) %>% rbindlist
+}
+
+gd_zlvls <- function(z, l_lvls) {
+    ## get thresholds to pass to contours
+
+    data.table(z=z) %>% .[order(z)] %>%
+        .[, zprop := fcumsum(z)/sum(z)] %>% # tail %>% 
+        .[J(zprop = l_lvls), on = "zprop", roll= T]
+}
+        
+
+
+smooth_it <- function(x, y, n = 1000, method = "natural") {
+    #' hacky version to get splines, but not sure if necessary (not used atm)
+    t <- seq_along(x)
+    new_t <- seq(min(t), max(t), length.out = n)
+    new_x <- spline(t, x, xout = new_t, method = method)$y
+    new_y <- spline(t, y, xout = new_t, method = method)$y
+    data.frame(t = new_t, x = new_x, y = new_y)
+}
