@@ -36,12 +36,12 @@ END_YEAR <- 2022
 
 l_funcfiles <- c(
     paste0(c_dirs$code, "cfg.R"),
-    paste0(c_dirs$code, "data_prep.R")
+    paste0(c_dirs$code, "data_prep.R"),
     ## paste0(c_dirs$code, "regression.R"),
     ## paste0(c_dirs$code, "descriptives.R"), ## FIXME: first into plots/figures
     ## source(paste0(c_dirs$code, "network.R")) # don't need network measures atm
     ## paste0(c_dirs$code, "rem_funcs.R")
-    ## paste0(c_dirs$code, "network.R") ## FIXME: add after basic stuff works
+    paste0(c_dirs$code, "network.R") ## FIXME: add after basic stuff works
 )
 
 invisible(lapply(l_funcfiles, \(x) source(x, echo = F, verbose = F, print.eval = F)))
@@ -49,9 +49,6 @@ invisible(lapply(l_funcfiles, \(x) source(x, echo = F, verbose = F, print.eval =
 
 if (interactive()) {stop("it's interactive time")}
 ## ** main
-
-
-## FIXME: make independent from infl
 
 
 dt_pmdb <- gd_pmdb_excl(sel = "any_ever_pm") %>% gd_pmdb
@@ -97,29 +94,36 @@ dt_af_instns_rcd <- md_instns_rcd(c_datargs$clsfcn_to_use, dt_af_instns, c_datar
 dt_atyear_raw <- gd_atyear_raw(dt_af_exhbs, dt_af_people, dt_af_links_exhb_ppl, dt_af_instns_rcd, dt_ls_af_aucres)
 
 
-
-
-
 ## calculate some before/after steps
 dt_atyear_foster <- gd_atyear_foster(dt_atyear_raw, c_filters_atyear$yeet_babies_completely)
+
+
+dt_exhbppl_wyeet <- gd_exhbppl(dt_af_people, dt_af_exhbs, dt_af_instns_rcd, dt_ls_af_aucres, dt_af_links_exhb_ppl)
+
+dt_exhbppl <- dt_exhbppl_wyeet[InstitutionType != "yeet"] %>%
+    .[eval(c_filters_atyear$yeet_babies_completely)]
 
 # dt_exhbppl_sample <- dt_exhbppl[sample(1:.N, size = 1e5)]
 
 ## hacky way of integrating EVC, if decided to keep integrate better
 
+
+
 source(paste0(c_dirs$code, "network.R"))
-dt_edges <- gd_edges(dt_exhbppl)
-dt_edges_wtd <- gd_edges_wtd(dt_edges)
-
+dt_edges <- gd_edges(dt_exhbppl, sample_artists = 1e3)
+dt_edges_wtd <- gd_edges_wtd(dt_edges) %>% .[InstitutionID != InstitutionID2]
+    
 g_insflow <- gg_insflow(dt_edges_wtd)
-dt_insevc <- gd_insevc(g_insflow, dt_af_instns_rcd)
 
+
+
+dt_insevc <- gd_insevc(g_insflow, dt_af_instns_rcd)
 dt_insevc[order(-evc), .(Name, evc)] # moma, Zentrum für Kunst und Medien Karlsruhe, vienna huh
 
 dt_exhbppl_evc <- gd_exhbppl_evc(dt_exhbppl, dt_insevc)
-## dt_ppl_evcsum <- gd_ppl_evcsum(dt_exhbppl_evc)
+
 dt_atyear_evc <- gd_atyear_evc(dt_exhbppl_evc, dt_atyear)
-## dt_atofyear <- gd_atofyear(dt_atyear_evc)
+
 
 ## check EVC developments: looks ok? 
 dt_atyear_evc[, c(list(PeopleID = PeopleID, year = year), .SD), .SDcols = patterns("^evc")] %>%

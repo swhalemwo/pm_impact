@@ -175,3 +175,147 @@ md_instns_rcd <- function(clsfcn_to_use, dt_af_instns, b_rcd_to_pm, dt_af_pmdb_m
     attr(dt_af_instns_rcd_pm, "gnrtdby") <- as.character(match.call()[[1]])
     return(dt_af_instns_rcd_pm)
 }
+
+
+gd_exhbppl <- function(dt_af_people, dt_af_exhbs, dt_af_instns_rcd, dt_ls_af_aucres, dt_af_links_exhb_ppl) {
+    #' 
+
+    if (as.character(match.call()[[1]]) %in% fstd){browser()}
+    gw_fargs(match.call())
+    
+
+    ## merge people info to exhibition -> organization
+    ## dt_af_instns_rcd <- md_instns_rcd(c_datargs$clsfcn_to_use, dt_af_instns, b_rcd_to_pm = c_datargs$b_rcd_to_pm,
+    ##                                   dt_af_pmdb_matches) 
+
+    
+    ## transform nationality, region and Subregion to lists
+    ## tstrsplit and merging on country (not person) to minimize calls to countrycode and list
+
+    dt_natlist <- dt_af_people[, .(Nationality)] %>% funique %>% 
+        .[, .(Nationality, nat = trimws(unlist(tstrsplit(Nationality, ","))))] %>% na.omit %>% # somehow tstrsplit adds NAs -> yeet
+        .[, .(Nat_list = list(nat)), .(Nationality)]
+
+
+    ## merge back to people
+    dt_af_people_natlist <- merge(dt_af_people, dt_natlist, by = "Nationality")
+
+
+    dt_exhbppl_prep <- merge(dt_af_exhbs, dt_af_instns_rcd[, .(InstitutionID, InstitutionType, Country)],
+                             by = "InstitutionID") %>%
+        .[, .(InstitutionID, ExhibitionID, begin_year, BeginDate, EndDate, InstitutionType, Country)] %>% 
+        merge(dt_af_links_exhb_ppl, ., by = "ExhibitionID") %>%
+        merge(dt_af_people_natlist, by = "PeopleID")
+
+    ## get first year and age, filter down by yeeting babies
+
+    dt_exhbppl_prep2 <- dt_exhbppl_prep[, first_year := min(begin_year), PeopleID] %>%
+        .[, age := begin_year - BirthYear] %>%
+        .[, gender_rcd := fifelse(Gender %in% c("Male", "Female"), Gender, "Other")] %>% 
+        .[, career_year := begin_year - first_year]
+
+    ## %>%
+    ##     .[eval(c_filters_atyear$yeet_babies_completely)] 
+
+
+    c_crycode_reg <- c("Kosovo" = "Europe", "Micronesia" = "Oceania", "Taiwan" = "Asia",
+                       "Netherlands Antilles" = "Americas")
+    c_crycode_subreg <- c("Kosovo" = "Southern Europe", "Micronesia" = "Melanesia", "Taiwan" = "Eastern Asia",
+                          "Netherlands Antilles" = "Latin America and the Caribbean")
+
+    ## whether by exhibition country X artists is national/subregional/regional;
+    ## need People ID because link to person required
+    dt_insat_nats <- dt_exhbppl_prep2[, .(artist_nat = unlist(Nat_list)), .(Country, PeopleID)] %>%
+        .[, `:=`( Subregion = countrycode(Country, "country.name", "un.regionsub.name",
+                                          custom_match = c_crycode_subreg),
+                 Region = countrycode(Country, "country.name", "un.region.name",
+                                      custom_match = c_crycode_reg), 
+                 artist_subregion = countrycode(artist_nat, "country.name", "un.regionsub.name",
+                                                custom_match = c_crycode_subreg),
+                 artist_region = countrycode(artist_nat, 'country.name', 'un.region.name',
+                                             custom_match = c_crycode_reg))] %>%
+        .[, .(exhb_nat = any(Country == artist_nat), exhb_subreg = any(Subregion == artist_subregion),
+              exhb_reg = any(Region == artist_region)), .(PeopleID, Country)]
+
+    dt_exhbppl_prep3 <- merge(dt_exhbppl_prep2, dt_insat_nats, by = c("PeopleID", "Country")) %>%
+        .[order(PeopleID, BeginDate)]
+
+    ## add cumulative auction data
+    dt_aucres <- dt_ls_af_aucres[order(AF_PID, year)] %>% 
+        .[, .(aucturn = count*price,
+              begin_year = year+1,
+              aucturn_cum = fcumsum(as.numeric(count*price)),
+              aucturn_bin = 1), .(PeopleID = AF_PID)] %>%
+        .[, `:=`(aucturn_log = log1p(aucturn),
+                 aucturn_cum_log = log1p(aucturn_cum))]
+    
+    dt_aucres_rolled <- dt_aucres[, .(PeopleID, begin_year, aucturn_cum, aucturn_cum_log)] %>%
+        .[dt_exhbppl_prep3, on = .(PeopleID, begin_year), roll = Inf, rollend = c(F,T)] %>%
+        setnafill(fill = 0, cols = c("aucturn_cum", "aucturn_cum_log"))
+
+    ## dt_aucres[PeopleID == 44]
+    ## dt_aucres_rolled[PeopleID == 44 & begin_year > 2002, c(list(PeopleID, begin_year), .SD), .SDcols = patterns("^auc*")] %>% print(n=80)
+    ## dt_aucres_rolled[PeopleID == 44, c(list(PeopleID, begin_year), .SD), .SDcols = patterns("^auc*")] %>% print(n=80)
+
+    ## set up and roll auction turnover (lagged)
+    
+        
+    ## find people with gaps in exhb history but auction: is it carried over properly? 
+    ## dt_aucres_rolled[begin_year > 2010, .(max_gap = max(begin_year - shift(begin_year), na.rm = T)*1.0), PeopleID] %>%
+    ##     .[dt_aucres[, .(PeopleID = unique(PeopleID))], on = "PeopleID"]
+        
+    
+    ## add auction data of years (not cumulative)
+    dt_aucres_prepl0 <- dt_ls_af_aucres %>% copy %>%
+        .[, auc_turnover_l0 := count*price] %>% .[order(AF_PID, year)] %>%
+        .[, .(PeopleID = AF_PID, begin_year = year, auc_turnover_l0)]
+    
+    ## "lagging" auction values by adding one year (no need for grid)
+    dt_aucres_prep_l1 <- dt_aucres_prepl0 %>% copy %>% .[, begin_year := begin_year+1] %>% 
+        setnames(old = "auc_turnover_l0", new = "auc_turnover_l1")
+    
+    ## combine auction success data, calculate growth: 
+    ## how much cum auc has changed from end of prev year to end of prevprev year
+    dt_exhbppl_prep4 <- merge(dt_aucres_rolled, dt_aucres_prepl0, by = c("PeopleID", "begin_year"), all.x = T) %>%
+        merge(dt_aucres_prep_l1, by = c("PeopleID", "begin_year"), all.x = T) %>%
+        setnafill(fill = 0 , cols = c("auc_turnover_l0", "auc_turnover_l1")) %>%
+        .[, aucturn_cum_grow := 100*((aucturn_cum/(aucturn_cum - auc_turnover_l1))-1)] %>%
+        .[is.nan(aucturn_cum_grow), aucturn_cum_grow := 0]
+                
+    
+    ## manually inspecting auction numbers: 29, 44, 31
+    ## dt_exhbppl_prep4[PeopleID == 31, c(list(PeopleID=PeopleID, begin_year = begin_year), .SD), .SDcols = patterns("auc*")] %>%
+    ##     .[, head(.SD, 1), begin_year] %>% print(n=800)
+    ## dt_aucres[PeopleID == 31]
+    ## dt_aucres_prepl0[PeopleID == 31] # 106k is in 2011: 2012 should be some growth, 2013 should be no growth (because 2012 has no real growth)
+
+
+    ## dt_exhbppl_prep4[, .N, aucturn_cum_grow]
+
+    ## dt_exhbppl_prep4[, .(mean_grow = mean(aucturn_cum_grow[aucturn_cum_grow != Inf], na.rm = T),
+    ##                      mean_inf = mean(aucturn_cum_grow == Inf, na.rm = T)) , InstitutionType]
+
+    ## dt_exhbppl_prep4[between(aucturn_cum_grow, 1, 2, incbounds = F)] %>% ggplot(aes(x=aucturn_cum_grow, color = InstitutionType)) + geom_density()
+
+    
+
+    ## dt_exhbppl_prep4[PeopleID == 958, .(PeopleID, begin_year, ExhibitionID, auc_turnover_l0, auc_turnover_l1, aucturn_cum)] %>% print(n=80)
+
+    ## create dummies for institution types with dcast
+    dt_instype_dummies <- dt_exhbppl_prep4 %>% copy %>% .[, `:=`(x=1, nbr = 1:.N)] %>%
+        dcast(nbr + PeopleID ~ paste0("instype_", InstitutionType), value.var = "x", fill = 0) %>%
+        .[, nbr := NULL] %>%
+        .[, fcumsum(.SD, PeopleID), .SDcols = patterns("^instype")] %>% # use fcumsum for aggregation
+        .[, cnt_prevexhb := Reduce(`+`, .SD)-1] # calculate total
+
+    
+    ## merge institution type dummies to main data (drop Nationality list, otherwise super slow)
+    dt_exhbppl <- cbind(dt_exhbppl_prep4[, Nat_list := NULL], dt_instype_dummies) %>%
+        .[begin_year <= END_YEAR]
+
+    ## dt_exhbppl[PeopleID == 879, .(cnt_prevexhb)]
+    
+    attr(dt_exhbppl, "gnrtdby") <- as.character(match.call()[[1]])
+
+    return(dt_exhbppl)
+}
