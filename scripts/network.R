@@ -80,9 +80,14 @@ gd_deg_info <- function(gx) {
 
     l_degtype <- c("out", "in", "all")
 
-    m_deg <- map(l_degtype, ~degree(gx, mode = .x)) %>% Reduce(cbind, .)
-    colnames(m_deg) <- paste0("deg_", l_degtype)
+    ## m_deg <- map(l_degtype, ~degree(gx, mode = .x)) %>% Reduce(cbind, .)
+    m_deg <- map(l_degtype, ~cbind(degree(gx, mode = .x), strength(gx, mode = .x))) %>% Reduce(cbind, .)
     
+    ## colnames(m_deg) <- paste0("deg_", l_degtype)
+    colnames(m_deg) <- outer(c("deg_", "str_"), l_degtype, FUN = paste, sep =  "") %>% as.vector
+    
+    
+
     dt_deg_info <- adt(m_deg, keep.rownames = "InstitutionID") %>%
         .[, InstitutionID := as.numeric(InstitutionID)]
 
@@ -93,11 +98,13 @@ gd_deg_info <- function(gx) {
 }
 
 
-## gt_deg_info(g_insflow, dt_af_instns_rcd) {
+gt_deg_info <- function(g_insflow, dt_af_instns_rcd) {
+    gw_fargs(match.call())
 
-##     merge(
-##     gd_deg_info(g_insflow)
-
+    merge(dt_af_instns_rcd[, .(InstitutionID, InstitutionType)],
+          gd_deg_info(g_insflow), by = "InstitutionID") %>%
+        .[, map(.SD, mean), InstitutionType, .SDcols = patterns("^deg|^str")] %>% gt_plain
+}
 
 gd_exhbppl_evc <- function(dt_exhbppl, dt_insevc) {
     if (as.character(match.call()[[1]]) %in% fstd){browser()}

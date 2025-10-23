@@ -112,11 +112,9 @@ dt_exhbppl <- dt_exhbppl_wyeet[InstitutionType != "yeet"] %>%
 
 
 source(paste0(c_dirs$code, "network.R"))
-dt_edges <- gd_edges(dt_exhbppl, sample_artists = 5e3)
+dt_edges <- gd_edges(dt_exhbppl, sample_artists = 3e3)
 dt_edges_wtd <- gd_edges_wtd(dt_edges) %>% .[InstitutionID != InstitutionID2]
-    
 g_insflow <- gg_insflow(dt_edges_wtd)
-
 
 
 dt_insevc <- gd_insevc(g_insflow, dt_af_instns_rcd)

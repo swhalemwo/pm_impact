@@ -50,6 +50,10 @@ gc_tbls <- function() {
             dt_insgrow5 = quote(dt_insgrow5),
             l_cols_summary = quote(l_cols_summary),
             caption = "most influential orgs (percentage)"),
+        t_deg_info = list(
+            g_insflow = quote(g_insflow),
+            dt_af_instns_rcd = quote(dt_af_instns_rcd),
+            caption = "degree info by form"),
         t_insgrow5_topcnt = list(
             dt_insgrow5 = quote(dt_insgrow5),
             l_cols_summary = quote(l_cols_summary),
