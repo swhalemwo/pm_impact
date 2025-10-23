@@ -319,3 +319,50 @@ gd_exhbppl <- function(dt_af_people, dt_af_exhbs, dt_af_instns_rcd, dt_ls_af_auc
 
     return(dt_exhbppl)
 }
+
+
+
+gd_exhbppl_watyear <- function(dt_exhbppl, dt_atyear_evc) {
+
+    dt_atyear_foster2 <- merge(dt_atyear_foster,
+                           dt_atyear_evc[, c(list(PeopleID = PeopleID, year = year), .SD),
+                                         .SDcols =patterns("^evc")],
+                           by = c("PeopleID", "year"))
+
+
+    ## manually switch in EVC; fuck me that's ugly
+    dt_exhbppl_watyear <- merge(
+        dt_exhbppl,
+        ## dt_atyear_foster[, c(list(PeopleID = PeopleID, begin_year = year), .SD), .SDcols = patterns("exhbN")],
+        dt_atyear_foster2[, c(list(PeopleID = PeopleID, begin_year = year), .SD), .SDcols = patterns("exhbN|evc")],
+        by = c("PeopleID", "begin_year")) %>%
+        .[order(PeopleID, begin_year)]
+
+    ## minor differences between cnt_prevexhb and exhbN_all_cum: exhbN_all_cum is only previous year?
+    ## hmm not quite: diffs can also be negative -> FIXME: make sure there's no ambiguity
+
+    dt_exhbppl_watyear[, .(PeopleID, begin_year, cnt_prevexhb, exhbN_all_cum,
+                           diff_cum = cnt_prevexhb - exhbN_all_cum)] %>%
+        .[, .N, diff_cum] %>% .[order(diff_cum)] %>% print(n=80)
+
+    ## now can calculate institution-specific effect: total count, relative
+    ## how many new exhibitions are in the next 5 years
+    dt_exhbppl_watyear[, `:=`(exhbN_grow5_cnt = exhbN_all_cum_n5 - cnt_prevexhb,
+                                        # by how much does the total exhibition count grow
+                              exhbN_grow5_perc =  100*((exhbN_all_cum_n5/cnt_prevexhb)-1),
+                              evc_grow5_cnt = evc_n5 - evc_s5,
+                              evc_grow5_prop = evc_n5/evc_s5) # hmm do i need log here? 
+                          ]
+
+    ## dt_exhbppl_watyear[PeopleID ==44 & begin_year > 2005, .(PeopleID, begin_year, exhbN_all, exhbN_all_cum_n5,
+    ##                                                         cnt_prevexhb, exhbN_grow5_cnt, exhbN_grow5_perc,
+    ##                                                         evc_grow5_cnt, evc_grow5_prop)] %>%
+    ##     print(n=40)
+
+
+    ## dt_exhbppl_watyear[PeopleID ==44 & begin_year > 2005, .(PeopleID, begin_year, exhbN_all, evc_ay_ttl, evc_s5,
+    ##                                                         evc_n5, evc_grow5_cnt, evc_grow5_prop)] %>%
+    ##     print(n=80)
+    
+    return(dt_exhbppl_watyear)
+}

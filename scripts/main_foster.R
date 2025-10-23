@@ -132,102 +132,32 @@ dt_atyear_evc[, c(list(PeopleID = PeopleID, year = year), .SD), .SDcols = patter
     print(n=50)
 
 
-
-
-gd_exhbppl_watyear <- function(dt_exhbppl, dt_atyear_evc) {
-
-    dt_atyear_foster2 <- merge(dt_atyear_foster,
-                           dt_atyear_evc[, c(list(PeopleID = PeopleID, year = year), .SD),
-                                         .SDcols =patterns("^evc")],
-                           by = c("PeopleID", "year"))
-
-
-    ## manually switch in EVC; fuck me that's ugly
-    dt_exhbppl_watyear <- merge(
-        dt_exhbppl,
-        ## dt_atyear_foster[, c(list(PeopleID = PeopleID, begin_year = year), .SD), .SDcols = patterns("exhbN")],
-        dt_atyear_foster2[, c(list(PeopleID = PeopleID, begin_year = year), .SD), .SDcols = patterns("exhbN|evc")],
-        by = c("PeopleID", "begin_year")) %>%
-        .[order(PeopleID, begin_year)]
-
-    ## minor differences between cnt_prevexhb and exhbN_all_cum: exhbN_all_cum is only previous year?
-    ## hmm not quite: diffs can also be negative -> FIXME: make sure there's no ambiguity
-
-    dt_exhbppl_watyear[, .(PeopleID, begin_year, cnt_prevexhb, exhbN_all_cum,
-                           diff_cum = cnt_prevexhb - exhbN_all_cum)] %>%
-        .[, .N, diff_cum] %>% .[order(diff_cum)] %>% print(n=80)
-
-    ## now can calculate institution-specific effect: total count, relative
-    ## how many new exhibitions are in the next 5 years
-    dt_exhbppl_watyear[, `:=`(exhbN_grow5_cnt = exhbN_all_cum_n5 - cnt_prevexhb,
-                                        # by how much does the total exhibition count grow
-                              exhbN_grow5_perc =  100*((exhbN_all_cum_n5/cnt_prevexhb)-1),
-                              evc_grow5_cnt = evc_n5 - evc_s5,
-                              evc_grow5_prop = evc_n5/evc_s5) # hmm do i need log here? 
-                          ]
-
-    dt_exhbppl_watyear[PeopleID ==44 & begin_year > 2005, .(PeopleID, begin_year, exhbN_all, exhbN_all_cum_n5,
-                                                            cnt_prevexhb, exhbN_grow5_cnt, exhbN_grow5_perc,
-                                                            evc_grow5_cnt, evc_grow5_prop)] %>%
-        print(n=40)
-
-
-    dt_exhbppl_watyear[PeopleID ==44 & begin_year > 2005, .(PeopleID, begin_year, exhbN_all, evc_ay_ttl, evc_s5,
-                                                            evc_n5, evc_grow5_cnt, evc_grow5_prop)] %>%
-        print(n=80)
-    
-    return(dt_exhbppl_watyear)
-}
-
-    dt_exhbppl_watyear[, .(mean_grow5_cnt = mean(exhbN_grow5_cnt, na.rm = T))]
-
-l_cols_summary <- c("exhbN_grow5_cnt", "exhbN_grow5_perc", "evc_grow5_cnt", "evc_grow5_prop")
-
-dt_exhbppl_watyear[, .(mean_grow5_cnt = mean(exhbN_grow5_cnt, na.rm = T),
-                       mean_grow5_perc = mean(exhbN_grow5_perc[!is.infinite(exhbN_grow5_perc)], na.rm = T)),
-                   InstitutionType]
-
-dt_exhbppl_watyear[, map(.SD, ~mean(.x[!is.infinite(.x)], na.rm = T)), InstitutionType, .SDcols = l_cols_summary]
-
-## super weird EVC values: maybe extreme cases?
-dt_exhbppl_watyear %>% ggplot(aes(x=evc_grow5_prop, color = InstitutionType)) + geom_density() +
-    scale_x_continuous(trans = scales::log10_trans()) +
-    coord_cartesian(xlim = c(1e-3,1e3))
-
-
-dt_exhbppl_watyear[is.infinite(exhbN_grow5_perc), uniqueN(PeopleID)]
-
-dt_atyear_foster
-
-## distribution of institution-level growth factors (ability of individual museums to promote)
+dt_exhbppl_watyear <- gd_exhbppl_watyear(dt_exhbppl, dt_atyear_evc)
 
 dt_insgrow5 <- dt_exhbppl_watyear[, lapply(.SD, \(x) mean(x[!is.infinite(x)], na.rm = T)),
                                   .(InstitutionType, InstitutionID), .SDcols = l_cols_summary]
 
 
+l_cols_summary <- c("exhbN_grow5_cnt", "exhbN_grow5_perc", "evc_grow5_cnt", "evc_grow5_prop")
 
+
+
+## super weird EVC values: maybe extreme cases?
+## dt_exhbppl_watyear %>% ggplot(aes(x=evc_grow5_prop, color = InstitutionType)) + geom_density() +
+##     scale_x_continuous(trans = scales::log10_trans()) +
+##     coord_cartesian(xlim = c(1e-3,1e3))
+
+
+dt_exhbppl_watyear[is.infinite(exhbN_grow5_perc), uniqueN(PeopleID)]
+
+
+## distribution of institution-level growth factors (ability of individual museums to promote)
 
     
+walk(names(gc_tbls()), ~lapply(c(gtbl, wtbl), \(f) f(.x)))
+walk(names(gc_plts()), ~lapply(c(gplt, wplt), \(f) f(.x)))
 
 
-    
-
-## distribution of percentage count/growth of institutions by institution type
-melt(dt_insgrow5, id.vars = c("InstitutionID", "InstitutionType"), variable.name = "mes", value.name = "vlu") %>%
-    ggplot(aes(x=vlu, color = InstitutionType)) + geom_density(alpha = 0.1) +
-    facet_wrap(~mes, ncol =1, scale = "free") +
-    scale_x_continuous(trans = scales::log10_trans())
-    
-
-
-
-# most influential orgs by type in terms of percent
-dt_insgrow5[order(-mean_grow5_perc)][, head(.SD), InstitutionType] %>% 
-    dt_af_instns[, .(InstitutionID, Name, City, Country)][., on = "InstitutionID"] %>% print(n=80)
-
-## most influential in exhibition count
-dt_insgrow5[order(-mean_grow5_cnt)][, head(.SD), InstitutionType] %>% 
-    copy(dt_af_instns)[, InstitutionType := NULL][., on = "InstitutionID"] %>% print(n=80)
-
+jtls::gwd_clgrph()
 
 

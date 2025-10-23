@@ -2,10 +2,11 @@
 gc_plts <- function() {
 
     list(
-        p_pminfl_cbn = list(
-            rb1 = quote(rb1), rc1 = quote(rc1), rd1 = quote(rd1),
-            width = 14, height = 7,
-            caption = "influence of PM exhibitions"),
+        ## FIXME when regression models work properly
+        ## p_pminfl_cbn = list(
+        ##     rb1 = quote(rb1), rc1 = quote(rc1), rd1 = quote(rd1),
+        ##     width = 14, height = 7,
+        ##     caption = "influence of PM exhibitions"),
         p_hist_crap = list(
             dt_atyear_foster = quote(dt_atyear_foster),
             width = 14, height = 7,
@@ -26,6 +27,10 @@ gc_plts <- function() {
             dt_atyear_foster = quote(dt_atyear_foster),
             width = 14, height = 7,
             caption = "cumulative advantage whatever"),
+        p_insgrow5_dist = list(
+            dt_insgrow5 = quote(dt_insgrow5),
+            l_cols_summary = l_cols_summary,
+            width = 14, height = 7, caption = "grow5 dists"),
         p_mainseq = list(
             dt_atyear_foster = quote(dt_atyear_foster),
             width = 14, height = 7,
@@ -35,5 +40,19 @@ gc_plts <- function() {
 
 gc_tbls <- function() {
 
-    list()
+    list(
+        t_grow5_sumry  = list(
+            dt_exhbppl_watyear = quote(dt_exhbppl_watyear),
+            dt_insgrow5 = quote(dt_insgrow5),
+            l_cols_summary = quote(l_cols_summary),
+            caption = "summary stats"),
+        t_insgrow5_topperc = list(
+            dt_insgrow5 = quote(dt_insgrow5),
+            l_cols_summary = quote(l_cols_summary),
+            caption = "most influential orgs (percentage)"),
+        t_insgrow5_topcnt = list(
+            dt_insgrow5 = quote(dt_insgrow5),
+            l_cols_summary = quote(l_cols_summary),
+            caption = "most influential orgs (cnt)")
+        )
 }

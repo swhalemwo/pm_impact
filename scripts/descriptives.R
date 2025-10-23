@@ -81,6 +81,7 @@ gp_insgrow5 <- function(dt_insgrow5) {
 
 
 gp_insgrow5_contours <- function(dt_insgrow5) {
+    ## growth scatterplot with contours
 
     p_insgrow5 <- gp_insgrow5(dt_insgrow5)
 
@@ -146,4 +147,59 @@ smooth_it <- function(x, y, n = 1000, method = "natural") {
     new_x <- spline(t, x, xout = new_t, method = method)$y
     new_y <- spline(t, y, xout = new_t, method = method)$y
     data.frame(t = new_t, x = new_x, y = new_y)
+}
+
+
+gt_grow5_sumry <- function(dt_exhbppl_watyear, dt_insgrow5, l_cols_summary) {
+    #' summary stats of 5-year growth by form
+    gw_fargs(match.call())
+
+    rbind(
+        dt_exhbppl_watyear[, map(.SD, ~mean(.x[!is.infinite(.x)], na.rm = T)), InstitutionType,
+                           .SDcols = l_cols_summary] %>% .[, src := "exhblink"],
+        dt_insgrow5[, map(.SD, ~mean(.x[!is.infinite(.x)], na.rm = T)), InstitutionType,
+                    .SDcols = l_cols_summary] %>% .[, src := "ins"]) %>%
+        .[order(InstitutionType), .SD, .SDcols = c("InstitutionType", "src", l_cols_summary)] %>% 
+        gt_plain
+}
+
+
+gp_insgrow5_dist <- function(dt_insgrow5, l_cols_summary) {
+
+    ## distribution of percentage count/growth of institutions by institution type
+    melt(dt_insgrow5, id.vars = c("InstitutionID", "InstitutionType"), measure.vars = l_cols_summary,         
+         variable.name = "mes", value.name = "vlu") %>%
+        ggplot(aes(x=vlu, color = InstitutionType)) +
+        geom_density()+
+        facet_wrap(~mes, ncol =1, scale = "free") +
+        scale_x_continuous(trans = scales::log10_trans())
+
+}
+    
+
+
+
+gt_insgrow5_topperc <- function(dt_insgrow5, l_cols_summary) {
+    #' most influential orgs by type in terms of percent
+
+    dt_insgrow5[order(-exhbN_grow5_perc)][, head(.SD), InstitutionType,
+                                          .SDcols = c("InstitutionID", l_cols_summary)] %>% 
+        dt_af_instns[, .(InstitutionID, Name, City, Country)][., on = "InstitutionID"] %>%
+        .[, `:=`(InstitutionID = NULL)] %>%
+        ## .[, .(exhbN_grow5_cnt, exhbN_grow5_perc, evc_grow5_cnt, evc_grow5_prop)] %>% 
+        setnafill(fill = 999, type = "const", cols = l_cols_summary) %>%
+        gt_plain
+    
+}
+
+gt_insgrow5_topcnt <- function(dt_insgrow5, l_cols_summary) {
+
+    ## most influential in exhibition count
+    dt_insgrow5[order(-exhbN_grow5_cnt)][, head(.SD), InstitutionType] %>% 
+        copy(dt_af_instns)[, InstitutionType := NULL][., on = "InstitutionID"] %>% 
+        .[, `:=`(InstitutionID = NULL)] %>%
+        ## .[, .(exhbN_grow5_cnt, exhbN_grow5_perc, evc_grow5_cnt, evc_grow5_prop)] %>% 
+        setnafill(fill = 999, type = "const", cols = l_cols_summary) %>%
+        gt_plain
+
 }
