@@ -36,7 +36,7 @@ gd_edges_wtd <- function(dt_edges) {
 
     ## could implement different tau parameters here, also different years
 
-    dt_edges_wtd <- dt_edges[, .N, .(InstitutionID, InstitutionID2)]
+    dt_edges_wtd <- dt_edges[, .(weight = .N), .(InstitutionID, InstitutionID2)]
     ## 23m unique links, 35k nodes
     attr(dt_edges_wtd, "gnrtdby") <- as.character(match.call()[[1]])
     return(dt_edges_wtd)
@@ -55,9 +55,11 @@ gg_insflow <- function(dt_edges_wtd) {
 gd_insevc <- function(g_insflow, dt_af_instns_rcd) {
     #' create data.table of institution eigenvector centralities (EVC)
     gw_fargs(match.call())
-    if (as.character(match.call()[[1]]) %in% fstd){browser()}
     
-    eigen_centrality_values <- eigen_centrality(g_insflow, directed = TRUE, weights = E(g_insflow)$N)
+    
+    ## EVC; uses weights by default
+    eigen_centrality_values <- eigen_centrality(g_insflow, directed = TRUE)
+    
 
     ## Create a data frame of institutions' eigenvector centrality values
     dt_insevc_prep <- data.table(InstitutionID = as.integer(names(eigen_centrality_values$vector)),
