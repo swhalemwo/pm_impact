@@ -209,3 +209,18 @@ gt_insgrow5_topcnt <- function(dt_insgrow5, dt_af_instns_rcd, l_cols_summary) {
         gt_plain
 
 }
+
+
+gd_nbrs <- function() {
+
+    dt_ynkplt <- gc_ynkplt()
+    dt_refplt <- gc_refplt()
+
+    ## dt_ynktbl <- gc_ynktbl()
+    dt_reftbl <- gc_reftbl()
+
+
+    dt_nbrs_cbnd <- rbindlist(list(dt_ynkplt, dt_refplt, dt_reftbl))
+    return(dt_nbrs_cbnd)
+
+}

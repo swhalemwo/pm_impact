@@ -1,0 +1,23 @@
+nbr_name,nbr_fmt,grp
+ynkplt_p_pminfl_cbn,(eval (concat "#+label: fig:p_pminfl_cbn\n" "#+caption: influence of PM exhibitions\n" "#+attr_latex: :width 14cm\n" "[[file:../figures/p_pminfl_cbn.pdf]]")),pltcfgs
+ynkplt_p_hist_crap,(eval (concat "#+label: fig:p_hist_crap\n" "#+caption: nonsense hist\n" "#+attr_latex: :width 14cm\n" "[[file:../figures/p_hist_crap.pdf]]")),pltcfgs
+ynkplt_p_activity_jitter,(eval (concat "#+label: fig:p_activity_jitter\n" "#+caption: activity jitter\n" "#+attr_latex: :width 14cm\n" "[[file:../figures/p_activity_jitter.pdf]]")),pltcfgs
+ynkplt_p_insgrow5,(eval (concat "#+label: fig:p_insgrow5\n" "#+caption: growth relations\n" "#+attr_latex: :width 14cm\n" "[[file:../figures/p_insgrow5.pdf]]")),pltcfgs
+ynkplt_p_insgrow5_contours,(eval (concat "#+label: fig:p_insgrow5_contours\n" "#+caption: growth relations\n" "#+attr_latex: :width 14cm\n" "[[file:../figures/p_insgrow5_contours.pdf]]")),pltcfgs
+ynkplt_p_cumad_jitter,(eval (concat "#+label: fig:p_cumad_jitter\n" "#+caption: cumulative advantage whatever\n" "#+attr_latex: :width 14cm\n" "[[file:../figures/p_cumad_jitter.pdf]]")),pltcfgs
+ynkplt_p_insgrow5_dist,(eval (concat "#+label: fig:p_insgrow5_dist\n" "#+caption: grow5 dists\n" "#+attr_latex: :width 14cm\n" "[[file:../figures/p_insgrow5_dist.pdf]]")),pltcfgs
+ynkplt_p_mainseq,(eval (concat "#+label: fig:p_mainseq\n" "#+caption: cumulative advantage\n" "#+attr_latex: :width 14cm\n" "[[file:../figures/p_mainseq.pdf]]")),pltcfgs
+ynkplt_p_insevc,(eval (concat "#+label: fig:p_insevc\n" "#+caption: EVC distribution\n" "#+attr_latex: :width 14cm\n" "[[file:../figures/p_insevc.pdf]]")),pltcfgs
+refplt_p_pminfl_cbn,\ref{fig:p_pminfl_cbn},figlbls
+refplt_p_hist_crap,\ref{fig:p_hist_crap},figlbls
+refplt_p_activity_jitter,\ref{fig:p_activity_jitter},figlbls
+refplt_p_insgrow5,\ref{fig:p_insgrow5},figlbls
+refplt_p_insgrow5_contours,\ref{fig:p_insgrow5_contours},figlbls
+refplt_p_cumad_jitter,\ref{fig:p_cumad_jitter},figlbls
+refplt_p_insgrow5_dist,\ref{fig:p_insgrow5_dist},figlbls
+refplt_p_mainseq,\ref{fig:p_mainseq},figlbls
+refplt_p_insevc,\ref{fig:p_insevc},figlbls
+reftbl_t_grow5_sumry,\ref{tbl:t_grow5_sumry},reftbl
+reftbl_t_insgrow5_topperc,\ref{tbl:t_insgrow5_topperc},reftbl
+reftbl_t_deg_info,\ref{tbl:t_deg_info},reftbl
+reftbl_t_insgrow5_topcnt,\ref{tbl:t_insgrow5_topcnt},reftbl
