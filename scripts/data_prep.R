@@ -323,6 +323,7 @@ gd_exhbppl <- function(dt_af_people, dt_af_exhbs, dt_af_instns_rcd, dt_ls_af_auc
 
 
 gd_exhbppl_watyear <- function(dt_exhbppl, dt_atyear_evc) {
+    gw_fargs(match.call())
 
     dt_atyear_foster2 <- merge(dt_atyear_foster,
                            dt_atyear_evc[, c(list(PeopleID = PeopleID, year = year), .SD),
@@ -363,6 +364,18 @@ gd_exhbppl_watyear <- function(dt_exhbppl, dt_atyear_evc) {
     ## dt_exhbppl_watyear[PeopleID ==44 & begin_year > 2005, .(PeopleID, begin_year, exhbN_all, evc_ay_ttl, evc_s5,
     ##                                                         evc_n5, evc_grow5_cnt, evc_grow5_prop)] %>%
     ##     print(n=80)
-    
+    attr(dt_exhbppl_watyear, "gnrtdby") <- as.character(match.call()[[1]])
+
     return(dt_exhbppl_watyear)
+}
+
+
+gd_insgrow5 <- function(dt_exhbppl_watyear, l_cols_summary) {
+    gw_fargs(match.call())
+
+    dt_insgrow5 <- dt_exhbppl_watyear[, lapply(.SD, \(x) mean(x[!is.infinite(x)], na.rm = T)),
+                                      .(InstitutionType, InstitutionID), .SDcols = l_cols_summary]
+
+    attr(dt_insgrow5, "gnrtdby") <- as.character(match.call()[[1]])
+    return(dt_insgrow5)
 }

@@ -17,7 +17,7 @@ gp_hist_crap <- function(dt_atyear_foster) {
 
 }
 
-gp_mainseq <- function(dt_atyear_foster = dt_atyear_foster) {
+gp_mainseq <- function(dt_atyear_foster) {
     gw_fargs(match.call())
     #' main-sequence inspired scatterplot: exhb_all_cum ~ career_year, with color of exhbN_all
     #' basically only shows cumulative advantage tho...
@@ -42,6 +42,7 @@ gp_mainseq <- function(dt_atyear_foster = dt_atyear_foster) {
 
 
 gp_activity_jitter <- function(dt_atyear_foster) {
+    gw_fargs(match.call())
 
     ## exhbN_all ~ cy: idk what's the point
     dt_atyear_foster %>% .[sample(1:.N, size = 1e4)] %>% 
@@ -51,6 +52,7 @@ gp_activity_jitter <- function(dt_atyear_foster) {
 
 
 gp_cumad_jitter <- function(dt_atyear_foster) {
+    gw_fargs(match.call())
     ## exhbN_all ~ exhnb_all_cum: muh cumulative advantage
     dt_atyear_foster %>% .[sample(1:.N, size = 1e4)] %>%
         ggplot(aes(x=exhbN_all_cum, y = exhbN_all)) +
@@ -81,6 +83,7 @@ gp_insgrow5 <- function(dt_insgrow5) {
 
 
 gp_insgrow5_contours <- function(dt_insgrow5) {
+    gw_fargs(match.call())
     ## growth scatterplot with contours
 
     p_insgrow5 <- gp_insgrow5(dt_insgrow5)
@@ -165,6 +168,7 @@ gt_grow5_sumry <- function(dt_exhbppl_watyear, dt_insgrow5, l_cols_summary) {
 
 
 gp_insgrow5_dist <- function(dt_insgrow5, l_cols_summary) {
+    gw_fargs(match.call())
 
     ## distribution of percentage count/growth of institutions by institution type
     melt(dt_insgrow5, id.vars = c("InstitutionID", "InstitutionType"), measure.vars = l_cols_summary,         
@@ -179,12 +183,13 @@ gp_insgrow5_dist <- function(dt_insgrow5, l_cols_summary) {
 
 
 
-gt_insgrow5_topperc <- function(dt_insgrow5, l_cols_summary) {
+gt_insgrow5_topperc <- function(dt_insgrow5, dt_af_instns_rcd, l_cols_summary) {
+    gw_fargs(match.call())
     #' most influential orgs by type in terms of percent
 
     dt_insgrow5[order(-exhbN_grow5_perc)][, head(.SD), InstitutionType,
                                           .SDcols = c("InstitutionID", l_cols_summary)] %>% 
-        dt_af_instns[, .(InstitutionID, Name, City, Country)][., on = "InstitutionID"] %>%
+        dt_af_instns_rcd[, .(InstitutionID, Name, City, Country)][., on = "InstitutionID"] %>%
         .[, `:=`(InstitutionID = NULL)] %>%
         ## .[, .(exhbN_grow5_cnt, exhbN_grow5_perc, evc_grow5_cnt, evc_grow5_prop)] %>% 
         setnafill(fill = 999, type = "const", cols = l_cols_summary) %>%
@@ -192,11 +197,12 @@ gt_insgrow5_topperc <- function(dt_insgrow5, l_cols_summary) {
     
 }
 
-gt_insgrow5_topcnt <- function(dt_insgrow5, l_cols_summary) {
+gt_insgrow5_topcnt <- function(dt_insgrow5, dt_af_instns_rcd, l_cols_summary) {
+    gw_fargs(match.call())
 
     ## most influential in exhibition count
     dt_insgrow5[order(-exhbN_grow5_cnt)][, head(.SD), InstitutionType] %>% 
-        copy(dt_af_instns)[, InstitutionType := NULL][., on = "InstitutionID"] %>% 
+        copy(dt_af_instns_rcd)[, InstitutionType := NULL][., on = "InstitutionID"] %>% 
         .[, `:=`(InstitutionID = NULL)] %>%
         ## .[, .(exhbN_grow5_cnt, exhbN_grow5_perc, evc_grow5_cnt, evc_grow5_prop)] %>% 
         setnafill(fill = 999, type = "const", cols = l_cols_summary) %>%

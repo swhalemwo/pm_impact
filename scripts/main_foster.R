@@ -26,6 +26,7 @@ DIR_PROJ <- "~/Dropbox/phd/papers/foster/"
 c_dirs <- gc_dirs(dir_proj = DIR_PROJ)
 c_dirs <- c(c_dirs, list(tempdata = paste0(DIR_PROJ, "tempdata/")))
 
+
 l_tbls <- list()
 l_plts <- list()
 c_tblargs <- list()
@@ -41,7 +42,7 @@ l_funcfiles <- c(
     paste0(c_dirs$code, "cfg.R"),
     paste0(c_dirs$code, "data_prep.R"),
     ## paste0(c_dirs$code, "regression.R"),
-    ## paste0(c_dirs$code, "descriptives.R"), ## FIXME: first into plots/figures
+    paste0(c_dirs$code, "descriptives.R"), 
      ## paste0(c_dirs$code, "rem_funcs.R")
     paste0(c_dirs$code, "network.R") ## FIXME: add after basic stuff works
 )
@@ -132,11 +133,13 @@ dt_atyear_evc[, c(list(PeopleID = PeopleID, year = year), .SD), .SDcols = patter
 
 dt_exhbppl_watyear <- gd_exhbppl_watyear(dt_exhbppl, dt_atyear_evc)
 
-dt_insgrow5 <- dt_exhbppl_watyear[, lapply(.SD, \(x) mean(x[!is.infinite(x)], na.rm = T)),
-                                  .(InstitutionType, InstitutionID), .SDcols = l_cols_summary]
-
-
 l_cols_summary <- c("exhbN_grow5_cnt", "exhbN_grow5_perc", "evc_grow5_cnt", "evc_grow5_prop")
+
+dt_insgrow5 <- gd_insgrow5(dt_exhbppl_watyear, l_cols_summary)
+
+
+
+
 
 
 

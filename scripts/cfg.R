@@ -29,7 +29,7 @@ gc_plts <- function() {
             caption = "cumulative advantage whatever"),
         p_insgrow5_dist = list(
             dt_insgrow5 = quote(dt_insgrow5),
-            l_cols_summary = l_cols_summary,
+            l_cols_summary = quote(l_cols_summary),
             width = 14, height = 7, caption = "grow5 dists"),
         p_mainseq = list(
             dt_atyear_foster = quote(dt_atyear_foster),
@@ -48,6 +48,7 @@ gc_tbls <- function() {
             caption = "summary stats"),
         t_insgrow5_topperc = list(
             dt_insgrow5 = quote(dt_insgrow5),
+            dt_af_instns_rcd = quote(dt_af_instns_rcd),
             l_cols_summary = quote(l_cols_summary),
             caption = "most influential orgs (percentage)"),
         t_deg_info = list(
@@ -56,6 +57,7 @@ gc_tbls <- function() {
             caption = "degree info by form"),
         t_insgrow5_topcnt = list(
             dt_insgrow5 = quote(dt_insgrow5),
+            dt_af_instns_rcd = quote(dt_af_instns_rcd),
             l_cols_summary = quote(l_cols_summary),
             caption = "most influential orgs (cnt)")
         )
