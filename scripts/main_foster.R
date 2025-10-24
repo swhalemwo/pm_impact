@@ -165,5 +165,5 @@ walk(names(gc_plts()), ~lapply(c(gplt, wplt), \(f) f(.x)))
 
 
 jtls::gwd_clgrph()
-
-
+dt_nbrs <- gd_nbrs()
+fwrite(dt_nbrs, paste0(c_dirs$misc, "nbrs.csv"), quote = F)
