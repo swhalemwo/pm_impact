@@ -379,3 +379,11 @@ gd_insgrow5 <- function(dt_exhbppl_watyear, l_cols_summary) {
     attr(dt_insgrow5, "gnrtdby") <- as.character(match.call()[[1]])
     return(dt_insgrow5)
 }
+
+gp_insevc <- function(dt_insevc) {
+
+    ggplot(dt_insevc, aes(x=evc + 0.000000001, color = InstitutionType)) +
+        geom_density() +
+        scale_x_continuous(trans = scales::log10_trans())
+
+}

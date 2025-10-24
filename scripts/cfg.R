@@ -3,10 +3,10 @@ gc_plts <- function() {
 
     list(
         ## FIXME when regression models work properly
-        ## p_pminfl_cbn = list(
-        ##     rb1 = quote(rb1), rc1 = quote(rc1), rd1 = quote(rd1),
-        ##     width = 14, height = 7,
-        ##     caption = "influence of PM exhibitions"),
+        p_pminfl_cbn = list(
+            r_pes = quote(l_mdls$r_pes), r_auc = quote(l_mdls$r_auc),
+            width = 14, height = 7,
+            caption = "influence of PM exhibitions"),
         p_hist_crap = list(
             dt_atyear_foster = quote(dt_atyear_foster),
             width = 14, height = 7,
@@ -34,11 +34,15 @@ gc_plts <- function() {
         p_mainseq = list(
             dt_atyear_foster = quote(dt_atyear_foster),
             width = 14, height = 7,
-            caption = "cumulative advantage")
+            caption = "cumulative advantage"),
+        p_insevc = list(
+            dt_insevc = quote(dt_insevc),
+            width = 14, height = 7,
+            caption = "EVC distribution")
         )}
 
 
-gc_tbls <- function() {
+
 
     list(
         t_grow5_sumry  = list(

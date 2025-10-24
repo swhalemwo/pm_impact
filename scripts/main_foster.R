@@ -18,6 +18,7 @@ library(scales, include.only = "label_number") # comfy suffix labels (e.g. 2K, 2
 library(broom, include.only = "tidy") # model extracting
 library(MASS, include.only = "kde2d")
 library(zeallot)
+library(stringr)
 set.seed(42)
 
 l_asinh_breaks <- c(0, 10^(0:10), 3*10^(0:10)) %>% sort # breaks for asinh ggplots
@@ -41,10 +42,10 @@ END_YEAR <- 2022
 l_funcfiles <- c(
     paste0(c_dirs$code, "cfg.R"),
     paste0(c_dirs$code, "data_prep.R"),
-    ## paste0(c_dirs$code, "regression.R"),
+    paste0(c_dirs$code, "panel.R"),
     paste0(c_dirs$code, "descriptives.R"), 
      ## paste0(c_dirs$code, "rem_funcs.R")
-    paste0(c_dirs$code, "network.R") ## FIXME: add after basic stuff works
+    paste0(c_dirs$code, "network.R") 
 )
 
 invisible(lapply(l_funcfiles, \(x) source(x, echo = F, verbose = F, print.eval = F)))
@@ -112,8 +113,7 @@ dt_exhbppl <- dt_exhbppl_wyeet[InstitutionType != "yeet"] %>%
 
 
 
-source(paste0(c_dirs$code, "network.R"))
-dt_edges <- gd_edges(dt_exhbppl, sample_artists = 3e3)
+dt_edges <- gd_edges(dt_exhbppl, sample_artists = 0)
 dt_edges_wtd <- gd_edges_wtd(dt_edges) %>% .[InstitutionID != InstitutionID2]
 g_insflow <- gg_insflow(dt_edges_wtd)
 
@@ -137,7 +137,10 @@ l_cols_summary <- c("exhbN_grow5_cnt", "exhbN_grow5_perc", "evc_grow5_cnt", "evc
 
 dt_insgrow5 <- gd_insgrow5(dt_exhbppl_watyear, l_cols_summary)
 
+l_mdls <- gl_mdls(dt_atyear_foster, dt_atyear_evc)
 
+
+## dt_atyear_evc[, map(.SD, ~sum(is.na(.x)))] %>% t %>% adt %>% .[, .N, V1]
 
 
 

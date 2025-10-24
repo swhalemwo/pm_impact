@@ -28,3 +28,129 @@ gd_deg_info(g_insflow) %>% merge(dt_af_instns, by = "InstitutionID") %>%
 ## dt_ppl_evcsum <- gd_ppl_evcsum(dt_exhbppl_evc)
 
 ## dt_atofyear <- gd_atofyear(dt_atyear_evc)
+
+
+## ** looking at yuge EVC grow values
+
+dt_insgrow5[evc_grow5_prop > 300000]
+dt_insgrow5[!is.infinite(evc_grow5_prop), mean(evc_grow5_prop, na.rm = T), InstitutionType]
+
+
+## 3 pes                     12958           15.9             164.       -0.0343         7.33e19
+
+dt_exhbppl_watyear[InstitutionID == 12958, .(begin_year, PeopleID, ExhibitionID, evc_s5, evc_n5, evc_grow5_prop)] %>% print(n=80) %>% .[, mean(evc_grow5_prop, na.rm = T)]
+
+merge(
+    dt_exhbppl_watyear[PeopleID == 210084, .(begin_year, InstitutionID)],
+    dt_insevc[, .(InstitutionID, Name, InstitutionType, evc)], by = "InstitutionID")
+## ok so all of 210084's exhibitions for some years were at some shit org %>% average evc super low
+## hmm maybe the variation in evc is also so yuge because of sampling....
+
+## hmm if you one artist who makes it somewhere from nowhere, that's a yuuuuuuuuuuge boost
+## maybe normalize EVC to some orders of magnitude?
+
+
+## * experiment with splines
+rb4 <- fepois(exhbN_pes ~ log1p(exhbN_pes_cum)*log1p(exhbN_pm_cum)*bs(exhbN_pes_cum) | PeopleID + year, dt_atyear_foster, fixef.rm = "none")
+
+## do i need this
+rs1 <- fepois(exhbN_pes ~ bs(log1p(exhbN_all_cum), df = 10)*log1p(exhbN_all_s5) | PeopleID + year,
+              dt_atyear_foster, fixef.rm = "none")
+
+## or this
+rs2 <- fepois(exhbN_pes ~ I(bs(log1p(exhbN_all_cum))^2) | PeopleID + year, dt_atyear_foster, fixef.rm = "none")
+
+## or this
+rs3 <- fepois(exhbN_pes ~ log1p(exhbN_all_cum)*bs(log1p(exhbN_all_cum)) | PeopleID + year, dt_atyear_foster, fixef.rm = "none")
+
+
+dt_topred <- expand.grid(exhbN_all_cum = seq(1, 500, length.out = 30),
+                         exhbN_all_s5 = seq(1, 15),
+                         PeopleID = 11, year = 2015) %>% adt
+
+
+## density of s5
+ggplot(dt_atyear_foster, aes(x = exhbN_all_s5)) + geom_density() +
+    scale_x_continuous(transform = scales::log10_trans())
+
+
+## some hacky way of getting at marginal effect by exhbN_cum 
+
+dt_topred[, `:=`(pred1 = predict(rs3, dt_topred),
+                 pred2 = predict(rs3, copy(dt_topred)[, exhbN_all_cum := exhbN_all_cum +1]),
+                 pred3 = predict(rs1, dt_topred),
+                 pred4 = predict(rs1, copy(dt_topred)[, exhbN_all_s5 := exhbN_all_s5 +1]))] %>%
+    .[, `:=`(eff1 = pred2/pred1, eff2 = pred3/pred4)]
+
+## rs3 figure
+ggplot(dt_topred, aes(x=exhbN_all_cum, y = eff1)) + geom_point()
+
+## rs1 figure
+ggplot(dt_topred, aes(x=exhbN_all_cum, y = eff2, color = exhbN_all_s5)) + geom_point()
+
+
+
+## * survival model -> yeet
+## outcome survival: not cute -> probably yeet
+rd1 <- coxph(Surv(career_year, career_year_end, last_exhb) ~ log1p(exhbN_pes_cum) + log1p(exhbN_pm_cum) +
+                 log1p(exhbN_gallery_cum) + log1p(exhbN_event_cum) + strata(year), dt_atyear_surv[year < 2015])
+
+
+gp_pminfl_surv <- function(rd1) {
+    
+    tidy(rd1) %>% adt %>%
+        .[, term := str_extract_all(term, "(?<=exhbN_)[a-zA-Z]+(?=_cum)")[[1]], .I] %>%
+        .[, `:=`(estimate = estimate *-1)] %>% 
+        ggplot(aes(x = estimate, y = term, xmin = estimate - 1.96 *std.error, xmax = estimate + 1.96 *std.error,
+                   color = term)) +
+        geom_point(show.legend = F) +
+        geom_errorbarh(show.legend = F) + 
+        geom_vline(xintercept = 0, linetype = "dashed")
+
+}
+
+
+
+gp_pminfl_surv(rd1)
+
+
+
+
+## * look into tweedie
+
+## library(statmod)
+
+re1 <- feols(evc_ay_ttl ~ log1p(exhbN_pm_cum) + log1p(exhbN_gallery_cum) + log1p(exhbN_pes_cum) + log1p(exhbN_event_cum) | PeopleID + year, dt_atyear_evc, fixef.rm = "none")
+
+
+re2 <- feglm(evc_ay_ttl ~ log1p(exhbN_pm_cum) + log1p(exhbN_gallery_cum) + log1p(exhbN_pes_cum) + log1p(exhbN_event_cum) | PeopleID + year, dt_atyear_evc, fixef.rm = "none", family = tweedie())
+
+re3 <- feglm(evc_ay_ttl ~ log1p(exhbN_pm_cum) + log1p(exhbN_gallery_cum) + log1p(exhbN_pes_cum) + log1p(exhbN_event_cum) | PeopleID + year, dt_atyear_evc, fixef.rm = "none", family = tweedie(var.power = 0.5))
+
+re4 <- feglm(evc_ay_ttl ~ log1p(exhbN_pm_cum) + log1p(exhbN_gallery_cum) + log1p(exhbN_pes_cum) + log1p(exhbN_event_cum) | PeopleID + year, dt_atyear_evc, fixef.rm = "none", family = tw(link = "log"))
+
+
+
+map(seq(0, 5, 0.5), ~data.table(x = rpois(n=100, lambda = .x)) %>% .[, lambda := .x]) %>% rbindlist %>%
+    .[, .N, .(x, lambda)] %>%
+    ggplot(aes(x=x, y=N, color = factor(lambda))) + geom_line()
+
+
+
+## tweedie: used for logged DVs which originally include 0
+## https://library.virginia.edu/data/articles/getting-started-tweedie-models-0
+## why even log DV? if you don't log DV you can use OLS just fine
+
+library(tweedie)
+rtweedie
+
+dt_tweedie_params <- expand.grid(phi = seq(1, 2,0.5), mu = seq(0.5, 2.5), power = seq(1.05, 1.95, 0.2)) %>%
+    adt %>% .[, `:=`(n=1000, id = paste0("V", 1:.N))]
+
+apply(dt_tweedie_params[, .(phi, mu, power, n)], 1, \(x) do.call(rtweedie, as.list(x))) %>% adt %>%
+    melt(measure.vars = names(.), variable.name = "id") %>%
+    merge(dt_tweedie_params) %>%
+    ggplot(aes(x=value, color = factor(phi))) +
+    geom_density() +
+    facet_wrap(power~mu, scales = "free", nrow = 5, ncol = 3)
+
