@@ -30,7 +30,7 @@ gc_plts <- function() {
         p_insgrow5_dist = list(
             dt_insgrow5 = quote(dt_insgrow5),
             l_cols_summary = quote(l_cols_summary),
-            width = 14, height = 12, caption = "grow5 dists"),
+            width = 14, height = 18, caption = "grow5 dists"),
         p_mainseq = list(
             dt_atyear_foster = quote(dt_atyear_foster),
             width = 14, height = 7,
@@ -43,7 +43,7 @@ gc_plts <- function() {
 
 
 
-
+gc_tbls <- function() {
     list(
         t_grow5_sumry  = list(
             dt_exhbppl_watyear = quote(dt_exhbppl_watyear),

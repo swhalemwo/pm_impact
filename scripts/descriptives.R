@@ -159,10 +159,17 @@ gt_grow5_sumry <- function(dt_exhbppl_watyear, dt_insgrow5, l_cols_summary) {
 
     rbind(
         dt_exhbppl_watyear[, map(.SD, ~mean(.x[!is.infinite(.x)], na.rm = T)), InstitutionType,
-                           .SDcols = l_cols_summary] %>% .[, src := "exhblink"],
+                           .SDcols = intersect(l_cols_summary, names(dt_exhbppl_watyear))] %>%
+                               .[, src := "exhblink"] %>% melt(id.vars = c("InstitutionType", "src")), 
         dt_insgrow5[, map(.SD, ~mean(.x[!is.infinite(.x)], na.rm = T)), InstitutionType,
-                    .SDcols = l_cols_summary] %>% .[, src := "ins"]) %>%
-        .[order(InstitutionType), .SD, .SDcols = c("InstitutionType", "src", l_cols_summary)] %>% 
+                    .SDcols = intersect(names(dt_insgrow5), l_cols_summary)] %>% .[, src := "ins"] %>%
+        melt(id.vars = c("InstitutionType", "src"))) %>%
+        dcast(InstitutionType + src ~ variable) %>% 
+        .[order(InstitutionType), .SD, .SDcols = c("InstitutionType", "src", l_cols_summary)] %>%
+        .[, exhbN_perc_n5s5_org := trimws(format(exhbN_perc_n5s5_org, digits = 2))] %>% # FIXME: absolute hacky way to get 
+        .[exhbN_perc_n5s5_org == "NA", exhbN_perc_n5s5_org := ""] %>% 
+        ## setnafill(type = "const", fill = 0, cols = l_cols_summary) %>%
+        setnames(old = names(.), new = gsub("exhbN_", "", names(.))) %>% 
         gt_plain
 }
 
@@ -176,7 +183,7 @@ gp_insgrow5_dist <- function(dt_insgrow5, l_cols_summary) {
         ggplot(aes(x=vlu, color = InstitutionType)) +
         geom_density()+
         facet_wrap(~mes, ncol =1, scale = "free") +
-        scale_x_continuous(trans = scales::log10_trans())
+        scale_x_continuous(trans = scales::asinh_trans(), breaks = l_asinh_breaks)
 
 }
     

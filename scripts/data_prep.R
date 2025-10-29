@@ -352,8 +352,9 @@ gd_exhbppl_watyear <- function(dt_exhbppl, dt_atyear_evc) {
                                         # by how much does the total exhibition count grow
                               exhbN_grow5_perc =  100*((exhbN_all_cum_n5/cnt_prevexhb)-1),
                               evc_grow5_cnt = evc_n5 - evc_s5,
-                              evc_grow5_prop = evc_n5/evc_s5) # hmm do i need log here? 
-                          ]
+                              evc_grow5_prop = evc_n5/evc_s5)] %>%   # hmm do i need log here?
+        .[, `:=`(exhbN_perc_n5s5 = 100*((exhbN_grow5_cnt/exhbN_all_s5)-1))]
+
 
     ## dt_exhbppl_watyear[PeopleID ==44 & begin_year > 2005, .(PeopleID, begin_year, exhbN_all, exhbN_all_cum_n5,
     ##                                                         cnt_prevexhb, exhbN_grow5_cnt, exhbN_grow5_perc,
@@ -374,7 +375,9 @@ gd_insgrow5 <- function(dt_exhbppl_watyear, l_cols_summary) {
     gw_fargs(match.call())
 
     dt_insgrow5 <- dt_exhbppl_watyear[, lapply(.SD, \(x) mean(x[!is.infinite(x)], na.rm = T)),
-                                      .(InstitutionType, InstitutionID), .SDcols = l_cols_summary]
+                                      .(InstitutionType, InstitutionID),
+                                      .SDcols = intersect(l_cols_summary, names(dt_exhbppl_watyear))] %>%
+        .[, exhbN_perc_n5s5_org := 100*((exhbN_grow5_cnt/exhbN_all_s5)-1)]
 
     attr(dt_insgrow5, "gnrtdby") <- as.character(match.call()[[1]])
     return(dt_insgrow5)

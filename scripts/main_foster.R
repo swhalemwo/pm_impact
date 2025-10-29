@@ -21,7 +21,7 @@ library(zeallot)
 library(stringr)
 set.seed(42)
 
-l_asinh_breaks <- c(0, 10^(0:10), 3*10^(0:10)) %>% sort # breaks for asinh ggplots
+l_asinh_breaks <- c(0, 10^(0:10), 3*10^(0:10)) %>% c(., -1*.) %>% sort # breaks for asinh ggplots
 
 DIR_PROJ <- "~/Dropbox/phd/papers/foster/"
 c_dirs <- gc_dirs(dir_proj = DIR_PROJ)
@@ -134,7 +134,7 @@ dt_atyear_evc[, c(list(PeopleID = PeopleID, year = year), .SD), .SDcols = patter
 dt_exhbppl_watyear <- gd_exhbppl_watyear(dt_exhbppl, dt_atyear_evc)
 
 ## "evc_grow5_cnt", "evc_grow5_prop"
-l_cols_summary <- c("exhbN_all_cum", "exhbN_all_s5", "exhbN_grow5_cnt", "exhbN_grow5_perc")
+l_cols_summary <- c("exhbN_all_cum", "exhbN_all_s5", "exhbN_grow5_cnt", "exhbN_grow5_perc", "exhbN_perc_n5s5", "exhbN_perc_n5s5_org")
 
 
 dt_insgrow5 <- gd_insgrow5(dt_exhbppl_watyear, l_cols_summary)
