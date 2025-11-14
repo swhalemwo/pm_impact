@@ -154,3 +154,60 @@ apply(dt_tweedie_params[, .(phi, mu, power, n)], 1, \(x) do.call(rtweedie, as.li
     geom_density() +
     facet_wrap(power~mu, scales = "free", nrow = 5, ncol = 3)
 
+
+## * debug differences between cnt_prevexhb and exhbN_all_cum
+
+dt_exhbppl_watyear_chk <- copy(dt_exhbppl_watyear) %>%
+    .[, .(PeopleID, begin_year, cnt_prevexhb, exhbN_all_cum, diff_cum = cnt_prevexhb - exhbN_all_cum,
+          InstitutionType)]
+
+## dt_exhbppl_watyear_chk[, .N, InstitutionType]
+
+dt_exhbppl_watyear_chk[, .N, diff_cum] %>% .[order(diff_cum)] %>% print(n=80)
+
+
+dt_exhbppl_watyear_chk[diff_cum < 0]
+
+dt_exhbppl_watyear_chk[PeopleID == 492 & diff_cum < 0]
+
+dt_exhbppl[PeopleID == 492, .(PeopleID, begin_year, cnt_prevexhb)] %>% print(n=85)
+
+dt_atyear_foster[PeopleID == 492, .SD, .SDcols = patterns("PeopleID|^year$|cum$")] %>% print(n=80)
+
+dt_atyear_foster %>% copy %>%
+.[PeopleID == 492, .(year, exhbN_all_cum, exhbN_all, exhbN_all_cum2 = fcumsum(exhbN_all))] %>%
+.[, xx := exhbN_all_cum2 - exhbN_all] %>% print(n=80)
+
+
+
+dt_atyear_raw[PeopleID == 492, .(PeopleID, year, exhbN_all, xx = fcumsum(exhbN_all))]
+dt_exhbppl[PeopleID == 492 & begin_year < 2006]
+dt_exhbppl_wyeet[PeopleID == 492 & begin_year < 2006]
+
+dt_exhbppl_wyeet[PeopleID == 492 & begin_year < 2006, .N, .(PeopleID, begin_year)] %>%
+.[, cumx := fcumsum(N)]
+
+
+## diff between exhbppl and atyear
+
+dt_atyear_rcd_wide[PeopleID == 492] %>% copy %>%
+.[, cnt_all := rowSums(.SD, na.rm = T), .SDcols = patterns("exhbN")]
+## here it's still 10 for 2005
+
+## huh here it's 11
+dt_cbn_prep1[PeopleID == 492]
+
+dt_atyear_exhbcnt[PeopleID == 492] # here i's 11
+
+dt_cbn[PeopleID == 492 & begin_year == 2005, uniqueN(ExhibitionID)] ## here it's 11
+
+## check out gd_atyear_rcd
+dt_atyear_rcd[PeopleID == 492 & begin_year == 2005]
+
+## reproduce manually
+dt_m1 <- merge(dt_af_links_exhb_ppl, dt_af_exhbs[, .(ExhibitionID, InstitutionID, begin_year)],
+               by = "ExhibitionID")
+
+dt_m2 <- merge(dt_m1, dt_af_instns, by = "InstitutionID", all.x = T)
+
+dt_m2[is.na(InstitutionType)]

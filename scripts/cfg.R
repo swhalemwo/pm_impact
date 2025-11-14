@@ -2,7 +2,6 @@
 gc_plts <- function() {
 
     list(
-        ## FIXME when regression models work properly
         p_pminfl_cbn = list(
             r_pes = quote(l_mdls$r_pes), r_auc = quote(l_mdls$r_auc),
             width = 14, height = 7,

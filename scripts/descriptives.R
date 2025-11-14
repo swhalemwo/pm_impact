@@ -99,23 +99,7 @@ gp_insgrow5_contours <- function(dt_insgrow5) {
 }
 
 
-kde2d_tidy <- function(x,y, ...) {
-    #' tidy interface for kde2d: reshape matrix to x-y-vlu data.table
-    c(gx, gy, z) %<-% kde2d(x,y, ...)
 
-    dt_gx <- adt(gx)[, ix := 1:.N]
-    dt_gy <- adt(gy)[, iy := 1:.N]
-
-    ## i: index 
-    dt_z_long <- adt(z)[, ix := 1:.N] %>% melt(id.vars = "ix") %>%
-        .[, `:=`(iy = as.integer(gsub("V", "", variable)), variable = NULL)]
-
-    merge(dt_z_long, dt_gx, by = "ix") %>%
-        merge(dt_gy, by = "iy") %>%
-        .[, .(x=gx, y=gy, z = value)]
-    
-        
-}
 
 contourLines_tidy <- function(x,y,z, ...)  {
     ## hacky way of getting contourlines from tidy input

@@ -134,7 +134,6 @@ gd_atyear_evc <- function(dt_exhbppl_evc, dt_atyear) {
     ## also not just previous exhibition taken into consideration, but overall exhibition profile
     ## dt_exhbppl_evc[, .(mean(evc_split))]
 
-    ## FIXME: evc_ay should be evc_ay_ttl
     dt_atyear_evc_prep <- dt_exhbppl_evc[, .(evc_ay_ttl = sum(evc_split)),
                                          .(PeopleID, year = begin_year)] %>% .[order(PeopleID, year)]
 

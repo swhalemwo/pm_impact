@@ -97,22 +97,26 @@ gd_atyear_raw <- function(dt_af_exhbs, dt_af_people, dt_af_links_exhb_ppl, dt_af
                                       .(PeopleID, BirthYear, Nationality, Gender, first_year)]
     
     ## calculate total exhibition count
-    dt_atyear_exhbcnt <- dt_cbn[, .(exhbN_all = .N), .(year = begin_year, PeopleID)]
+    ## dt_atyear_exhbcnt <- dt_cbn[, .(exhbN_all = .N), .(year = begin_year, PeopleID)]
 
     ## get the exhibition counts grouped by (reclassified) institutional form
     ## if I want multiple classifications, I can easily get them here
     dt_atyear_rcd_wide <- gd_atyear_rcd(dt_af_exhbs, dt_af_links_exhb_ppl, dt_af_instns_rcd)
         
     ## merge all the exhibition counts together
-    dt_cbn_prep1 <- Reduce(\(x,y) merge(x,y, by = c("year", "PeopleID"), all.x = T),
-                           list(dt_atyear_grid, dt_atyear_exhbcnt, dt_atyear_rcd_wide))
+    dt_cbn_prep1 <- merge(dt_atyear_grid, dt_atyear_rcd_wide, by = c("year", "PeopleID"), all.x = T) %>%
+        setnafill(type = "const", fill = 0, cols = keep(names(.), ~grepl("exhbN", .x))) %>% 
+        .[, exhbN_all := rowSums(.SD), .SDcols = patterns("exhbN")]
+    
+    ## dt_cbn_prep1 <- Reduce(\(x,y) merge(x,y, by = c("year", "PeopleID"), all.x = T),
+    ##                        list(dt_atyear_grid, dt_atyear_exhbcnt, dt_atyear_rcd_wide))
     
     ## set up exhibition names to refer to them later on
-    l_cols_exhbN <- keep(names(dt_cbn_prep1), ~grepl("exhbN_", .x))
+    ## l_cols_exhbN <- keep(names(dt_cbn_prep1), ~grepl("exhbN_", .x))
 
     ## fill up no exhibition with zero, calculate last exhibition year
     dt_atyear_raw <- copy(dt_cbn_prep1) %>%
-        setnafill("const", cols = l_cols_exhbN, fill = 0) %>%
+        ## setnafill("const", cols = l_cols_exhbN, fill = 0) %>%
         .[, `:=`(year_last_exhb = max(year[which(exhbN_all > 0)])), PeopleID] %>% 
         .[, `:=`(last_exhb = (year == year_last_exhb)*1)] %>% # last year
         .[, `:=`(age = year - BirthYear, career_year = year - first_year)] %>% # other career stage data
@@ -342,10 +346,7 @@ gd_exhbppl_watyear <- function(dt_exhbppl, dt_atyear_evc) {
     ## minor differences between cnt_prevexhb and exhbN_all_cum: exhbN_all_cum is only previous year?
     ## hmm not quite: diffs can also be negative -> FIXME: make sure there's no ambiguity
 
-    dt_exhbppl_watyear[, .(PeopleID, begin_year, cnt_prevexhb, exhbN_all_cum,
-                           diff_cum = cnt_prevexhb - exhbN_all_cum)] %>%
-        .[, .N, diff_cum] %>% .[order(diff_cum)] %>% print(n=80)
-
+    
     ## now can calculate institution-specific effect: total count, relative
     ## how many new exhibitions are in the next 5 years
     dt_exhbppl_watyear[, `:=`(exhbN_grow5_cnt = exhbN_all_cum_n5 - cnt_prevexhb,
