@@ -65,3 +65,89 @@ gc_tbls <- function() {
             caption = "most influential orgs (cnt)")
         )
 }
+
+
+gc_vvs <- function() {
+
+    l_vrbl_lbls <- list(
+        InstitutionType         = "Institution Type",
+        cnt_prevexhb_cum =   "# prev. Exhibitions") %>%
+        setNames(names(.), .)  # adjust order to allow easy combinations
+
+
+    l_vrblgrp_mes <- list(
+        num = c("cnt_prevexhb_cum"),
+        ## bin = c(),
+        cat = c("InstitutionType"))
+
+    l_vrblinfo <- list(
+        vrbl_lbl = l_vrbl_lbls,
+        mes = l_vrblgrp_mes)
+
+    dt_vrblinfo_prep <- lapply(seq_along(l_vrblinfo), \(i)
+                               imap(l_vrblinfo[[i]], ~data.table(vrbl = .x, xxx = .y)) %>% rbindlist %>%
+                               setnames(old = "xxx", new = names(l_vrblinfo)[i])) %>% # head(2) %>% 
+        Reduce(\(x,y) join(x,y, on = "vrbl"), .) %>%
+        .[, `:=`(vrblgrp = "all", vrblgrp_lbl = "all")]
+
+
+    l_ctgterm_lbls <- list(
+        ## list(vrbl = "InstitutionType", vlu = "nonpm", term_lbl = "Non-PM"),
+        list(vrbl = "InstitutionType", vlu = "pm", term_lbl = "Private Museum"),
+        list(vrbl = "InstitutionType", vlu = "gallery", term_lbl = "Gallery"),
+        list(vrbl = "InstitutionType", vlu = "event", term_lbl = "Event"),
+        list(vrbl = "InstitutionType", vlu = "npo", term_lbl = "NPO"),
+        list(vrbl = "InstitutionType", vlu = "pes", term_lbl = "Public Exhibition Space"),
+        list(vrbl = "InstitutionType", vlu = "pubm", term_lbl = "Public Museum"),
+        list(vrbl = "InstitutionType", vlu = "oes", term_lbl = "Other Exhibition Space"),
+        list(vrbl = "InstitutionType", vlu = "pi", term_lbl = "Public Institution"))
+
+    dt_ctgterm_lbls_prep <- rbindlist(l_ctgterm_lbls) %>%
+        .[, `:=`(term = paste0(vrbl, vlu), vlu_lbl = term_lbl)] %>%
+        dt_vrblinfo_prep[mes == "cat", .(vrbl, vrbl_lbl)][., on = "vrbl"] %>%
+        .[, term_lbl := sprintf("%s - %s", vrbl_lbl, term_lbl)]
+
+
+    ## need artificial merge column (tm = to merge) for cross join??
+    dt_instypes <- dt_ctgterm_lbls_prep[vrbl == "InstitutionType", .(tm = 'a', vlu, term, vlu_lbl)]
+
+
+    dt_ctgterm_interactions <- merge(
+        dt_ctgterm_lbls_prep[vrbl %!in% c("InstitutionType", "natreg6", "locreg6")] %>% copy %>% .[, tm := 'a'],
+        dt_instypes, allow.cartesian = T, by = 'tm') %>% .[, tm := NULL] %>%
+        .[, `:=`(term = sprintf("%s:%s%s", term.y, vrbl, vlu.x),
+                 term_lbl = sprintf("%s - %s * Ins. type (%s)", vrbl_lbl, vlu.x, vlu_lbl.y))] %>%
+        .[, .(vrbl, vrbl_lbl, vlu = vlu.x, term_lbl, term, vlu_lbl = vlu_lbl.x)]
+
+    dt_ctgterm_lbls <- rbind(dt_ctgterm_lbls_prep, dt_ctgterm_interactions)
+
+
+    ## generate labels for interactions
+    ## interact every variable with every institutiontype, just to have them all
+    dt_interactions <- merge(dt_vrblinfo_prep[vrbl %!in% c("InstitutionType", "natreg6", "locreg6")] %>% copy %>%
+                             .[, tm := 'a'],
+                             dt_instypes, allow.cartesian = T, by = 'tm') %>% .[, tm := NULL] %>% 
+        .[, `:=`(vrbl = sprintf("InstitutionType%s:%s", vlu, vrbl),
+                 vrbl_lbl = sprintf("%s * Ins. type (%s)", vrbl_lbl, vlu_lbl))] %>%
+        .[, .(vrbl, vrbl_lbl, mes, vrblgrp, vrblgrp_lbl)] # level, prom
+    
+    dt_vrblinfo <- rbind(dt_vrblinfo_prep, dt_interactions)
+
+    dt_gof_cfg <- data.table(
+        gof_name = c("nobs", "logLik", "AIC", "BIC", "pseudo.r.squared"),
+        digits = c(0, 1, 1, 1, 2),
+        gof_lbl = c("N", "logLik", "AIC", "BIC", "pseudo-R^2"))
+
+
+    c_vvs <- c(## l_orgforms,
+        list(dt_vrblinfo = dt_vrblinfo),
+        ## list(l_vrbltypes = l_vrbltypes), 
+        list(dt_ctgterm_lbls = dt_ctgterm_lbls),
+        list(dt_gof_cfg = dt_gof_cfg))
+
+    return(c_vvs)
+
+}
+
+
+    
