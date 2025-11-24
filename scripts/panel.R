@@ -9,11 +9,13 @@ gl_mdls <- function(dt_atyear_foster, dt_atyear_ec) {
 
     ## outcome auction turnover
     r_auc <- fepois(auc_turnover ~ log1p(exhbN_pm_cum) + log1p(exhbN_pes_cum) + log1p(exhbN_gallery_cum) +
-                        log1p(exhbN_event_cum) | PeopleID + year, dt_atyear_foster, fixef.rm = "singleton")
+                        log1p(exhbN_event_cum) | PeopleID + year, dt_atyear_foster, fixef.rm = "singleton",
+                    cluster = "PeopleID")
 
     ## outcome exhb in PES
     r_pes <- fepois(exhbN_pes ~ log1p(exhbN_pm_cum) + log1p(exhbN_gallery_cum) + log1p(exhbN_pes_cum) +
-                        log1p(exhbN_event_cum) | PeopleID + year, dt_atyear_foster, fixef.rm = "none")
+                        log1p(exhbN_event_cum) | PeopleID + year, dt_atyear_foster, fixef.rm = "none",
+                    cluster = "PeopleID")
 
     ## ## outcome PES with interaction
     ## r_pes2 <- fepois(exhbN_pes ~ log1p(exhbN_gallery_cum) + log1p(exhbN_pes_cum)*log1p(exhbN_pm_cum) +
@@ -89,7 +91,7 @@ gp_pminfl_cbn <- function(r_pes, r_auc) {
         ggplot(aes(x = estimate, y = term, xmin = estimate - 1.96 *std.error, xmax = estimate + 1.96 *std.error,
                    color = term)) +
         geom_point(show.legend = F) +
-        geom_errorbarh(show.legend = F) + 
+        geom_errorbar(show.legend = F) + 
         geom_vline(xintercept = 0, linetype = "dashed") +
         facet_grid(~src, scales = "free")
 

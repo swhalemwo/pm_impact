@@ -10,7 +10,7 @@ nlist(hi, there)
 print(len(c("hi", "there")))
 
 setNames(c("hi", "there"), c("hi", "there"))
-nlist(
+
 
 dt_atyear_evc[, c(nlist(PeopleID, year), .SD) , .SDcols = patterns("^evc")]
 
@@ -211,3 +211,38 @@ dt_m1 <- merge(dt_af_links_exhb_ppl, dt_af_exhbs[, .(ExhibitionID, InstitutionID
 dt_m2 <- merge(dt_m1, dt_af_instns, by = "InstitutionID", all.x = T)
 
 dt_m2[is.na(InstitutionType)]
+
+## ** more model experimentation
+
+## EE: exhibition effects
+## most basic idea: mean by institution type
+r_exef1 <- feols(exhbN_all_n5 ~ InstitutionType, dt_exhbppl_watyear)
+dt_exhbppl_watyear[, mean(exhbN_all_n5, na.rm = T), InstitutionType] # equivalent descriptive
+
+## adding artist FE: now within-artist variation: much much smaller
+r_exef2 <- feols(exhbN_all_n5 ~ InstitutionType | PeopleID, dt_exhbppl_watyear, fixef.rm = "singleton")
+
+## 
+r_exef3 <- feols(exhbN_all_n5 ~ InstitutionType + cnt_prevexhb | PeopleID, dt_exhbppl_watyear, fixef.rm = "singleton")
+
+## testing that with panel data
+## not sure if N5 is valid as DV: i feel i'm smoothing/re-using same data multiple times
+
+dt_atyear_foster[PeopleID==44, .(PeopleID, year, exhbN_all_n5, exhbN_pm, exhbN_gallery, exhbN_pes, exhbN_all_cum)]
+
+r_exef4 <- fepois(exhbN_all_n5 ~ exhbN_pm + exhbN_gallery + exhbN_pes + exhbN_event +
+                      log1p(exhbN_all_cum) | PeopleID, dt_atyear_foster)
+
+r_exef5 <- fepois(exhbN_all_n5 ~ exhbN_pm + exhbN_gallery + exhbN_pes + exhbN_event +
+                      log1p(exhbN_all_cum) | PeopleID, dt_atyear_foster, cluster = "PeopleID")
+
+
+
+
+
+
+
+## not sure using dt_exhbppl_watyear is good for estimating effect of exhibition:
+## this doesn't include those who didn't experience exhibitions -> those are in dt_atyear
+
+
