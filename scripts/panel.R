@@ -8,14 +8,24 @@ gl_mdls <- function(dt_atyear_foster, dt_atyear_ec) {
     gw_fargs(match.call())
 
     ## outcome auction turnover
-    r_auc <- fepois(auc_turnover ~ log1p(exhbN_pm_cum) + log1p(exhbN_pes_cum) + log1p(exhbN_gallery_cum) +
-                        log1p(exhbN_event_cum) | PeopleID + year, dt_atyear_foster, fixef.rm = "singleton",
-                    cluster = "PeopleID")
+
+    l_mdls <- list(
+        r_auc = fepois(auc_turnover ~ log1p(exhbN_pm_cum) + log1p(exhbN_pes_cum) + log1p(exhbN_gallery_cum) +
+                           log1p(exhbN_event_cum) | PeopleID + year, dt_atyear_foster, fixef.rm = "singleton",
+                       cluster = "PeopleID"),
+        
+
+        r_auc2 = fepois(asinh(auc_turnover) ~ log1p(exhbN_pm_cum) + log1p(exhbN_pes_cum) +
+                            log1p(exhbN_gallery_cum) + log1p(exhbN_event_cum) | PeopleID + year,
+                        dt_atyear_foster, fixef.rm = "singleton", cluster = "PeopleID"),
 
     ## outcome exhb in PES
-    r_pes <- fepois(exhbN_pes ~ log1p(exhbN_pm_cum) + log1p(exhbN_gallery_cum) + log1p(exhbN_pes_cum) +
-                        log1p(exhbN_event_cum) | PeopleID + year, dt_atyear_foster, fixef.rm = "none",
-                    cluster = "PeopleID")
+        r_pes = fepois(exhbN_pes ~ log1p(exhbN_pm_cum) + log1p(exhbN_gallery_cum) + log1p(exhbN_pes_cum) +
+                       log1p(exhbN_event_cum) | PeopleID + year, dt_atyear_foster, fixef.rm = "none",
+                       cluster = "PeopleID"),
+        r_pes2 = fepois(asinh(exhbN_pes) ~ log1p(exhbN_pm_cum) + log1p(exhbN_gallery_cum) + log1p(exhbN_pes_cum) +
+                       log1p(exhbN_event_cum) | PeopleID + year, dt_atyear_foster, fixef.rm = "none",
+                    cluster = "PeopleID"),
 
     ## ## outcome PES with interaction
     ## r_pes2 <- fepois(exhbN_pes ~ log1p(exhbN_gallery_cum) + log1p(exhbN_pes_cum)*log1p(exhbN_pm_cum) +
@@ -26,14 +36,15 @@ gl_mdls <- function(dt_atyear_foster, dt_atyear_ec) {
     ##                       log1p(exhbN_pm_cum) | PeopleID + year, dt_atyear_foster, fixef.rm = "none")
 
     ## evc DV
-    r_evc <- feols(evc_ay_ttl ~ log1p(exhbN_pm_cum) + log1p(exhbN_gallery_cum) + log1p(exhbN_pes_cum) +
-                       log1p(exhbN_event_cum) | PeopleID + year, dt_atyear_evc, fixef.rm = "none")
+        r_evc = feols(evc_ay_ttl ~ log1p(exhbN_pm_cum) + log1p(exhbN_gallery_cum) + log1p(exhbN_pes_cum) +
+                          log1p(exhbN_event_cum) | PeopleID + year, dt_atyear_evc, fixef.rm = "none")
+        )
     
 
 
-    l_mdls <- list(r_auc = r_auc,
-                   r_pes = r_pes,
-                   r_evc = r_evc)
+    ## l_mdls <- list(r_auc = r_auc,
+    ##                r_pes = r_pes,
+    ##                r_evc = r_evc)
 
     attr(l_mdls, "gnrtdby") <- as.character(match.call()[[1]])
 
