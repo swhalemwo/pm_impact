@@ -50,6 +50,10 @@ gc_plts <- function() {
             dt_atyear_foster = quote(dt_atyear_foster),
             width = 14, height = 7,
             caption = "coefs"),
+        ## p_grow_arrow = list(
+        ##     dt_insgrow5 = quote(dt_insgrow5),
+        ##     width = 12, height = 6,
+        ##     caption = "descs"),
         p_insevc = list(
             dt_insevc = quote(dt_insevc),
             width = 14, height = 7,

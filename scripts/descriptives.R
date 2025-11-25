@@ -254,3 +254,37 @@ gp_dist_aucturn <- function(dt_atyear_foster) {
                            labels = label_number(scale_cut = scales::cut_short_scale())) +
         labs(x = "Yearly Auction turnover (>0)")
 }
+
+
+
+
+gp_grow_arrow <- function(dt_insgrow5) {
+    gw_fargs(match.call())
+    
+    dt_sums <- dt_insgrow5[, map(.SD, ~mean(.x[!is.infinite(.x)], na.rm = T)), .(vlu = InstitutionType),
+                           .SDcols = c("exhbN_all_s5", "exhbN_grow5_cnt", "exhbN_perc_n5s5_org")] %>%
+        .[, `:=`(x = "exhbN_grow5_cnt", y2 = exhbN_grow5_cnt)] %>%
+        .[vlu == "pes", y2 := y2 + 3]
+
+    dt_sums2 <- merge(dt_sums, gc_vvs() %>% chuck("dt_ctgterm_lbls"), by = "vlu")
+    
+    c_lbls_x <- c(exhbN_all_s5 = "Before (5 year span)", exhbN_grow5_cnt = "After (5 year span)")
+
+
+    melt(dt_sums, id.vars = "vlu", measure.vars = c("exhbN_all_s5", "exhbN_grow5_cnt")) %>%
+        ggplot(aes(x=variable, y = value, color = vlu, group = vlu)) +
+        geom_point(size = 2, show.legend = F) +
+        geom_path(arrow = arrow(angle = 15, type = "closed"), show.legend = F) +
+        geom_text_repel(mapping = aes(label = format(value, digits =3)), direction = "y", show.legend= F) + 
+        geom_label(dt_sums2, mapping = aes(x=x, y = y2, label = vlu_lbl), 
+                   position = position_nudge(x=0.12), hjust = 0, show.legend = F) +
+        scale_x_discrete(labels = c_lbls_x,
+                         ## expand= c(0.1, 0)) +
+                         expand = expansion(add = c(0.4,1.2))) + 
+        labs(x = NULL, y = "Number of exhibitions") +
+        scale_y_continuous(limits = c(15,NA))
+        ## expand_limits(x=c(3,3))
+
+}
+
+
