@@ -17,8 +17,9 @@ library(collapse, include.only = c("fcumsum", "funique", "join", ".c"))     # fo
 library(scales, include.only = "label_number") # comfy suffix labels (e.g. 2K, 2B )for ranges across magnitudes
 library(broom, include.only = "tidy") # model extracting
 library(MASS, include.only = "kde2d")
-library(zeallot)
-library(stringr)
+library(zeallot)   # destructuring assingment, comfy but not very necessary
+library(stringr)   # string manip? i guess
+library(ggrepel)   # plotting
 set.seed(42)
 
 l_asinh_breaks <- c(0, 10^(0:10), 3*10^(0:10)) %>% c(., -1*.) %>% sort # breaks for asinh ggplots
