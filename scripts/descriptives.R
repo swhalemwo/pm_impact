@@ -215,3 +215,42 @@ gd_nbrs <- function() {
     return(dt_nbrs_cbnd)
 
 }
+
+
+gp_dist_exhbN_pes <- function(dt_atyear_foster) {
+
+## dt_atyear_foster[, .N, exhbN_pes] %>%
+##     .[, perc := 100*(N/sum(N))] %>% 
+##     ggplot(aes(x=exhbN_pes, y = N)) +
+##     ## geom_col(width = 0.3) +
+##     geom_step() + 
+##     scale_x_continuous(trans = scales::asinh_trans(), breaks = l_asinh_breaks)
+
+
+
+    dt_atyear_foster[, .N, cut(exhbN_pes, unique(l_asinh_breaks))] %>%
+        .[, perc := 100*(N/sum(N))] %>% 
+        .[, perc_fmt := sprintf("%s%%", format(perc,digits = 1, nsmall = 0)), .I] %>% 
+        .[, c("edge_lo", "edge_hi") := jtls::edge(cut), .I] %>%
+        .[, edge_lop1 := edge_lo + 1] %>%
+        .[, cut_exhb_pes := ifelse(edge_hi == edge_lop1, edge_hi, sprintf("%s-%s", edge_lop1, edge_hi))] %>%
+        .[order(cut)] %>% .[, cut_exhb_pes := factor(cut_exhb_pes, cut_exhb_pes)] %>% 
+        ggplot(aes(x=cut_exhb_pes, y = N, label = perc_fmt)) +
+        geom_col() +
+        geom_text(vjust = -0.7) +
+        labs(x="Number of exhibitions in Public Exhibition Spaces per year") +
+        scale_y_continuous(labels = scales::label_comma()) +
+        coord_cartesian(ylim = c(NA, 5.5e5))
+
+}
+
+
+gp_dist_aucturn <- function(dt_atyear_foster) {
+
+    dt_atyear_foster %>%
+        .[auc_turnover > 0] %>% 
+        ggplot(aes(x=auc_turnover)) + geom_density() +
+        scale_x_continuous(trans = scales::log10_trans(), breaks = c(0, 10^(c(4,8,seq(1,8,2)))),
+                           labels = label_number(scale_cut = scales::cut_short_scale())) +
+        labs(x = "Yearly Auction turnover (>0)")
+}

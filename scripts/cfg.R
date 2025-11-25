@@ -34,6 +34,14 @@ gc_plts <- function() {
             dt_atyear_foster = quote(dt_atyear_foster),
             width = 14, height = 7,
             caption = "cumulative advantage"),
+        p_dist_exhbN_pes = list(
+            dt_atyear_foster = quote(dt_atyear_foster),
+            width = 14, height = 7,
+            caption = "distribution of yearly PES exhibitions"),
+        p_dist_aucturn = list(
+            dt_atyear_foster = quote(dt_atyear_foster),
+            width = 14, height = 7,
+            caption = "distribution of yearly aucturn turnover"),
         p_insevc = list(
             dt_insevc = quote(dt_insevc),
             width = 14, height = 7,

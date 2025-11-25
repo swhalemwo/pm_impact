@@ -83,17 +83,24 @@ gp_atyear_evc <- function(dt_atyear_evc) {
 
 gp_pminfl_cbn <- function(r_pes, r_auc) {
 
-    imap(list("exhibitions (pes)" = r_pes, "auction turnover" = r_auc),
+    dt_ctgterm_lbls <- gc_vvs() %>% chuck("dt_ctgterm_lbls")
+
+    l_facet_lbls <- c(pes = "Exhibitions (Public Exhb. Space)", auc = "Auction Turnover")
+
+    imap(list("pes" = r_pes, "auc" = r_auc),
          ~adt(tidy(.x))[, src := .y]) %>% rbindlist %>%
+        .[, src := factor(src, levels = c("pes", "auc"))] %>% 
         ## .[src == "survival", estimate := estimate *-1] %>%
-        .[, src := factor(src, levels = c("exhibitions (pes)", "auction turnover"))] %>% 
+        ## .[, src := factor(src, levels = c("exhibitions (pes)", "auction turnover"))] %>% 
         .[, term := str_extract_all(term, "(?<=exhbN_)[a-zA-Z]+(?=_cum)")[[1]], .I] %>%
         ggplot(aes(x = estimate, y = term, xmin = estimate - 1.96 *std.error, xmax = estimate + 1.96 *std.error,
                    color = term)) +
         geom_point(show.legend = F) +
         geom_errorbar(show.legend = F) + 
         geom_vline(xintercept = 0, linetype = "dashed") +
-        facet_grid(~src, scales = "free")
+        facet_grid(~src, scales = "free", labeller = as_labeller(l_facet_lbls)) +
+        scale_y_discrete(labels = dt_ctgterm_lbls[, setNames(vlu_lbl, vlu)]) +
+        labs(y=NULL, x = "coefficient")
 
 }
 
