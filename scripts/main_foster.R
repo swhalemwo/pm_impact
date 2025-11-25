@@ -171,7 +171,11 @@ fwrite(dt_nbrs, paste0(c_dirs$misc, "nbrs.csv"), quote = F)
 
 
     
-gp_pminfl_cbn(l_mdls$r_pes2, l_mdls$r_auc2)
-# huh wtf is happening with that PES coef.. really hard to believe
+## gp_pminfl_cbn(l_mdls$r_pes2, l_mdls$r_auc2)
+## huh wtf is happening with that PES coef.. really hard to believe
+
+
+
+
 
 
