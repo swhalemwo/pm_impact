@@ -10,34 +10,43 @@ gl_mdls <- function(dt_atyear_foster, dt_atyear_ec) {
     ## outcome auction turnover
 
     l_mdls <- list(
-        r_auc = fepois(auc_turnover ~ log1p(exhbN_pm_cum) + log1p(exhbN_pes_cum) + log1p(exhbN_gallery_cum) +
-                           log1p(exhbN_event_cum) | PeopleID + year, dt_atyear_foster, fixef.rm = "singleton",
+        r_auc = fepois(auc_turnover ~ asinh(exhbN_pm_cum) + asinh(exhbN_pes_cum) + asinh(exhbN_gallery_cum) +
+                           asinh(exhbN_event_cum) | PeopleID + year, dt_atyear_foster, fixef.rm = "singleton",
                        cluster = "PeopleID"),
         
 
-        r_auc2 = fepois(asinh(auc_turnover) ~ log1p(exhbN_pm_cum) + log1p(exhbN_pes_cum) +
-                            log1p(exhbN_gallery_cum) + log1p(exhbN_event_cum) | PeopleID + year,
+        r_auc2 = fepois(asinh(auc_turnover) ~ asinh(exhbN_pm_cum) + asinh(exhbN_pes_cum) +
+                            asinh(exhbN_gallery_cum) + asinh(exhbN_event_cum) | PeopleID + year,
                         dt_atyear_foster, fixef.rm = "singleton", cluster = "PeopleID"),
 
     ## outcome exhb in PES
-        r_pes = fepois(exhbN_pes ~ log1p(exhbN_pm_cum) + log1p(exhbN_gallery_cum) + log1p(exhbN_pes_cum) +
-                       log1p(exhbN_event_cum) | PeopleID + year, dt_atyear_foster, fixef.rm = "none",
+        r_pes1 = fepois(exhbN_pes ~ asinh(exhbN_pm_cum) + asinh(exhbN_gallery_cum) + asinh(exhbN_pes_cum) +
+                       asinh(exhbN_event_cum) | PeopleID + year, dt_atyear_foster, fixef.rm = "none",
                        cluster = "PeopleID"),
-        r_pes2 = fepois(asinh(exhbN_pes) ~ log1p(exhbN_pm_cum) + log1p(exhbN_gallery_cum) + log1p(exhbN_pes_cum) +
-                       log1p(exhbN_event_cum) | PeopleID + year, dt_atyear_foster, fixef.rm = "none",
-                    cluster = "PeopleID"),
+
+        r_pes2 = fepois(asinh(exhbN_pes) ~ asinh(exhbN_pm_cum) + asinh(exhbN_gallery_cum) + asinh(exhbN_pes_cum) +
+                       asinh(exhbN_event_cum) | PeopleID + year, dt_atyear_foster, fixef.rm = "none",
+                       cluster = "PeopleID"),
+
+        r_pes3 = fepois(exhbN_pes ~ exhbN_pm_cum + exhbN_gallery_cum + exhbN_pes_cum +
+                       exhbN_event_cum | PeopleID + year, dt_atyear_foster, fixef.rm = "none",
+                       cluster = "PeopleID"),
+
+        r_pes4 = fepois(asinh(exhbN_pes) ~ exhbN_pm_cum + exhbN_gallery_cum + exhbN_pes_cum +
+                       exhbN_event_cum | PeopleID + year, dt_atyear_foster, fixef.rm = "none",
+                       cluster = "PeopleID"),
 
     ## ## outcome PES with interaction
-    ## r_pes2 <- fepois(exhbN_pes ~ log1p(exhbN_gallery_cum) + log1p(exhbN_pes_cum)*log1p(exhbN_pm_cum) +
-    ##                      log1p(exhbN_event_cum) | PeopleID + year, dt_atyear_foster, fixef.rm = "none")
+    ## r_pes2 <- fepois(exhbN_pes ~ asinh(exhbN_gallery_cum) + asinh(exhbN_pes_cum)*asinh(exhbN_pm_cum) +
+    ##                      asinh(exhbN_event_cum) | PeopleID + year, dt_atyear_foster, fixef.rm = "none")
 
-    ## r_pres3 <- fepois(exhbN_pes ~ log1p(exhbN_pes_cum)*log1p(exhbN_pm_cum) +
-    ##                       log1p(exhbN_pm_cum)*log1p(exhbN_gallery_cum) + log1p(exhbN_event_cum)*
-    ##                       log1p(exhbN_pm_cum) | PeopleID + year, dt_atyear_foster, fixef.rm = "none")
+    ## r_pres3 <- fepois(exhbN_pes ~ asinh(exhbN_pes_cum)*asinh(exhbN_pm_cum) +
+    ##                       asinh(exhbN_pm_cum)*asinh(exhbN_gallery_cum) + asinh(exhbN_event_cum)*
+    ##                       asinh(exhbN_pm_cum) | PeopleID + year, dt_atyear_foster, fixef.rm = "none")
 
     ## evc DV
-        r_evc = feols(evc_ay_ttl ~ log1p(exhbN_pm_cum) + log1p(exhbN_gallery_cum) + log1p(exhbN_pes_cum) +
-                          log1p(exhbN_event_cum) | PeopleID + year, dt_atyear_evc, fixef.rm = "none")
+        r_evc = feols(evc_ay_ttl ~ asinh(exhbN_pm_cum) + asinh(exhbN_gallery_cum) + asinh(exhbN_pes_cum) +
+                          asinh(exhbN_event_cum) | PeopleID + year, dt_atyear_evc, fixef.rm = "none")
         )
     
 
