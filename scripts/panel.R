@@ -237,3 +237,34 @@ gp_pred_exhbNcum <- function(dt_atyear_foster) {
         labs(x="Independent Variable (cumulative)", y = "Pred. Exhbs (Public Exhb Spaces)")
     
 }
+
+
+
+
+gp_grow_perc_arrow <- function(dt_insgrow5) {
+    dt_perc <- dt_insgrow5[, map(.SD, ~mean(.x[!is.infinite(.x)], na.rm = T)), .(vlu = InstitutionType), .SDcols = "exhbN_perc_n5s5_org"]
+    
+    dt_perc2 <- rbind(copy(dt_perc)[, x := "t5"],
+                      copy(dt_perc)[, `:=`(x = "t0", exhbN_perc_n5s5_org = 0)]) %>%
+        merge(gc_vvs() %>% chuck("dt_ctgterm_lbls"), by = "vlu") %>%
+        .[, y2 := exhbN_perc_n5s5_org] %>%
+        .[vlu == "event", y2 := y2 - 2.5]
+
+    c_lbls_x <- c(t0 = "Before (5 year span)", t5 = "After (5 year span)")
+
+    dt_perc2 %>% 
+        ggplot(aes(x=x, y = exhbN_perc_n5s5_org, color = vlu, group = vlu)) +
+        geom_point(show.legend = F) +
+        geom_line(arrow = arrow(angle = 15, type = "closed"), show.legend = F) +
+        geom_hline(yintercept = 0, linetype = "dashed") +
+        geom_label(dt_perc2[x == "t5"], mapping = aes(label = vlu_lbl, y = y2),
+                   position = position_nudge(x=0.4),
+                   hjust = 0, show.legend = F) +
+        geom_text(dt_perc2[x == "t5"],
+                  mapping = aes(y=y2,label = sprintf("%s%%", format(exhbN_perc_n5s5_org, digits = 2))),
+                  show.legend = F,
+                  position = position_nudge(x=0.04), hjust = 0) +                   
+        scale_x_discrete(expand = expansion(add = c(0.4,1.7)),
+                         labels = c_lbls_x) +
+        labs(x = NULL, y = "Percentage Change")
+}
