@@ -136,3 +136,21 @@ gp_pminfl_cbn <- function(r_pes, r_auc) {
 
 
 
+
+gp_coef_trans <- function(l_mdls) {
+    #' coefficients of different model configs
+
+    ## specify iv-dv IHS types here, then coef plot, format DV/IV, either I (IHS) or U (untransformed)
+
+    imap(c("UI", "II", "UU", "IU"), ~tidy(l_mdls[[paste0("r_pes", .y)]]) %>% adt %>% .[, src := .x]) %>% rbindlist %>% 
+        .[, term := gsub("asinh\\(", "", term)] %>% .[, term := gsub("\\)", "", term)] %>%
+        .[, `:=`(dv_trans = substring(src,0, 1), iv_trans = substring(src, 2,2))] %>%
+        ## .[dv_trans == "U"] %>% 
+        ggplot(aes(x=estimate, y = term, color = dv_trans, shape = iv_trans, xmin = estimate - 1.96*std.error, xmax = estimate + 1.96*std.error)) +
+        geom_point(position = position_dodge(width = 0.4), size = 3, stroke = 3) +
+        geom_errorbar(position = position_dodge(width = 0.4), linewidth = 1.5) +
+        scale_shape_manual(values = c(1,2))  +
+        geom_vline(xintercept = 0, linetype = "dashed") +
+        theme(legend.position = "bottom")
+}
+    
