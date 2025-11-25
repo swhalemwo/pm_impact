@@ -234,6 +234,6 @@ gp_pred_exhbNcum <- function(dt_atyear_foster) {
         scale_y_continuous(trans = scales::log_trans(), breaks = c(0.5, 1,1.5,2)) +
         theme(legend.position = "bottom")  +
         geom_label(dt_lbls, mapping = aes(label = vlu_lbl, color = vlu), hjust = 0, show.legend = F) +
-        labs(x="Independent Variable", y = "Pred. Exhbs (Public Exhb Spaces)")
+        labs(x="Independent Variable (cumulative)", y = "Pred. Exhbs (Public Exhb Spaces)")
     
 }
