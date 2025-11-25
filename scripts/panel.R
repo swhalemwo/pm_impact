@@ -154,3 +154,86 @@ gp_coef_trans <- function(l_mdls) {
         theme(legend.position = "bottom")
 }
     
+
+
+
+gp_pred_exhbNcum <- function(dt_atyear_foster) {
+
+    ## get succesful people who started young and have PM
+    dt_sample <- dt_atyear_foster[first_year %between% c(2000,2002) & BirthYear > 1970,
+                                  .SD[max(exhbN_pm_cum) > 2 & max(exhbN_all_cum) %between% c(80,120)], PeopleID]
+        ## .[, exhbN_pes_pred := predict(l_mdls$r_pes1, .SD)]
+
+    dt_sample[, uniqueN(PeopleID)]
+
+    ## l_vpats_yeet <- c("s5", "n5", "cum", "_all", "yeet")
+
+    ## dt_exhbN_long <- melt(dt_sample[PeopleID == 8742], id.vars = c("PeopleID", "year", "career_year"), measure.vars = patterns("exhbN_")) %>%
+    ##     .[pall(map(l_vpats_yeet, ~!grepl(.x, variable)))] 
+    ##     ## .[pall(map(c(), ~!grepl(.x, variable)))]
+    ## dt_exhbN_long[, .N, variable] %>% print(n=80)
+
+    ## i'm reinventing p_descs_panel.. but shittier? 
+
+    ## dt_sample[PeopleID == 8742] %>% ggplot(aes(x = career_year, y = exhbN_all_cum)) +
+    ##     geom_step() +
+    ##     geom_step(dt_exhbN_long, mapping = aes(x=career_year, y=value, color = variable))
+
+
+    ## melt(dt_sample[PeopleID == 8742], id.vars = c("PeopleID", "career_year", "year"), measure.vars = c("exhbN_pes", "exhbN_pes_pred")) %>% 
+    ##     ggplot(aes(x=career_year, y = value, color = variable)) + geom_line()
+
+    ## dt_sample %>% ggplot(aes(x=exhbN_pm_cum, y = exhbN_pes)) + geom_jitter() + geom_smooth(method = "lm")
+    ## dt_sample %>% ggplot(aes(x=exhbN_gallery_cum, y = exhbN_pes)) + geom_jitter() + geom_smooth(method = "lm")
+
+
+
+    ## dt_sample %>% ggplot(aes(x=exhbN_gallery_cum, y = exhbN_pes_pred, color = factor(PeopleID))) +
+    ##     geom_point(show.legend = F) + geom_line(show.legend = F)
+
+    ## dt_sample2 <- dt_sample[, .SD[sample(1:.N, 1)], PeopleID]
+
+    ## map(0:20, ~dt_sample2 %>% copy %>% .[, exhbN_gallery_cum := exhbN_gallery_cum + .x]) %>% rbindlist %>%
+    ##     .[, exhbN_pes_pred := predict(l_mdls$r_pes1, .SD)] %>% 
+    ##     ggplot(aes(x=exhbN_gallery_cum, y = exhbN_pes_pred, color = factor(PeopleID))) +
+    ##     geom_point(show.legend = F, size = 0.6) +
+    ##     geom_line(show.legend = F) + 
+    ##     scale_y_continuous(trans = scales::log10_trans()) +
+    ##     scale_x_continuous(trans = scales::asinh_trans(), breaks = l_asinh_breaks)
+
+
+
+
+    l_vrbls <- sprintf("exhbN_%s_cum", c("pm", "pes", "gallery", "event"))
+
+    dt_pred <- map(l_vrbls,
+                   ~lapply(0:10, \(t) dt_sample[PeopleID == 8742 & career_year == 0] %>% copy %>% 
+                                      .[, `:=`(xxx = get(.x) + t, vrbl = .x)] %>%
+                                      .[, .SD, .SDcols = setdiff(names(.), .x)] %>% # drop original value
+                                      setnames(old = "xxx", new = .x) %>%
+                                      .[, vx := get(.x)]
+                           ) %>% rbindlist) %>% rbindlist(use.names= T) %>%
+        .[, .SD, .SDcols = c("PeopleID", "year", "vrbl", "vx", l_vrbls)] %>% 
+        .[, pred := predict(l_mdls$r_pes1, .SD)] %>%
+        .[, vrbl := sub("exhbN_(.*?)_cum", "\\1", vrbl)]
+
+
+    dt_lbls <- merge(dt_pred[, .SD[which.max(vx)], .(vlu = vrbl)],
+                     gc_vvs() %>% chuck("dt_ctgterm_lbls"), by = "vlu") %>%
+        .[, vx := vx+0.5] %>%
+        .[vlu == "pes", pred := pred + 0.05]
+
+
+
+    dt_pred %>%
+        ggplot(aes(x=vx, y = pred, color = vrbl)) +
+        geom_line(show.legend = F) +
+        geom_point(show.legend = F) +
+        ## facet_grid(~vrbl, scales = "free")  + 
+        scale_x_continuous(trans = scales::asinh_trans(), breaks = l_asinh_breaks, limits = c(NA, 50))  +
+        scale_y_continuous(trans = scales::log_trans(), breaks = c(0.5, 1,1.5,2)) +
+        theme(legend.position = "bottom")  +
+        geom_label(dt_lbls, mapping = aes(label = vlu_lbl, color = vlu), hjust = 0, show.legend = F) +
+        labs(x="Independent Variable", y = "Pred. Exhbs (Public Exhb Spaces)")
+    
+}

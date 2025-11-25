@@ -46,6 +46,10 @@ gc_plts <- function() {
             l_mdls = quote(l_mdls),
             width = 14, height = 6,
             caption = "coefs"),
+        p_pred_exhbNcum = list(
+            dt_atyear_foster = quote(dt_atyear_foster),
+            width = 14, height = 7,
+            caption = "coefs"),
         p_insevc = list(
             dt_insevc = quote(dt_insevc),
             width = 14, height = 7,
