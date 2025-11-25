@@ -260,3 +260,9 @@ dt_sample[exhbN_event_cum == exhbN_gallery_cum & exhbN_gallery_cum > 10]
 
 dt_atyear_foster[exhbN_pes_cum < 10, .N]/dt_atyear_foster[, .N] ## 70% of artist-years have less than 10 PES exbhs
 
+
+merge(dt_sample[, .(PeopleID = unique(PeopleID))],
+      vadt(fixef(l_mdls$r_pes1)$PeopleID, name = "PeopleID", vlu = "fixef")[, PeopleID := as.integer(PeopleID)],
+      by = "PeopleID")
+    ## .[which.min(abs(fixef))]
+
