@@ -3,8 +3,19 @@ gc_plts <- function() {
 
     list(
         p_pminfl_cbn = list(
-            r_pes = quote(l_mdls$r_pes1), r_auc = quote(l_mdls$r_auc),
+            r_pes = quote(l_mdls$r_pes1),
+            r_auc = quote(l_mdls$r_auc),
             width = 14, height = 7,
+            caption = "influence of PM exhibitions"),
+        p_pminfl_pes = list(
+            r_pes = quote(l_mdls$r_pes_s5),
+            ## r_pes = quote(l_mdls$r_pes1),
+            width = 9, height = 7,
+            caption = "influence of PM exhibitions"),
+        p_pminfl_auc = list(
+            r_auc = quote(l_mdls$r_auc_s5),
+            ## r_pes = quote(l_mdls$r_pes1),
+            width = 13, height = 7,
             caption = "influence of PM exhibitions"),
         p_hist_crap = list(
             dt_atyear_foster = quote(dt_atyear_foster),
@@ -50,7 +61,7 @@ gc_plts <- function() {
             dt_atyear_foster = quote(dt_atyear_foster),
             width = 14, height = 7,
             caption = "coefs"),
-        ## p_grow_arrow = list( dont re-render for now
+        ## p_grow_arrow = list(#  dont re-render for now
         ##     dt_insgrow5 = quote(dt_insgrow5),
         ##     width = 12, height = 6,
         ##     caption = "descs"),

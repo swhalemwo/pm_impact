@@ -13,7 +13,11 @@ gl_mdls <- function(dt_atyear_foster, dt_atyear_ec) {
         r_auc = fepois(auc_turnover ~ asinh(exhbN_pm_cum) + asinh(exhbN_pes_cum) + asinh(exhbN_gallery_cum) +
                            asinh(exhbN_event_cum) | PeopleID + year, dt_atyear_foster, fixef.rm = "singleton",
                        cluster = "PeopleID"),
-        
+
+        r_auc_s5 = fepois(auc_turnover ~ asinh(exhbN_pm_s5) + asinh(exhbN_pes_s5) + asinh(exhbN_gallery_s5) +
+                           asinh(exhbN_event_s5) | PeopleID + year, dt_atyear_foster, fixef.rm = "singleton",
+                       cluster = "PeopleID"),
+
 
         r_auc2 = fepois(asinh(auc_turnover) ~ asinh(exhbN_pm_cum) + asinh(exhbN_pes_cum) +
                             asinh(exhbN_gallery_cum) + asinh(exhbN_event_cum) | PeopleID + year,
@@ -36,6 +40,10 @@ gl_mdls <- function(dt_atyear_foster, dt_atyear_ec) {
                        exhbN_event_cum | PeopleID + year, dt_atyear_foster, fixef.rm = "none",
                        cluster = "PeopleID"),
 
+        r_pes_s5 = fepois(exhbN_pes ~ asinh(exhbN_pm_s5) + asinh(exhbN_gallery_s5) + asinh(exhbN_pes_s5) +
+                       asinh(exhbN_event_s5) | PeopleID + year, dt_atyear_foster, fixef.rm = "none",
+                       cluster = "PeopleID"),
+
     ## ## outcome PES with interaction
     ## r_pes2 <- fepois(exhbN_pes ~ asinh(exhbN_gallery_cum) + asinh(exhbN_pes_cum)*asinh(exhbN_pm_cum) +
     ##                      asinh(exhbN_event_cum) | PeopleID + year, dt_atyear_foster, fixef.rm = "none")
@@ -51,6 +59,7 @@ gl_mdls <- function(dt_atyear_foster, dt_atyear_ec) {
     
 
 
+
     ## l_mdls <- list(r_auc = r_auc,
     ##                r_pes = r_pes,
     ##                r_evc = r_evc)
@@ -59,6 +68,8 @@ gl_mdls <- function(dt_atyear_foster, dt_atyear_ec) {
 
     return(l_mdls)
 }
+
+
 
 
 
@@ -98,6 +109,74 @@ gp_atyear_evc <- function(dt_atyear_evc) {
 
 ## gp_pminfl_auc(rc1)
 
+
+gp_pminfl_pes <- function(r_pes) {
+
+    dt_ctgterm_lbls <- gc_vvs() %>% chuck("dt_ctgterm_lbls")
+
+    l_facet_lbls <- c(pes = "Exhibitions (Public Exhb. Space)", auc = "Auction Turnover")
+    
+    l_cols <- c(pm = "#C77CFF", event = "#F8766D", gallery = "#7CAE00", pes = "#00BFC4")
+
+    imap(list("pes" = r_pes),
+         ~adt(tidy(.x))[, src := .y]) %>% rbindlist %>%
+        .[, src := factor(src, levels = c("pes", "auc"))] %>% 
+        ## .[src == "survival", estimate := estimate *-1] %>%
+        ## .[, src := factor(src, levels = c("exhibitions (pes)", "auction turnover"))] %>% 
+        ## .[, term := str_extract_all(term, "(?<=exhbN_)[a-zA-Z]+(?=_cum)")[[1]], .I] %>%
+        .[, term := str_extract_all(term, "(?<=exhbN_)[a-zA-Z]+(?=_s5)")[[1]], .I] %>%
+        .[order(estimate)] %>%
+        .[, term := factor(term, levels = term)] %>% 
+        ggplot(aes(x = estimate, y = term, xmin = estimate - 1.96 *std.error, xmax = estimate + 1.96 *std.error,
+                   color = term)) +
+        geom_point(show.legend = F) +
+        geom_errorbar(show.legend = F) + 
+        geom_vline(xintercept = 0, linetype = "dashed") +
+        ## facet_grid(~src, scales = "free", labeller = as_labeller(l_facet_lbls)) +
+        scale_y_discrete(labels = dt_ctgterm_lbls[, setNames(vlu_lbl, vlu)]) +
+        labs(y=NULL, x = "impact") + 
+        scale_color_manual(values = l_cols)
+
+    
+
+
+}
+
+gp_pminfl_auc <- function(r_auc) {
+
+    dt_ctgterm_lbls <- gc_vvs() %>% chuck("dt_ctgterm_lbls")
+
+    l_facet_lbls <- c(pes = "Exhibitions (Public Exhb. Space)", auc = "Auction Turnover")
+    
+    l_cols <- c(pm = "#C77CFF", event = "#F8766D", gallery = "#7CAE00", pes = "#00BFC4")
+
+    imap(list("auc" = r_auc),
+         ~adt(tidy(.x))[, src := .y]) %>% rbindlist %>%
+        .[, src := factor(src, levels = c("pes", "auc"))] %>% 
+        ## .[src == "survival", estimate := estimate *-1] %>%
+        ## .[, src := factor(src, levels = c("exhibitions (pes)", "auction turnover"))] %>% 
+        ## .[, term := str_extract_all(term, "(?<=exhbN_)[a-zA-Z]+(?=_cum)")[[1]], .I] %>%
+        .[, term := str_extract_all(term, "(?<=exhbN_)[a-zA-Z]+(?=_s5)")[[1]], .I] %>%
+        .[order(estimate)] %>%
+        .[, term := factor(term, levels = term)] %>% 
+        ggplot(aes(x = estimate, y = term, xmin = estimate - 1.96 *std.error, xmax = estimate + 1.96 *std.error,
+                   color = term)) +
+        geom_point(show.legend = F) +
+        geom_errorbar(show.legend = F) + 
+        geom_vline(xintercept = 0, linetype = "dashed") +
+        ## facet_grid(~src, scales = "free", labeller = as_labeller(l_facet_lbls)) +
+        scale_y_discrete(labels = dt_ctgterm_lbls[, setNames(vlu_lbl, vlu)]) +
+        labs(y=NULL, x = "impact") + 
+        scale_color_manual(values = l_cols)
+
+    
+
+
+}
+
+
+
+## gdplt("p_pminfl_pes")
 
 
 
@@ -204,24 +283,29 @@ gp_pred_exhbNcum <- function(dt_atyear_foster) {
 
 
 
-    l_vrbls <- sprintf("exhbN_%s_cum", c("pm", "pes", "gallery", "event"))
+    ## l_vrbls <- sprintf("exhbN_%s_cum", c("pm", "pes", "gallery", "event"))
+    l_vrbls <- sprintf("exhbN_%s_s5", c("pm", "pes", "gallery", "event"))
 
     dt_pred <- map(l_vrbls,
                    ~lapply(0:10, \(t) dt_sample[PeopleID == 8742 & career_year == 0] %>% copy %>% 
-                                      .[, `:=`(xxx = get(.x) + t, vrbl = .x)] %>%
+                                      ## .[, `:=`(xxx = get(.x) + t, vrbl = .x)] %>%
+                                      .[, `:=`(xxx = t, vrbl = .x)] %>%
                                       .[, .SD, .SDcols = setdiff(names(.), .x)] %>% # drop original value
                                       setnames(old = "xxx", new = .x) %>%
                                       .[, vx := get(.x)]
                            ) %>% rbindlist) %>% rbindlist(use.names= T) %>%
+        setnafill(fil = 0, cols = l_vrbls) %>% 
         .[, .SD, .SDcols = c("PeopleID", "year", "vrbl", "vx", l_vrbls)] %>% 
-        .[, pred := predict(l_mdls$r_pes1, .SD)] %>%
-        .[, vrbl := sub("exhbN_(.*?)_cum", "\\1", vrbl)]
+        ## .[, pred := predict(l_mdls$r_pes1, .SD)] %>%
+        .[, pred := predict(l_mdls$r_pes_s5, .SD)] %>%
+        ## .[, vrbl := sub("exhbN_(.*?)_cum", "\\1", vrbl)]
+        .[, vrbl := sub("exhbN_(.*?)_s5", "\\1", vrbl)]
 
 
     dt_lbls <- merge(dt_pred[, .SD[which.max(vx)], .(vlu = vrbl)],
                      gc_vvs() %>% chuck("dt_ctgterm_lbls"), by = "vlu") %>%
-        .[, vx := vx+0.5] %>%
-        .[vlu == "pes", pred := pred + 0.05]
+        .[, vx := vx+0.5] %>% 
+        .[vlu == "gallery", pred := pred - 0.02]
 
 
 
@@ -231,10 +315,12 @@ gp_pred_exhbNcum <- function(dt_atyear_foster) {
         geom_point(show.legend = F) +
         ## facet_grid(~vrbl, scales = "free")  + 
         scale_x_continuous(trans = scales::asinh_trans(), breaks = l_asinh_breaks, limits = c(NA, 50))  +
-        scale_y_continuous(trans = scales::log_trans(), breaks = c(0.5, 1,1.5,2)) +
+        scale_y_continuous(trans = scales::log_trans()
+                           ## breaks = c(, 1, 1.2, 1.4)
+                           ) +  # breaks = c(0.5, 1,1.5,2)) +
         theme(legend.position = "bottom")  +
         geom_label(dt_lbls, mapping = aes(label = vlu_lbl, color = vlu), hjust = 0, show.legend = F) +
-        labs(x="Independent Variable (cumulative)", y = "Pred. Exhbs (Public Exhb Spaces)")
+        labs(x="Number of Exhibitions", y = "Pred. Exhbs (Public Exhb Spaces)")
     
 }
 

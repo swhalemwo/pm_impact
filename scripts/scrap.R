@@ -266,3 +266,36 @@ merge(dt_sample[, .(PeopleID = unique(PeopleID))],
       by = "PeopleID")
     ## .[which.min(abs(fixef))]
 
+
+## ** career-stage variation
+
+dt_atyear_foster2 <- dt_atyear_foster %>% copy
+
+l_qntls <- c(0.25,0.5,0.7, 0.9, 0.95,0.98)
+dt_atyear_foster2[, exhbD_all_cum := cut(exhbN_all_cum, quantile(exhbN_all_cum, probs = c(0,l_qntls)))]
+                                         ## labels = paste0("qn_", c(l_qntls*100))]
+
+dt_atyear_foster2[, .N, exhbD_all_cum]
+
+dt_atyear_foster2[is.na(exhbD_all_cum), .(exhbN_all_cum)]
+
+
+## * lola
+dt_atyear_foster[, uniqueN(PeopleID)]
+
+fepois(exhbN_pes ~ asinh(exhbN_pm_cum), dt_atyear_foster)
+fepois(exhbN_pes ~ asinh(exhbN_pm_cum) | PeopleID  , dt_atyear_foster)
+
+dt_atyear_foster[, .N, exhbN_pm_cum]
+
+dt_atyear_foster[, pm_ever := fifelse(exhbN_pm_cum == 0, 0, 1)]
+dt_atyear_foster[, .N, pm_ever]
+
+list(pooled = fepois(exhbN_pes ~ pm_ever, dt_atyear_foster),
+     did = fepois(exhbN_pes ~ pm_ever | PeopleID, dt_atyear_foster)) %>%
+    screenreg
+
+
+rx_year <- fepois(exhbN_pes ~ pm_ever * factor(year) | PeopleID, dt_atyear_foster[year %between% c(2000, 2020)])
+
+
