@@ -1,6 +1,6 @@
 gf_foster <- function(dv, iv_type = "cum", transform = "asinh", 
-                             vars = gc_vvs()$dt_ctgterm_lbls[vrbl == "InstitutionType", unique(vlu)],
-                             fe = c("PeopleID", "year"), offset = NULL) {
+                      vars = gc_vvs()$l_orgforms,
+                      fe = c("PeopleID", "year"), offset = NULL) {
     
     ivs <- sprintf("%s(exhbN_%s_%s)", transform, vars, iv_type)
     fe_str <- paste(fe, collapse = " + ")

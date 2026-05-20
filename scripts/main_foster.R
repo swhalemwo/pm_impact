@@ -165,7 +165,10 @@ dt_insgrow5 <- gd_insgrow5(dt_exhbppl_watyear, l_cols_summary)
 
 l_mdls <- gl_mdls(dt_atyear_foster, dt_atyear_evc)
 
-l_mdls_smol <- gl_mdls(dt_atyear_foster[year %between% c(2010, 2012)], dt_atyear_evc[year %between% c(2010, 2012)])
+dt_atyear_foster_smol <- dt_atyear_foster[year %between% c(2010, 2012)]
+dt_atyear_evc_smol <- dt_atyear_evc[year %between% c(2010, 2012)]
+
+l_mdls <- gl_mdls(dt_atyear_foster_smol, dt_atyear_evc_smol)
 
 
 ## dt_atyear_evc[, map(.SD, ~sum(is.na(.x)))] %>% t %>% adt %>% .[, .N, V1]
