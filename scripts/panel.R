@@ -35,20 +35,20 @@ gl_mdls <- function(dt_atyear_foster, dt_atyear_ec) {
 
         r_auc_ihs = fepois(gf_foster("asinh(auc_turnover)", iv_type = "cum", transform = "asinh"), dt_atyear_foster, fixef.rm = "singleton", cluster = "PeopleID"),
 
-        ## outcome exhb in PI: model names describe DV/IV transformation: N is normal (untransformed, I is IHS)
-        r_pi_NN = fepois(gf_foster("exhbN_pi", iv_type = "cum"), dt_atyear_foster, fixef.rm = "none",
+        ## outcome exhb in PI: model names describe DV/IV transformation: U (untransformed, I is IHS)
+        r_pi_UU = fepois(gf_foster("exhbN_pi", iv_type = "cum"), dt_atyear_foster, fixef.rm = "none",
                        cluster = "PeopleID"),
 
-        r_pi_IN = fepois(gf_foster("asinh(exhbN_pi)", iv_type = "cum", transform = "asinh"), dt_atyear_foster, fixef.rm = "none",
+        r_pi_IU = fepois(gf_foster("asinh(exhbN_pi)", iv_type = "cum", transform = "asinh"), dt_atyear_foster, fixef.rm = "none",
                        cluster = "PeopleID"),
 
-        r_pi_NI = fepois(gf_foster("exhbN_pi", iv_type = "cum", transform = "asinh"), dt_atyear_foster, fixef.rm = "none",
+        r_pi_UI = fepois(gf_foster("exhbN_pi", iv_type = "cum", transform = "asinh"), dt_atyear_foster, fixef.rm = "none",
                        cluster = "PeopleID"),
 
         r_pi_II = fepois(gf_foster("asinh(exhbN_pi)", iv_type = "cum", transform = "asinh"), dt_atyear_foster, fixef.rm = "none",
                        cluster = "PeopleID"),
 
-        r_pi_s5_NNs5 = fepois(gf_foster("exhbN_pi", iv_type = "s5"), dt_atyear_foster, fixef.rm = "none",
+        r_pi_UU_s5 = fepois(gf_foster("exhbN_pi", iv_type = "s5"), dt_atyear_foster, fixef.rm = "none",
                        cluster = "PeopleID"),
 
     ## ## outcome PES with interaction
@@ -373,20 +373,32 @@ gp_coefs <- function(dt_coefs, l_facet_lbls = NULL) {
     
     dt_ctgterm_lbls <- gc_vvs() %>% chuck("dt_ctgterm_lbls")
 
-    p <- dt_coefs %>% 
-        ggplot(aes(x = estimate, y = term, xmin = estimate - 1.96 *std.error, xmax = estimate + 1.96 *std.error,
-                   color = term)) +
-        geom_point(show.legend = FALSE) +
-        geom_errorbarh(show.legend = FALSE, height = 0) + 
+    l_orgforms <- sprintf("_%s_", gc_vvs() %>% chuck("l_orgforms")) %>% paste0(collapse = "|")
+        
+    
+
+    dt_coef_viz <- dt_coefs %>%
+        .[grepl("_pi_", mdl)] %>%
+        .[, instype := gsub("_", "", str_extract(term, l_orgforms))]
+        
+        
+        
+
+    p <- dt_coef_viz %>% 
+        ggplot(aes(x = estimate, y = instype, xmin = estimate - 1.96 *std.error, xmax = estimate + 1.96 *std.error,
+                   color = mdl)) +
+        geom_point() +
+        geom_errorbarh(show.legend = FALSE) + 
         geom_vline(xintercept = 0, linetype = "dashed") +
         scale_y_discrete(labels = dt_ctgterm_lbls[, setNames(vlu_lbl, vlu)]) +
-        labs(y=NULL, x = "estimate")
+        labs(y=NULL, x = "estimate") +
+        facet_grid(~mdl, scales = "free_x")
     
-    if (!is.null(l_facet_lbls)) {
-        p <- p + facet_grid(mdl ~ ., scales = "free_y", labeller = as_labeller(l_facet_lbls))
-    } else {
-        p <- p + facet_grid(mdl ~ ., scales = "free_y")
-    }
+    ## if (!is.null(l_facet_lbls)) {
+    ##     p <- p + facet_grid(mdl ~ ., scales = "free_y", labeller = as_labeller(l_facet_lbls))
+    ## } else {
+    ##     p <- p + facet_grid(mdl ~ ., scales = "free_y")
+    ## }
     
     return(p)
 }
