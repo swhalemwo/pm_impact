@@ -1,5 +1,5 @@
 gf_foster <- function(dv, iv_type = "cum", transform = "asinh", 
-                             vars = c("pm", "gallery", "pes", "event"),
+                             vars = gc_vvs()$dt_ctgterm_lbls[vrbl == "InstitutionType", unique(vlu)],
                              fe = c("PeopleID", "year"), offset = NULL) {
     
     ivs <- sprintf("%s(exhbN_%s_%s)", transform, vars, iv_type)
@@ -21,7 +21,7 @@ gl_mdls <- function(dt_atyear_foster, dt_atyear_ec) {
     ## outcome auction turnover
 
     l_mdls <- list(
-        r_auc = fepois(gf_foster("auc_turnover", iv_type = "cum", vars = c("pm", "pes", "gallery", "event")),
+        r_auc = fepois(gf_foster("auc_turnover", iv_type = "cum"),
                        dt_atyear_foster, fixef.rm = "singleton",
                        cluster = "PeopleID"),
 

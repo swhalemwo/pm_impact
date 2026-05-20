@@ -42,6 +42,8 @@ gd_atyear_foster <- function(dt_atyear_raw, c_filters_atyear) {
 }
 
 
+some_func <- function(a,b) (a + b) * (a - b)
+
 
 
 gd_atyear_rcd <- function(dt_af_exhbs, dt_af_links_exhb_ppl, dt_af_instns_rcd) {
