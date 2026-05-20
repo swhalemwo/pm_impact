@@ -1,8 +1,12 @@
-gf_foster <- function(dv, iv_type = "cum", transform = "asinh", 
+gf_foster <- function(dv, iv_type = "cum", transform = NULL, 
                       vars = gc_vvs()$l_orgforms,
                       fe = c("PeopleID", "year"), offset = NULL) {
     
-    ivs <- sprintf("%s(exhbN_%s_%s)", transform, vars, iv_type)
+    ivs <- sprintf("exhbN_%s_%s", vars, iv_type)
+    if (!is.null(transform)) {
+        ivs <- sprintf("%s(%s)", transform, ivs)
+    }
+    
     fe_str <- paste(fe, collapse = " + ")
     formula_str <- sprintf("%s ~ %s | %s", dv, paste(ivs, collapse = " + "), fe_str)
     
@@ -21,27 +25,27 @@ gl_mdls <- function(dt_atyear_foster, dt_atyear_ec) {
     ## outcome auction turnover
 
     l_mdls <- list(
-        r_auc = fepois(gf_foster("auc_turnover", iv_type = "cum"),
+        r_auc = fepois(gf_foster("auc_turnover", iv_type = "cum", transform = "asinh"),
                        dt_atyear_foster, fixef.rm = "singleton",
                        cluster = "PeopleID"),
 
-        r_auc_s5 = fepois(gf_foster("auc_turnover", iv_type = "s5"), dt_atyear_foster, fixef.rm = "singleton",
+        r_auc_s5 = fepois(gf_foster("auc_turnover", iv_type = "s5", transform = "asinh"), dt_atyear_foster, fixef.rm = "singleton",
                        cluster = "PeopleID"),
 
 
-        r_auc_ihs = fepois(gf_foster("asinh(auc_turnover)", iv_type = "cum"), dt_atyear_foster, fixef.rm = "singleton", cluster = "PeopleID"),
+        r_auc_ihs = fepois(gf_foster("asinh(auc_turnover)", iv_type = "cum", transform = "asinh"), dt_atyear_foster, fixef.rm = "singleton", cluster = "PeopleID"),
 
         ## outcome exhb in PI: model names describe DV/IV transformation: N is normal (untransformed, I is IHS)
         r_pi_NN = fepois(gf_foster("exhbN_pi", iv_type = "cum"), dt_atyear_foster, fixef.rm = "none",
                        cluster = "PeopleID"),
 
-        r_pi_IN = fepois(gf_foster("asinh(exhbN_pi)", iv_type = "cum"), dt_atyear_foster, fixef.rm = "none",
+        r_pi_IN = fepois(gf_foster("asinh(exhbN_pi)", iv_type = "cum", transform = "asinh"), dt_atyear_foster, fixef.rm = "none",
                        cluster = "PeopleID"),
 
-        r_pi_NI = fepois(gf_foster("exhbN_pi", iv_type = "cum", transform = "I"), dt_atyear_foster, fixef.rm = "none",
+        r_pi_NI = fepois(gf_foster("exhbN_pi", iv_type = "cum", transform = "asinh"), dt_atyear_foster, fixef.rm = "none",
                        cluster = "PeopleID"),
 
-        r_pi_II = fepois(gf_foster("asinh(exhbN_pi)", iv_type = "cum", transform = "I"), dt_atyear_foster, fixef.rm = "none",
+        r_pi_II = fepois(gf_foster("asinh(exhbN_pi)", iv_type = "cum", transform = "asinh"), dt_atyear_foster, fixef.rm = "none",
                        cluster = "PeopleID"),
 
         r_pi_s5_NNs5 = fepois(gf_foster("exhbN_pi", iv_type = "s5"), dt_atyear_foster, fixef.rm = "none",
@@ -56,7 +60,7 @@ gl_mdls <- function(dt_atyear_foster, dt_atyear_ec) {
     ##                       asinh(exhbN_pm_cum) | PeopleID + year, dt_atyear_foster, fixef.rm = "none")
 
     ## evc DV
-        r_evc = feols(gf_foster("evc_ay_ttl", iv_type = "cum"), dt_atyear_evc, fixef.rm = "none")
+        r_evc = feols(gf_foster("evc_ay_ttl", iv_type = "cum", transform = "asinh"), dt_atyear_ec, fixef.rm = "none")
         )
     
 
