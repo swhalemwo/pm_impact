@@ -308,3 +308,6 @@ dt_lit_consecgen <- gd_lit_foster("consec_gen")
 
 fwrite(dt_lit_pmfoster, paste0(c_dirs$misc, "lit_pm_foster.csv"))
 fwrite(dt_lit_consecgen, paste0(c_dirs$misc, "lit_consecgen.csv"))
+
+
+## * slopes
