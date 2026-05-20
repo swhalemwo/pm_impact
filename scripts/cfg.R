@@ -104,6 +104,12 @@ gc_tbls <- function() {
 
 gc_vvs <- function() {
 
+    l_orgforms <- list(
+        l_orgforms = c("pm", "toti",
+                       gd_af_inst_clsfcn()[, setdiff(unique(get(c_datargs$clsfcn_to_use)), "yeet")]))
+
+
+
     l_vrbl_lbls <- list(
         InstitutionType         = "Institution Type",
         cnt_prevexhb_cum =   "# prev. Exhibitions") %>%
@@ -175,6 +181,7 @@ gc_vvs <- function() {
 
 
     c_vvs <- c(## l_orgforms,
+        l_orgforms,
         list(dt_vrblinfo = dt_vrblinfo),
         ## list(l_vrbltypes = l_vrbltypes), 
         list(dt_ctgterm_lbls = dt_ctgterm_lbls),
