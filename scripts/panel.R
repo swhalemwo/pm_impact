@@ -1,3 +1,4 @@
+source("model_utils.R")
 
 ## * panel models
 
@@ -10,38 +11,29 @@ gl_mdls <- function(dt_atyear_foster, dt_atyear_ec) {
     ## outcome auction turnover
 
     l_mdls <- list(
-        r_auc = fepois(auc_turnover ~ asinh(exhbN_pm_cum) + asinh(exhbN_pes_cum) + asinh(exhbN_gallery_cum) +
-                           asinh(exhbN_event_cum) | PeopleID + year, dt_atyear_foster, fixef.rm = "singleton",
+        r_auc = fepois(gf_model_formula("auc_turnover", paste0("asinh(exhbN_", c("pm", "pes", "gallery", "event"), "_cum)")), dt_atyear_foster, fixef.rm = "singleton",
                        cluster = "PeopleID"),
 
-        r_auc_s5 = fepois(auc_turnover ~ asinh(exhbN_pm_s5) + asinh(exhbN_pes_s5) + asinh(exhbN_gallery_s5) +
-                           asinh(exhbN_event_s5) | PeopleID + year, dt_atyear_foster, fixef.rm = "singleton",
+        r_auc_s5 = fepois(gf_model_formula("auc_turnover", paste0("asinh(exhbN_", c("pm", "pes", "gallery", "event"), "_s5)")), dt_atyear_foster, fixef.rm = "singleton",
                        cluster = "PeopleID"),
 
 
-        r_auc2 = fepois(asinh(auc_turnover) ~ asinh(exhbN_pm_cum) + asinh(exhbN_pes_cum) +
-                            asinh(exhbN_gallery_cum) + asinh(exhbN_event_cum) | PeopleID + year,
-                        dt_atyear_foster, fixef.rm = "singleton", cluster = "PeopleID"),
+        r_auc2 = fepois(gf_model_formula("asinh(auc_turnover)", paste0("asinh(exhbN_", c("pm", "pes", "gallery", "event"), "_cum)")), dt_atyear_foster, fixef.rm = "singleton", cluster = "PeopleID"),
 
     ## outcome exhb in PES
-        r_pes1 = fepois(exhbN_pes ~ asinh(exhbN_pm_cum) + asinh(exhbN_gallery_cum) + asinh(exhbN_pes_cum) +
-                       asinh(exhbN_event_cum) | PeopleID + year, dt_atyear_foster, fixef.rm = "none",
+        r_pes1 = fepois(gf_model_formula("exhbN_pes", paste0("asinh(exhbN_", c("pm", "gallery", "pes", "event"), "_cum)")), dt_atyear_foster, fixef.rm = "none",
                        cluster = "PeopleID"),
 
-        r_pes2 = fepois(asinh(exhbN_pes) ~ asinh(exhbN_pm_cum) + asinh(exhbN_gallery_cum) + asinh(exhbN_pes_cum) +
-                       asinh(exhbN_event_cum) | PeopleID + year, dt_atyear_foster, fixef.rm = "none",
+        r_pes2 = fepois(gf_model_formula("asinh(exhbN_pes)", paste0("asinh(exhbN_", c("pm", "gallery", "pes", "event"), "_cum)")), dt_atyear_foster, fixef.rm = "none",
                        cluster = "PeopleID"),
 
-        r_pes3 = fepois(exhbN_pes ~ exhbN_pm_cum + exhbN_gallery_cum + exhbN_pes_cum +
-                       exhbN_event_cum | PeopleID + year, dt_atyear_foster, fixef.rm = "none",
+        r_pes3 = fepois(gf_model_formula("exhbN_pes", paste0("exhbN_", c("pm", "gallery", "pes", "event"), "_cum")), dt_atyear_foster, fixef.rm = "none",
                        cluster = "PeopleID"),
 
-        r_pes4 = fepois(asinh(exhbN_pes) ~ exhbN_pm_cum + exhbN_gallery_cum + exhbN_pes_cum +
-                       exhbN_event_cum | PeopleID + year, dt_atyear_foster, fixef.rm = "none",
+        r_pes4 = fepois(gf_model_formula("asinh(exhbN_pes)", paste0("exhbN_", c("pm", "gallery", "pes", "event"), "_cum")), dt_atyear_foster, fixef.rm = "none",
                        cluster = "PeopleID"),
 
-        r_pes_s5 = fepois(exhbN_pes ~ asinh(exhbN_pm_s5) + asinh(exhbN_gallery_s5) + asinh(exhbN_pes_s5) +
-                       asinh(exhbN_event_s5) | PeopleID + year, dt_atyear_foster, fixef.rm = "none",
+        r_pes_s5 = fepois(gf_model_formula("exhbN_pes", paste0("asinh(exhbN_", c("pm", "gallery", "pes", "event"), "_s5)")), dt_atyear_foster, fixef.rm = "none",
                        cluster = "PeopleID"),
 
     ## ## outcome PES with interaction
@@ -53,8 +45,7 @@ gl_mdls <- function(dt_atyear_foster, dt_atyear_ec) {
     ##                       asinh(exhbN_pm_cum) | PeopleID + year, dt_atyear_foster, fixef.rm = "none")
 
     ## evc DV
-        r_evc = feols(evc_ay_ttl ~ asinh(exhbN_pm_cum) + asinh(exhbN_gallery_cum) + asinh(exhbN_pes_cum) +
-                          asinh(exhbN_event_cum) | PeopleID + year, dt_atyear_evc, fixef.rm = "none")
+        r_evc = feols(gf_model_formula("evc_ay_ttl", paste0("asinh(exhbN_", c("pm", "gallery", "pes", "event"), "_cum)")), dt_atyear_evc, fixef.rm = "none")
         )
     
 
