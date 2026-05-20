@@ -360,3 +360,33 @@ gp_grow_perc_arrow <- function(dt_insgrow5) {
                          labels = c_lbls_x) +
         labs(x = NULL, y = "Percentage Change")
 }
+
+## * Plotting Coefs
+
+gd_coefs <- function(l_mdls) {
+    #' Extract coefficients from list of models
+    imap(l_mdls, ~adt(tidy(.x))[, mdl := .y]) %>% rbindlist
+}
+
+gp_coefs <- function(dt_coefs, l_facet_lbls = NULL) {
+    #' Plot coefficients
+    
+    dt_ctgterm_lbls <- gc_vvs() %>% chuck("dt_ctgterm_lbls")
+
+    p <- dt_coefs %>% 
+        ggplot(aes(x = estimate, y = term, xmin = estimate - 1.96 *std.error, xmax = estimate + 1.96 *std.error,
+                   color = term)) +
+        geom_point(show.legend = FALSE) +
+        geom_errorbarh(show.legend = FALSE, height = 0) + 
+        geom_vline(xintercept = 0, linetype = "dashed") +
+        scale_y_discrete(labels = dt_ctgterm_lbls[, setNames(vlu_lbl, vlu)]) +
+        labs(y=NULL, x = "estimate")
+    
+    if (!is.null(l_facet_lbls)) {
+        p <- p + facet_grid(mdl ~ ., scales = "free_y", labeller = as_labeller(l_facet_lbls))
+    } else {
+        p <- p + facet_grid(mdl ~ ., scales = "free_y")
+    }
+    
+    return(p)
+}
