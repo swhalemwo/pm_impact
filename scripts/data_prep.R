@@ -33,7 +33,7 @@ gd_atyear_foster <- function(dt_atyear_raw, c_filters_atyear) {
     dt_atyear_lagprep2 <- merge(dt_atyear_lagprep1, dt_cumsum_n5, by = c("PeopleID", "year"), all.x = T)
     
 
-    dt_atyear_lagprep2[PeopleID ==44, .(PeopleID, age, year, exhbN_all, exhbN_all_s5, exhbN_all_n5, exhbN_all_cum, exhbN_all_cum_n5)] %>% print(n=80)
+    ## dt_atyear_lagprep2[PeopleID ==44, .(PeopleID, age, year, exhbN_all, exhbN_all_s5, exhbN_all_n5, exhbN_all_cum, exhbN_all_cum_n5)] %>% print(n=80)
 
     attr(dt_atyear_lagprep2, "gnrtdby") <- as.character(match.call()[[1]])
 
