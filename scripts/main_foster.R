@@ -20,6 +20,9 @@ library(MASS, include.only = "kde2d")
 library(zeallot)   # destructuring assingment, comfy but not very necessary
 library(stringr)   # string manip? i guess
 library(ggrepel)   # plotting
+library(sf) # locating toti
+library(rnaturalearth) # locating toti
+library(readr, include.only = "read_csv") # read google sheets
 set.seed(42)
 
 l_asinh_breaks <- c(0, 10^(0:10), 3*10^(0:10)) %>% c(., -1*.) %>% sort # breaks for asinh ggplots
@@ -90,15 +93,18 @@ dt_af_pmdb_matches <- gd_af_pmdb_matches() %>%
 
 ## set up flags/switches how to convert data
 c_datargs <- list(
-    clsfcn_to_use = "clsfcn4",
+    clsfcn_to_use = "clsfcn5",
     b_rcd_to_pm = T,
-    b_sample_dt_atyear = T)
+    b_sample_dt_atyear = T,
+    c_toti = "TIV_10",
+    baby = list(
+        keep_all = expr(T),
+        yeet_baby_exhbs = expr(begin_year > BirthYear + 16),
+        yeet_babies_completely = expr(first_year > BirthYear + 16)) %>%
+        chuck("yeet_babies_completely"))
 
 
-c_filters_atyear <- list(
-    keep_all = expr(T),
-    yeet_baby_exhbs = expr(begin_year > BirthYear + 16),
-    yeet_babies_completely = expr(first_year > BirthYear + 16))
+c_filters_atyear <- 
 
 
 ## auction data
@@ -107,20 +113,23 @@ dt_af_ls_matches <- gd_af_ls_matches()
 dt_ls_af_aucres <- gd_ls_af_aucres(dt_ls_aucres, dt_af_ls_matches)
 
 
-dt_af_instns_rcd <- md_instns_rcd(c_datargs$clsfcn_to_use, dt_af_instns, c_datargs$b_rcd_to_pm, dt_af_pmdb_matches)
+dt_tanp_muyr_afid <- gd_tanp_muyr_afid()
+
+dt_af_instns_rcd <- md_instns_rcd(c_datargs$clsfcn_to_use, dt_af_instns, c_datargs$b_rcd_to_pm, dt_af_pmdb_matches) %>%
+    gd_instype_toti(dt_tanp_muyr_afid, dt_af_pmdb_matches, c_datargs$c_toti)
 
 ## --------- artist-year data
 dt_atyear_raw <- gd_atyear_raw(dt_af_exhbs, dt_af_people, dt_af_links_exhb_ppl, dt_af_instns_rcd, dt_ls_af_aucres)
 
 
 ## calculate some before/after steps
-dt_atyear_foster <- gd_atyear_foster(dt_atyear_raw, c_filters_atyear$yeet_babies_completely)
+dt_atyear_foster <- gd_atyear_foster(dt_atyear_raw, c_datargs$baby)
 
 
 dt_exhbppl_wyeet <- gd_exhbppl(dt_af_people, dt_af_exhbs, dt_af_instns_rcd, dt_ls_af_aucres, dt_af_links_exhb_ppl)
 
 dt_exhbppl <- dt_exhbppl_wyeet[InstitutionType != "yeet"] %>%
-    .[eval(c_filters_atyear$yeet_babies_completely)]
+    .[eval(c_datargs$baby)]
 
 # dt_exhbppl_sample <- dt_exhbppl[sample(1:.N, size = 1e5)]
 
@@ -134,7 +143,7 @@ g_insflow <- gg_insflow(dt_edges_wtd)
 
 
 dt_insevc <- gd_insevc(g_insflow, dt_af_instns_rcd)
-dt_insevc[order(-evc), .(Name, evc)] # moma, Zentrum für Kunst und Medien Karlsruhe, vienna huh
+dt_insevc[order(-evc), .(Name, evc, InstitutionType)] # moma, Zentrum für Kunst und Medien Karlsruhe, vienna huh
 
 dt_exhbppl_evc <- gd_exhbppl_evc(dt_exhbppl, dt_insevc)
 

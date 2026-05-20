@@ -391,3 +391,149 @@ gp_insevc <- function(dt_insevc) {
         scale_x_continuous(trans = scales::log10_trans())
 
 }
+
+
+gd_tanp_muyr_wloc <- function(dt_tanp_muyr_afid) {
+
+    dt_tanp_muci_ff <- pmdata:::gd_tanp_muci_ff()
+
+    dt_tanp_muyr_wcords <- merge(dt_tanp_muyr_afid, dt_tanp_muci_ff[, .(muci_id = muci, lat, long)], by = "muci_id")
+
+    ## check coverage
+    dt_chk_cvrg <- dt_tanp_muyr_wcords[, .(lat_sd = sd(lat), long_sd = sd(long)), muci_id] %>%
+        .[lat_sd > 0.0000001 | long_sd > 0.0000001] # looks good
+
+    if (dt_chk_cvrg[, .N] > 0) {stop("bad coord coverage")}
+    
+
+    dtx <- dt_tanp_muyr_wcords[, head(.SD, 1), muci_id]
+        ## .[, country := map.where(database = "world", x = long, y = lat)]
+
+    world_hires <- ne_countries(scale = 10, returnclass = "sf") %>% st_make_valid
+
+    points_sf <- st_as_sf(dtx, coords = c("long", "lat"), crs = 4326)
+    joined_data <- st_join(points_sf, world_hires["admin"], join = st_intersects)
+
+    dtx[, country := joined_data$admin] %>%
+        .[muci_id %in% c("muci_154","muci_2","muci_363","muci_43","muci_573","muci_594","muci_643","muci_735"),
+          country := c("USA", "UAE", "UK", "Denmark", "Denmark", "Canada", "Italy", "Italy")] %>%
+        .[, iso3c := countrycode(country, "country.name", "iso3c")] %>%
+        .[, reg6 := rcd_iso3c_reg6(iso3c)]
+
+    if (dtx[is.na(country), .N] > 0) {stop("bad country coverage")}
+
+    dt_tanp_muyr_wloc <- merge(dt_tanp_muyr_afid, dtx[, .(muci_id, iso3c, reg6)], by = "muci_id")
+    return(dt_tanp_muyr_wloc)
+
+}
+
+
+gd_tanp_muyr_afid <- function(b_fill= T) {
+    #' generate the artnewspaper museum ranking with artfacts ID: only get those that match AF
+    #' b_fill: whether to fill up years missing
+
+    dt_tanp_muyr <- gd_tanp_muyr()
+    dt_tanp_muyr[, .N, year] %>% print(n=80)
+
+    dt_tanp_muyr_t100 <- dt_tanp_muyr[, head(.SD, 100), year]
+    
+    dt_links_tanp_af <- gd_links_tanp_af()[id_af != "nomatch", .(muci_id, id_af)]
+
+    if (b_fill) {
+        
+        #' some gaps (couldn't find ranking files)
+        #' 2006 completely gone: use 2005
+        dt_tanp_muyr_t100_filled1 <- rbind(dt_tanp_muyr_t100, dt_tanp_muyr_t100[year == 2005][, year := 2006])
+
+        #' 2017: only first 77: fill up with with 2016
+        dt_tanp_muyr17 <- dt_tanp_muyr_t100[year == 2017]
+        dt_tanp_muyr16 <- dt_tanp_muyr_t100[year == 2016]
+
+        dt_tanp_muyr_filled <- rbind(
+            dt_tanp_muyr_t100_filled1, 
+            dt_tanp_muyr16[!dt_tanp_muyr17, on = "muci_id"][order(-total)][, year :=2017] %>%
+            .[, head(.SD, n = 100-dt_tanp_muyr17[, .N])])
+        
+        ## stop("not implemented yet")
+    } else {
+        dt_tanp_muyr_filled <- dt_tanp_muyr_t100
+    }
+
+    dt_tanp_cbn <- merge(dt_tanp_muyr_filled, dt_links_tanp_af, by = "muci_id")
+    
+    ## add location info
+    dt_tanp_cbn_wloc <- gd_tanp_muyr_wloc(dt_tanp_cbn)
+
+    return(dt_tanp_cbn_wloc)
+
+}
+
+
+gd_instype_toti <- function(dtx, dt_tanp_muyr, dt_af_pmdb_matches, c_toti) {
+    #' recodes AF institution type into top-tier (toti) based on artnewspaper
+    #' @param dtx data.table with InstitutionType, and possibly year
+    #' @param dt_tanp_muyr data.table with the art newspaper ranking info
+    #' @param dt_af_pmdb_matches which AF are PM, to clean up later
+    #' @param c_toti: type of recoding: "TV/TI_MINNBR",
+    #' e.g. tv_5: tv = time-varying, 5: recode to TANP
+
+    
+    c_toti_split <- strsplit(c_toti, "_")
+    c_toti_time <- c_toti_split[[1]][1]
+    c_toti_years <- c_toti_split[[1]][2] %>% as.integer
+
+    dt_tanp_instns <- dt_tanp_muyr[, .N, .(muci_id, id_af)][N >= c_toti_years][, instype := "toti"] %>%
+        .[, id_af  := as.integer(id_af)] %>% 
+        setnames(old = "id_af", new = "InstitutionID")
+
+    if (c_toti_time == "TV") {
+        ## merge on ID and year
+
+        dt_tanp_instns_muyr <- merge(dt_tanp_muyr, dt_tanp_instns[, .(muci_id, instype)], by = "muci_id") %>%
+            .[, id_af  := as.integer(id_af)] %>% 
+            setnames(old = c("year", "id_af"), new = c("begin_year", "InstitutionID"))
+
+        dt_instype_toti <- dtx %>% copy %>%
+            .[dt_tanp_instns_muyr, on = .(begin_year, InstitutionID), InstitutionType := i.instype]
+
+
+    } else if (c_toti_time == "TIV") {
+        
+        ## merge only on ID
+        dt_instype_toti <- dtx %>% copy %>%
+            .[dt_tanp_instns, on = .(InstitutionID), InstitutionType := i.instype]
+
+        ## dt_instype_toti[, .N, InstitutionType]
+        ## dt_instype_toti[, .(mean_cpe = mean(cnt_prevexhb)), InstitutionType]
+
+    }
+
+    ## need to recode to toti-PMs to PM later
+    dt_instype_toti[dt_af_pmdb_matches[AF_IID != "nomatch", .(AF_IID = as.integer(AF_IID))],
+              InstitutionType := "pm" ,on = .(InstitutionID = AF_IID)]
+
+    ## dt_instype_toti[InstitutionID == 36356, .N, InstitutionType]
+
+    return(dt_instype_toti)
+
+}
+
+
+gd_lit_foster <- function(id_sheet = c("pm_foster", "consec_gen")) {
+
+    id_sheet <- match.arg(id_sheet)
+
+    l_url_sheets <- list(
+        pm_foster = paste0("https://docs.google.com/spreadsheets/d/e/2PACX-1vQ57I4EZqcxzDepwekK4S8EGdcQ796oF4VSeLJFMFyB0HgL45",
+                             "_QVW0-XejFDuThI5rOPvfjt5AzXGvK/pub?gid=0&single=true&output=csv"),
+        consec_gen = paste0("https://docs.google.com/spreadsheets/d/e/2PACX-1vQ57I4EZqcxzDepwekK4S8EGdcQ796oF4VSeLJFMFyB0HgL45_QVW0",
+                              "-XejFDuThI5rOPvfjt5AzXGvK/pub?gid=1182110395&single=true&output=csv"))
+    
+    dt_lit <- read_csv(l_url_sheets[[id_sheet]]) %>% adt %>%
+        .[, year := sub(".*_(\\d{4})_.*", "\\1", paper)] # assing year
+
+    attr(dt_lit, "gnrtdby") <- as.character(match.call()[[1]])
+    return(dt_lit)
+}
+
+
