@@ -29,22 +29,22 @@ gl_mdls <- function(dt_atyear_foster, dt_atyear_ec) {
                        cluster = "PeopleID"),
 
 
-        r_auc2 = fepois(gf_foster("asinh(auc_turnover)", iv_type = "cum"), dt_atyear_foster, fixef.rm = "singleton", cluster = "PeopleID"),
+        r_auc_ihs = fepois(gf_foster("asinh(auc_turnover)", iv_type = "cum"), dt_atyear_foster, fixef.rm = "singleton", cluster = "PeopleID"),
 
-    ## outcome exhb in PES
-        r_pes1 = fepois(gf_foster("exhbN_pi", iv_type = "cum"), dt_atyear_foster, fixef.rm = "none",
+        ## outcome exhb in PI: model names describe DV/IV transformation: N is normal (untransformed, I is IHS)
+        r_pi_NN = fepois(gf_foster("exhbN_pi", iv_type = "cum"), dt_atyear_foster, fixef.rm = "none",
                        cluster = "PeopleID"),
 
-        r_pes2 = fepois(gf_foster("asinh(exhbN_pi)", iv_type = "cum"), dt_atyear_foster, fixef.rm = "none",
+        r_pi_IN = fepois(gf_foster("asinh(exhbN_pi)", iv_type = "cum"), dt_atyear_foster, fixef.rm = "none",
                        cluster = "PeopleID"),
 
-        r_pes3 = fepois(gf_foster("exhbN_pi", iv_type = "cum", transform = "I"), dt_atyear_foster, fixef.rm = "none",
+        r_pi_NI = fepois(gf_foster("exhbN_pi", iv_type = "cum", transform = "I"), dt_atyear_foster, fixef.rm = "none",
                        cluster = "PeopleID"),
 
-        r_pes4 = fepois(gf_foster("asinh(exhbN_pi)", iv_type = "cum", transform = "I"), dt_atyear_foster, fixef.rm = "none",
+        r_pi_II = fepois(gf_foster("asinh(exhbN_pi)", iv_type = "cum", transform = "I"), dt_atyear_foster, fixef.rm = "none",
                        cluster = "PeopleID"),
 
-        r_pes_s5 = fepois(gf_foster("exhbN_pi", iv_type = "s5"), dt_atyear_foster, fixef.rm = "none",
+        r_pi_s5_NNs5 = fepois(gf_foster("exhbN_pi", iv_type = "s5"), dt_atyear_foster, fixef.rm = "none",
                        cluster = "PeopleID"),
 
     ## ## outcome PES with interaction

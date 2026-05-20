@@ -141,6 +141,7 @@ gc_vvs <- function() {
         list(vrbl = "InstitutionType", vlu = "pes", term_lbl = "Public Exhibition Space"),
         list(vrbl = "InstitutionType", vlu = "pubm", term_lbl = "Public Museum"),
         list(vrbl = "InstitutionType", vlu = "oes", term_lbl = "Other Exhibition Space"),
+        list(vrbl = "InstitutionType", vlu = "toti", term_lbl = "Top-Tier Museum"),
         list(vrbl = "InstitutionType", vlu = "pi", term_lbl = "Public Institution"))
 
     dt_ctgterm_lbls_prep <- rbindlist(l_ctgterm_lbls) %>%
