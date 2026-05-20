@@ -34,6 +34,20 @@ gd_atyear_foster <- function(dt_atyear_raw, c_filters_atyear) {
     
 
     ## dt_atyear_lagprep2[PeopleID ==44, .(PeopleID, age, year, exhbN_all, exhbN_all_s5, exhbN_all_n5, exhbN_all_cum, exhbN_all_cum_n5)] %>% print(n=80)
+    # Apply transformations for all relevant columns
+    l_all_exhb_cols <- c(l_cols_exhbN, l_cols_exhbN_s5, l_cols_exhbN_n5, l_cols_exhbN_cum)
+    
+    # Define transformation functions
+    ihs <- function(x) asinh(x)
+    scld <- function(x) x / sd(x, na.rm = TRUE)
+    
+    dt_atyear_lagprep2[, (paste0(l_all_exhb_cols, "_ihs")) := lapply(.SD, ihs), .SDcols = l_all_exhb_cols]
+    dt_atyear_lagprep2[, (paste0(l_all_exhb_cols, "_scld")) := lapply(.SD, scld), .SDcols = l_all_exhb_cols]
+    
+    # IHS of scaled variables
+    l_scld_cols <- paste0(l_all_exhb_cols, "_scld")
+    dt_atyear_lagprep2[, (paste0(l_all_exhb_cols, "_scldihs")) := lapply(.SD, ihs), .SDcols = l_scld_cols]
+
 
     attr(dt_atyear_lagprep2, "gnrtdby") <- as.character(match.call()[[1]])
 

@@ -4,7 +4,8 @@ gf_foster <- function(dv, iv_type = "cum", transform = NULL,
     
     ivs <- sprintf("exhbN_%s_%s", vars, iv_type)
     if (!is.null(transform)) {
-        ivs <- sprintf("%s(%s)", transform, ivs)
+        # append suffix to ivs instead of wrapping
+        ivs <- sprintf("%s_%s", ivs, transform)
     }
     
     fe_str <- paste(fe, collapse = " + ")
