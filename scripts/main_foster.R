@@ -51,6 +51,20 @@ l_funcfiles <- c(
 
 invisible(lapply(l_funcfiles, \(x) source(x, echo = F, verbose = F, print.eval = F)))
 
+if (interactive()) {
+    b_min_mdls <- T
+    
+    ## agent integration for interactive use
+    library(mcptools) 
+    library(btw)
+    options(btw.run_r.enabled = TRUE)
+    x <- mcp_session()
+
+} else {
+    b_min_mdls <- F
+}
+
+
 
 if (interactive()) {stop("it's interactive time")}
 ## ** main
