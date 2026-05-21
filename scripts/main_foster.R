@@ -153,7 +153,7 @@ l_mdls <- gl_mdls(dt_atyear_foster_smol)
 ##     coord_cartesian(xlim = c(1e-3,1e3))
 
 
-dt_exhbppl_watyear[is.infinite(exhbN_grow5_perc), uniqueN(PeopleID)]
+## dt_exhbppl_watyear[is.infinite(exhbN_grow5_perc), uniqueN(PeopleID)]
 
 
 ## distribution of institution-level growth factors (ability of individual museums to promote)

@@ -4,7 +4,8 @@ gf_foster <- function(dv, iv_type = "cum", transform = NULL,
     
     ivs <- sprintf("exhbN_%s_%s", vars, iv_type)
     if (!is.null(transform)) {
-        ivs <- sprintf("%s_%s", ivs, transform)
+        suffix <- if(transform == "asinh") "ihs" else transform
+        ivs <- sprintf("%s_%s", ivs, suffix)
     }
     
     fe_str <- paste(fe, collapse = " + ")
@@ -51,7 +52,7 @@ gl_mdls <- function(dt_atyear_foster) {
                          fixef.rm = "none", cluster = "PeopleID"),
 
         r_pi_UU_s5 = fepois(gf_foster("exhbN_pi", iv_type = "s5"), dt_atyear_foster, fixef.rm = "none",
-                       cluster = "PeopleID"),
+                       cluster = "PeopleID")
 
     ## ## outcome PES with interaction
     ## r_pes2 <- fepois(exhbN_pes ~ asinh(exhbN_gallery_cum) + asinh(exhbN_pes_cum)*asinh(exhbN_pm_cum) +
