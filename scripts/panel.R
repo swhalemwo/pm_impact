@@ -4,7 +4,6 @@ gf_foster <- function(dv, iv_type = "cum", transform = NULL,
     
     ivs <- sprintf("exhbN_%s_%s", vars, iv_type)
     if (!is.null(transform)) {
-        # append suffix to ivs instead of wrapping
         ivs <- sprintf("%s_%s", ivs, transform)
     }
     
@@ -35,7 +34,8 @@ gl_mdls <- function(dt_atyear_foster) {
                           fixef.rm = "singleton", cluster = "PeopleID"),
 
 
-        r_auc_ihs = fepois(gf_foster("asinh(auc_turnover)", iv_type = "cum", transform = "asinh"), dt_atyear_foster, fixef.rm = "singleton", cluster = "PeopleID"),
+        r_auc_ihs = fepois(gf_foster("asinh(auc_turnover)", iv_type = "cum", transform = "asinh"),
+                           dt_atyear_foster, fixef.rm = "singleton", cluster = "PeopleID"),
 
         ## outcome exhb in PI: model names describe DV/IV transformation: U (untransformed, I is IHS)
         r_pi_UU = fepois(gf_foster("exhbN_pi", iv_type = "cum"), dt_atyear_foster, fixef.rm = "none",
