@@ -61,7 +61,12 @@ if (interactive()) {
     library(mcptools) 
     library(btw)
     options(btw.run_r.enabled = TRUE)
-    x <- mcp_session()
+
+    ## mcptools::mcp_server(type = "http", port = 8080)
+    ## Sys.setenv(MCPTOOLS_PORT = "8080")
+    ## mcptools::mcp_session()
+
+    x <- mcptools::mcp_session()
 
 } else {
     b_min_mdls <- F
