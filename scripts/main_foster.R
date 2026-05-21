@@ -25,6 +25,11 @@ library(rnaturalearth) # locating toti
 library(readr, include.only = "read_csv") # read google sheets
 set.seed(42)
 
+refresh_pipeline <- function() {
+    invisible(lapply(l_funcfiles, \(x) source(x, echo = F, verbose = F, print.eval = F)))
+    message("Pipeline refreshed.")
+}
+
 l_asinh_breaks <- c(0, 10^(0:10), 3*10^(0:10)) %>% c(., -1*.) %>% sort # breaks for asinh ggplots
 
 DIR_PROJ <- "~/Dropbox/phd/papers/foster/"
