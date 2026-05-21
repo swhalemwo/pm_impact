@@ -31,8 +31,8 @@ gl_mdls <- function(dt_atyear_foster) {
                        dt_atyear_foster, fixef.rm = "singleton",
                        cluster = "PeopleID"),
 
-        r_auc_s5 = fepois(gf_foster("auc_turnover", iv_type = "s5", transform = "asinh"), dt_atyear_foster, fixef.rm = "singleton",
-                       cluster = "PeopleID"),
+        r_auc_s5 = fepois(gf_foster("auc_turnover", iv_type = "s5", transform = "asinh"), dt_atyear_foster,
+                          fixef.rm = "singleton", cluster = "PeopleID"),
 
 
         r_auc_ihs = fepois(gf_foster("asinh(auc_turnover)", iv_type = "cum", transform = "asinh"), dt_atyear_foster, fixef.rm = "singleton", cluster = "PeopleID"),
@@ -41,14 +41,14 @@ gl_mdls <- function(dt_atyear_foster) {
         r_pi_UU = fepois(gf_foster("exhbN_pi", iv_type = "cum"), dt_atyear_foster, fixef.rm = "none",
                        cluster = "PeopleID"),
 
-        r_pi_IU = fepois(gf_foster("asinh(exhbN_pi)", iv_type = "cum", transform = "asinh"), dt_atyear_foster, fixef.rm = "none",
-                       cluster = "PeopleID"),
+        r_pi_IU = fepois(gf_foster("asinh(exhbN_pi)", iv_type = "cum", transform = "asinh"), dt_atyear_foster,
+                         fixef.rm = "none", cluster = "PeopleID"),
 
-        r_pi_UI = fepois(gf_foster("exhbN_pi", iv_type = "cum", transform = "asinh"), dt_atyear_foster, fixef.rm = "none",
-                       cluster = "PeopleID"),
+        r_pi_UI = fepois(gf_foster("exhbN_pi", iv_type = "cum", transform = "asinh"), dt_atyear_foster,
+                         fixef.rm = "none", cluster = "PeopleID"),
 
-        r_pi_II = fepois(gf_foster("asinh(exhbN_pi)", iv_type = "cum", transform = "asinh"), dt_atyear_foster, fixef.rm = "none",
-                       cluster = "PeopleID"),
+        r_pi_II = fepois(gf_foster("asinh(exhbN_pi)", iv_type = "cum", transform = "asinh"), dt_atyear_foster,
+                         fixef.rm = "none", cluster = "PeopleID"),
 
         r_pi_UU_s5 = fepois(gf_foster("exhbN_pi", iv_type = "s5"), dt_atyear_foster, fixef.rm = "none",
                        cluster = "PeopleID"),

@@ -54,6 +54,7 @@ l_funcfiles <- c(
 
 invisible(lapply(l_funcfiles, \(x) source(x, echo = F, verbose = F, print.eval = F)))
 
+
 if (interactive()) {
     b_min_mdls <- T
     
@@ -109,7 +110,6 @@ c_datargs <- list(
         chuck("yeet_babies_completely"))
 
 
-c_filters_atyear <- 
 
 
 ## auction data
@@ -117,10 +117,11 @@ dt_ls_aucres <- gd_ls_aucres() %>% adt
 dt_af_ls_matches <- gd_af_ls_matches()
 dt_ls_af_aucres <- gd_ls_af_aucres(dt_ls_aucres, dt_af_ls_matches)
 
-
+## get the art newspaper museum year data with artfacts id
 dt_tanp_muyr_afid <- gd_tanp_muyr_afid()
 
-dt_af_instns_rcd <- md_instns_rcd(c_datargs$clsfcn_to_use, dt_af_instns, c_datargs$b_rcd_to_pm, dt_af_pmdb_matches) %>%
+dt_af_instns_rcd <- md_instns_rcd(c_datargs$clsfcn_to_use, dt_af_instns,
+                                  c_datargs$b_rcd_to_pm, dt_af_pmdb_matches) %>%
     gd_instype_toti(dt_tanp_muyr_afid, dt_af_pmdb_matches, c_datargs$c_toti)
 
 ## --------- artist-year data
