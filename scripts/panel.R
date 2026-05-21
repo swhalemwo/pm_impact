@@ -392,7 +392,7 @@ gp_coefs <- function(dt_coefs, l_facet_lbls = NULL) {
         ggplot(aes(x = estimate, y = instype, xmin = estimate - 1.96 *std.error, xmax = estimate + 1.96 *std.error,
                    color = mdl)) +
         geom_point() +
-        geom_errorbarh(show.legend = FALSE) + 
+        geom_errorbar(show.legend = FALSE) + 
         geom_vline(xintercept = 0, linetype = "dashed") +
         scale_y_discrete(labels = dt_ctgterm_lbls[, setNames(vlu_lbl, vlu)]) +
         labs(y=NULL, x = "estimate") +
