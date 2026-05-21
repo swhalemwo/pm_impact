@@ -20,7 +20,8 @@ gf_foster <- function(dv, iv_type = "cum", transform = NULL,
 
 
 
-gl_mdls <- function(dt_atyear_foster, dt_atyear_ec) {
+gl_mdls <- function(dt_atyear_foster) {
+    ## dt_atyear_ec
     gw_fargs(match.call())
 
     ## outcome auction turnover
@@ -61,7 +62,8 @@ gl_mdls <- function(dt_atyear_foster, dt_atyear_ec) {
     ##                       asinh(exhbN_pm_cum) | PeopleID + year, dt_atyear_foster, fixef.rm = "none")
 
     ## evc DV
-        r_evc = feols(gf_foster("evc_ay_ttl", iv_type = "cum", transform = "asinh"), dt_atyear_ec, fixef.rm = "none")
+        ## r_evc = feols(gf_foster("evc_ay_ttl", iv_type = "cum", transform = "asinh"), dt_atyear_ec,
+        ##               fixef.rm = "none")
         )
     
 
