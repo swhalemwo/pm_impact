@@ -51,55 +51,55 @@ merge(
 
 
 ## * experiment with splines
-rb4 <- fepois(exhbN_pes ~ log1p(exhbN_pes_cum)*log1p(exhbN_pm_cum)*bs(exhbN_pes_cum) | PeopleID + year, dt_atyear_foster, fixef.rm = "none")
+rb4 <- fepois(exn_pes ~ log1p(exn_pes_cum)*log1p(exn_pm_cum)*bs(exn_pes_cum) | PeopleID + year, dt_atyear_foster, fixef.rm = "none")
 
 ## do i need this
-rs1 <- fepois(exhbN_pes ~ bs(log1p(exhbN_all_cum), df = 10)*log1p(exhbN_all_s5) | PeopleID + year,
+rs1 <- fepois(exn_pes ~ bs(log1p(exn_all_cum), df = 10)*log1p(exn_all_s5) | PeopleID + year,
               dt_atyear_foster, fixef.rm = "none")
 
 ## or this
-rs2 <- fepois(exhbN_pes ~ I(bs(log1p(exhbN_all_cum))^2) | PeopleID + year, dt_atyear_foster, fixef.rm = "none")
+rs2 <- fepois(exn_pes ~ I(bs(log1p(exn_all_cum))^2) | PeopleID + year, dt_atyear_foster, fixef.rm = "none")
 
 ## or this
-rs3 <- fepois(exhbN_pes ~ log1p(exhbN_all_cum)*bs(log1p(exhbN_all_cum)) | PeopleID + year, dt_atyear_foster, fixef.rm = "none")
+rs3 <- fepois(exn_pes ~ log1p(exn_all_cum)*bs(log1p(exn_all_cum)) | PeopleID + year, dt_atyear_foster, fixef.rm = "none")
 
 
-dt_topred <- expand.grid(exhbN_all_cum = seq(1, 500, length.out = 30),
-                         exhbN_all_s5 = seq(1, 15),
+dt_topred <- expand.grid(exn_all_cum = seq(1, 500, length.out = 30),
+                         exn_all_s5 = seq(1, 15),
                          PeopleID = 11, year = 2015) %>% adt
 
 
 ## density of s5
-ggplot(dt_atyear_foster, aes(x = exhbN_all_s5)) + geom_density() +
+ggplot(dt_atyear_foster, aes(x = exn_all_s5)) + geom_density() +
     scale_x_continuous(transform = scales::log10_trans())
 
 
-## some hacky way of getting at marginal effect by exhbN_cum 
+## some hacky way of getting at marginal effect by exn_cum 
 
 dt_topred[, `:=`(pred1 = predict(rs3, dt_topred),
-                 pred2 = predict(rs3, copy(dt_topred)[, exhbN_all_cum := exhbN_all_cum +1]),
+                 pred2 = predict(rs3, copy(dt_topred)[, exn_all_cum := exn_all_cum +1]),
                  pred3 = predict(rs1, dt_topred),
-                 pred4 = predict(rs1, copy(dt_topred)[, exhbN_all_s5 := exhbN_all_s5 +1]))] %>%
+                 pred4 = predict(rs1, copy(dt_topred)[, exn_all_s5 := exn_all_s5 +1]))] %>%
     .[, `:=`(eff1 = pred2/pred1, eff2 = pred3/pred4)]
 
 ## rs3 figure
-ggplot(dt_topred, aes(x=exhbN_all_cum, y = eff1)) + geom_point()
+ggplot(dt_topred, aes(x=exn_all_cum, y = eff1)) + geom_point()
 
 ## rs1 figure
-ggplot(dt_topred, aes(x=exhbN_all_cum, y = eff2, color = exhbN_all_s5)) + geom_point()
+ggplot(dt_topred, aes(x=exn_all_cum, y = eff2, color = exn_all_s5)) + geom_point()
 
 
 
 ## * survival model -> yeet
 ## outcome survival: not cute -> probably yeet
-rd1 <- coxph(Surv(career_year, career_year_end, last_exhb) ~ log1p(exhbN_pes_cum) + log1p(exhbN_pm_cum) +
-                 log1p(exhbN_gallery_cum) + log1p(exhbN_event_cum) + strata(year), dt_atyear_surv[year < 2015])
+rd1 <- coxph(Surv(career_year, career_year_end, last_exhb) ~ log1p(exn_pes_cum) + log1p(exn_pm_cum) +
+                 log1p(exn_gallery_cum) + log1p(exn_event_cum) + strata(year), dt_atyear_surv[year < 2015])
 
 
 gp_pminfl_surv <- function(rd1) {
     
     tidy(rd1) %>% adt %>%
-        .[, term := str_extract_all(term, "(?<=exhbN_)[a-zA-Z]+(?=_cum)")[[1]], .I] %>%
+        .[, term := str_extract_all(term, "(?<=exn_)[a-zA-Z]+(?=_cum)")[[1]], .I] %>%
         .[, `:=`(estimate = estimate *-1)] %>% 
         ggplot(aes(x = estimate, y = term, xmin = estimate - 1.96 *std.error, xmax = estimate + 1.96 *std.error,
                    color = term)) +
@@ -120,14 +120,14 @@ gp_pminfl_surv(rd1)
 
 ## library(statmod)
 
-re1 <- feols(evc_ay_ttl ~ log1p(exhbN_pm_cum) + log1p(exhbN_gallery_cum) + log1p(exhbN_pes_cum) + log1p(exhbN_event_cum) | PeopleID + year, dt_atyear_evc, fixef.rm = "none")
+re1 <- feols(evc_ay_ttl ~ log1p(exn_pm_cum) + log1p(exn_gallery_cum) + log1p(exn_pes_cum) + log1p(exn_event_cum) | PeopleID + year, dt_atyear_evc, fixef.rm = "none")
 
 
-re2 <- feglm(evc_ay_ttl ~ log1p(exhbN_pm_cum) + log1p(exhbN_gallery_cum) + log1p(exhbN_pes_cum) + log1p(exhbN_event_cum) | PeopleID + year, dt_atyear_evc, fixef.rm = "none", family = tweedie())
+re2 <- feglm(evc_ay_ttl ~ log1p(exn_pm_cum) + log1p(exn_gallery_cum) + log1p(exn_pes_cum) + log1p(exn_event_cum) | PeopleID + year, dt_atyear_evc, fixef.rm = "none", family = tweedie())
 
-re3 <- feglm(evc_ay_ttl ~ log1p(exhbN_pm_cum) + log1p(exhbN_gallery_cum) + log1p(exhbN_pes_cum) + log1p(exhbN_event_cum) | PeopleID + year, dt_atyear_evc, fixef.rm = "none", family = tweedie(var.power = 0.5))
+re3 <- feglm(evc_ay_ttl ~ log1p(exn_pm_cum) + log1p(exn_gallery_cum) + log1p(exn_pes_cum) + log1p(exn_event_cum) | PeopleID + year, dt_atyear_evc, fixef.rm = "none", family = tweedie(var.power = 0.5))
 
-re4 <- feglm(evc_ay_ttl ~ log1p(exhbN_pm_cum) + log1p(exhbN_gallery_cum) + log1p(exhbN_pes_cum) + log1p(exhbN_event_cum) | PeopleID + year, dt_atyear_evc, fixef.rm = "none", family = tw(link = "log"))
+re4 <- feglm(evc_ay_ttl ~ log1p(exn_pm_cum) + log1p(exn_gallery_cum) + log1p(exn_pes_cum) + log1p(exn_event_cum) | PeopleID + year, dt_atyear_evc, fixef.rm = "none", family = tw(link = "log"))
 
 
 
@@ -155,10 +155,10 @@ apply(dt_tweedie_params[, .(phi, mu, power, n)], 1, \(x) do.call(rtweedie, as.li
     facet_wrap(power~mu, scales = "free", nrow = 5, ncol = 3)
 
 
-## * debug differences between cnt_prevexhb and exhbN_all_cum
+## * debug differences between cnt_prevexhb and exn_all_cum
 
 dt_exhbppl_watyear_chk <- copy(dt_exhbppl_watyear) %>%
-    .[, .(PeopleID, begin_year, cnt_prevexhb, exhbN_all_cum, diff_cum = cnt_prevexhb - exhbN_all_cum,
+    .[, .(PeopleID, begin_year, cnt_prevexhb, exn_all_cum, diff_cum = cnt_prevexhb - exn_all_cum,
           InstitutionType)]
 
 ## dt_exhbppl_watyear_chk[, .N, InstitutionType]
@@ -175,12 +175,12 @@ dt_exhbppl[PeopleID == 492, .(PeopleID, begin_year, cnt_prevexhb)] %>% print(n=8
 dt_atyear_foster[PeopleID == 492, .SD, .SDcols = patterns("PeopleID|^year$|cum$")] %>% print(n=80)
 
 dt_atyear_foster %>% copy %>%
-.[PeopleID == 492, .(year, exhbN_all_cum, exhbN_all, exhbN_all_cum2 = fcumsum(exhbN_all))] %>%
-.[, xx := exhbN_all_cum2 - exhbN_all] %>% print(n=80)
+.[PeopleID == 492, .(year, exn_all_cum, exn_all, exn_all_cum2 = fcumsum(exn_all))] %>%
+.[, xx := exn_all_cum2 - exn_all] %>% print(n=80)
 
 
 
-dt_atyear_raw[PeopleID == 492, .(PeopleID, year, exhbN_all, xx = fcumsum(exhbN_all))]
+dt_atyear_raw[PeopleID == 492, .(PeopleID, year, exn_all, xx = fcumsum(exn_all))]
 dt_exhbppl[PeopleID == 492 & begin_year < 2006]
 dt_exhbppl_wyeet[PeopleID == 492 & begin_year < 2006]
 
@@ -191,7 +191,7 @@ dt_exhbppl_wyeet[PeopleID == 492 & begin_year < 2006, .N, .(PeopleID, begin_year
 ## diff between exhbppl and atyear
 
 dt_atyear_rcd_wide[PeopleID == 492] %>% copy %>%
-.[, cnt_all := rowSums(.SD, na.rm = T), .SDcols = patterns("exhbN")]
+.[, cnt_all := rowSums(.SD, na.rm = T), .SDcols = patterns("exn")]
 ## here it's still 10 for 2005
 
 ## huh here it's 11
@@ -216,25 +216,25 @@ dt_m2[is.na(InstitutionType)]
 
 ## EE: exhibition effects
 ## most basic idea: mean by institution type
-r_exef1 <- feols(exhbN_all_n5 ~ InstitutionType, dt_exhbppl_watyear)
-dt_exhbppl_watyear[, mean(exhbN_all_n5, na.rm = T), InstitutionType] # equivalent descriptive
+r_exef1 <- feols(exn_all_n5 ~ InstitutionType, dt_exhbppl_watyear)
+dt_exhbppl_watyear[, mean(exn_all_n5, na.rm = T), InstitutionType] # equivalent descriptive
 
 ## adding artist FE: now within-artist variation: much much smaller
-r_exef2 <- feols(exhbN_all_n5 ~ InstitutionType | PeopleID, dt_exhbppl_watyear, fixef.rm = "singleton")
+r_exef2 <- feols(exn_all_n5 ~ InstitutionType | PeopleID, dt_exhbppl_watyear, fixef.rm = "singleton")
 
 ## 
-r_exef3 <- feols(exhbN_all_n5 ~ InstitutionType + cnt_prevexhb | PeopleID, dt_exhbppl_watyear, fixef.rm = "singleton")
+r_exef3 <- feols(exn_all_n5 ~ InstitutionType + cnt_prevexhb | PeopleID, dt_exhbppl_watyear, fixef.rm = "singleton")
 
 ## testing that with panel data
 ## not sure if N5 is valid as DV: i feel i'm smoothing/re-using same data multiple times
 
-dt_atyear_foster[PeopleID==44, .(PeopleID, year, exhbN_all_n5, exhbN_pm, exhbN_gallery, exhbN_pes, exhbN_all_cum)]
+dt_atyear_foster[PeopleID==44, .(PeopleID, year, exn_all_n5, exn_pm, exn_gallery, exn_pes, exn_all_cum)]
 
-r_exef4 <- fepois(exhbN_all_n5 ~ exhbN_pm + exhbN_gallery + exhbN_pes + exhbN_event +
-                      log1p(exhbN_all_cum) | PeopleID, dt_atyear_foster)
+r_exef4 <- fepois(exn_all_n5 ~ exn_pm + exn_gallery + exn_pes + exn_event +
+                      log1p(exn_all_cum) | PeopleID, dt_atyear_foster)
 
-r_exef5 <- fepois(exhbN_all_n5 ~ exhbN_pm + exhbN_gallery + exhbN_pes + exhbN_event +
-                      log1p(exhbN_all_cum) | PeopleID, dt_atyear_foster, cluster = "PeopleID")
+r_exef5 <- fepois(exn_all_n5 ~ exn_pm + exn_gallery + exn_pes + exn_event +
+                      log1p(exn_all_cum) | PeopleID, dt_atyear_foster, cluster = "PeopleID")
 
 
 
@@ -255,10 +255,10 @@ r_exef5 <- fepois(exhbN_all_n5 ~ exhbN_pm + exhbN_gallery + exhbN_pes + exhbN_ev
              
     
 
-dt_sample[exhbN_event_cum == exhbN_gallery_cum & exhbN_gallery_cum > 10]
+dt_sample[exn_event_cum == exn_gallery_cum & exn_gallery_cum > 10]
 
 
-dt_atyear_foster[exhbN_pes_cum < 10, .N]/dt_atyear_foster[, .N] ## 70% of artist-years have less than 10 PES exbhs
+dt_atyear_foster[exn_pes_cum < 10, .N]/dt_atyear_foster[, .N] ## 70% of artist-years have less than 10 PES exbhs
 
 
 merge(dt_sample[, .(PeopleID = unique(PeopleID))],
@@ -272,31 +272,31 @@ merge(dt_sample[, .(PeopleID = unique(PeopleID))],
 dt_atyear_foster2 <- dt_atyear_foster %>% copy
 
 l_qntls <- c(0.25,0.5,0.7, 0.9, 0.95,0.98)
-dt_atyear_foster2[, exhbD_all_cum := cut(exhbN_all_cum, quantile(exhbN_all_cum, probs = c(0,l_qntls)))]
+dt_atyear_foster2[, exhbD_all_cum := cut(exn_all_cum, quantile(exn_all_cum, probs = c(0,l_qntls)))]
                                          ## labels = paste0("qn_", c(l_qntls*100))]
 
 dt_atyear_foster2[, .N, exhbD_all_cum]
 
-dt_atyear_foster2[is.na(exhbD_all_cum), .(exhbN_all_cum)]
+dt_atyear_foster2[is.na(exhbD_all_cum), .(exn_all_cum)]
 
 
 ## * lola
 dt_atyear_foster[, uniqueN(PeopleID)]
 
-fepois(exhbN_pes ~ asinh(exhbN_pm_cum), dt_atyear_foster)
-fepois(exhbN_pes ~ asinh(exhbN_pm_cum) | PeopleID  , dt_atyear_foster)
+fepois(exn_pes ~ asinh(exn_pm_cum), dt_atyear_foster)
+fepois(exn_pes ~ asinh(exn_pm_cum) | PeopleID  , dt_atyear_foster)
 
-dt_atyear_foster[, .N, exhbN_pm_cum]
+dt_atyear_foster[, .N, exn_pm_cum]
 
-dt_atyear_foster[, pm_ever := fifelse(exhbN_pm_cum == 0, 0, 1)]
+dt_atyear_foster[, pm_ever := fifelse(exn_pm_cum == 0, 0, 1)]
 dt_atyear_foster[, .N, pm_ever]
 
-list(pooled = fepois(exhbN_pes ~ pm_ever, dt_atyear_foster),
-     did = fepois(exhbN_pes ~ pm_ever | PeopleID, dt_atyear_foster)) %>%
+list(pooled = fepois(exn_pes ~ pm_ever, dt_atyear_foster),
+     did = fepois(exn_pes ~ pm_ever | PeopleID, dt_atyear_foster)) %>%
     screenreg
 
 
-rx_year <- fepois(exhbN_pes ~ pm_ever * factor(year) | PeopleID, dt_atyear_foster[year %between% c(2000, 2020)])
+rx_year <- fepois(exn_pes ~ pm_ever * factor(year) | PeopleID, dt_atyear_foster[year %between% c(2000, 2020)])
 
 
 

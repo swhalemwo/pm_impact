@@ -8,34 +8,34 @@ gd_atyear_foster <- function(dt_atyear_raw, c_filters_atyear) {
         
 
     
-    l_cols_exhbN <- keep(names(dt_atyear_raw_fltrd),  ~grepl("exhbN_", .x))
+    l_cols_exn <- keep(names(dt_atyear_raw_fltrd),  ~grepl("exn_", .x))
 
-    l_cols_exhbN_s5 <- paste0(l_cols_exhbN, "_s5") # previous
-    l_cols_exhbN_n5 <- paste0(l_cols_exhbN, "_n5") # next
+    l_cols_exn_s5 <- paste0(l_cols_exn, "_s5") # previous
+    l_cols_exn_n5 <- paste0(l_cols_exn, "_n5") # next
     
-    l_cols_exhbN_cum <- paste0(l_cols_exhbN, "_cum")
+    l_cols_exn_cum <- paste0(l_cols_exn, "_cum")
 
     dt_atyear_lagprep1 <- dt_atyear_raw_fltrd %>% copy %>% # .[PeopleID == 44] %>% 
-        .[, (l_cols_exhbN_s5) := frollsum(.SD, n=6, fill = NA), PeopleID, .SDcols = l_cols_exhbN] %>%
-        .[, (l_cols_exhbN_s5) := map(l_cols_exhbN, ~.SD[, get(paste0(.x, "_s5")) - get(.x)])] %>%
-        .[, (l_cols_exhbN_n5) := frollsum(.SD, n = 6, fill = NA, align = "left"), PeopleID,.SDcols=l_cols_exhbN] %>%
-        .[, (l_cols_exhbN_n5) := map(l_cols_exhbN, ~.SD[, get(paste0(.x, "_n5")) - get(.x)])] %>%
-        .[, (l_cols_exhbN_cum) := fcumsum(.SD), PeopleID, .SDcols = l_cols_exhbN] %>%
-        .[, (l_cols_exhbN_cum) := map(l_cols_exhbN, ~.SD[, get(paste0(.x, "_cum")) - get(.x)])]
+        .[, (l_cols_exn_s5) := frollsum(.SD, n=6, fill = NA), PeopleID, .SDcols = l_cols_exn] %>%
+        .[, (l_cols_exn_s5) := map(l_cols_exn, ~.SD[, get(paste0(.x, "_s5")) - get(.x)])] %>%
+        .[, (l_cols_exn_n5) := frollsum(.SD, n = 6, fill = NA, align = "left"), PeopleID,.SDcols=l_cols_exn] %>%
+        .[, (l_cols_exn_n5) := map(l_cols_exn, ~.SD[, get(paste0(.x, "_n5")) - get(.x)])] %>%
+        .[, (l_cols_exn_cum) := fcumsum(.SD), PeopleID, .SDcols = l_cols_exn] %>%
+        .[, (l_cols_exn_cum) := map(l_cols_exn, ~.SD[, get(paste0(.x, "_cum")) - get(.x)])]
 
-    dt_atyear_lagprep1[PeopleID ==44, .(PeopleID, age, year, exhbN_all, exhbN_all_s5, exhbN_all_n5, exhbN_all_cum)]
+    dt_atyear_lagprep1[PeopleID ==44, .(PeopleID, age, year, exn_all, exn_all_s5, exn_all_n5, exn_all_cum)]
     
     ## get cumsum of future by shifting years
     ## i think shifting by 5 is correct choice, but not 100% sure, maybe also 6?
-    dt_cumsum_n5 <- dt_atyear_lagprep1[, c(list(PeopleID = PeopleID, year = year-5), .SD), .SDcols = l_cols_exhbN_cum] %>%
-        setnames(old = l_cols_exhbN_cum, new = paste0(l_cols_exhbN_cum, "_n5"))
+    dt_cumsum_n5 <- dt_atyear_lagprep1[, c(list(PeopleID = PeopleID, year = year-5), .SD), .SDcols = l_cols_exn_cum] %>%
+        setnames(old = l_cols_exn_cum, new = paste0(l_cols_exn_cum, "_n5"))
 
     dt_atyear_lagprep2 <- merge(dt_atyear_lagprep1, dt_cumsum_n5, by = c("PeopleID", "year"), all.x = T)
     
 
-    ## dt_atyear_lagprep2[PeopleID ==44, .(PeopleID, age, year, exhbN_all, exhbN_all_s5, exhbN_all_n5, exhbN_all_cum, exhbN_all_cum_n5)] %>% print(n=80)
+    ## dt_atyear_lagprep2[PeopleID ==44, .(PeopleID, age, year, exn_all, exn_all_s5, exn_all_n5, exn_all_cum, exn_all_cum_n5)] %>% print(n=80)
     # Apply transformations for all relevant columns
-    l_all_exhb_cols <- c(l_cols_exhbN, l_cols_exhbN_s5, l_cols_exhbN_n5, l_cols_exhbN_cum)
+    l_all_exhb_cols <- c(l_cols_exn, l_cols_exn_s5, l_cols_exn_n5, l_cols_exn_cum)
     
     # Define transformation functions
     ihs <- function(x) asinh(x)
@@ -82,7 +82,7 @@ gd_atyear_rcd <- function(dt_af_exhbs, dt_af_links_exhb_ppl, dt_af_instns_rcd) {
     dt_atyear_rcd_wide <- dt_atyear_rcd[, .N, .(year = begin_year, PeopleID, InstitutionType)] %>%
         dcast(PeopleID + year ~ InstitutionType, value.var = "N") %>%
         setnames(old = dt_atyear_rcd[, unique(InstitutionType)],
-                 new = paste0("exhbN_", dt_atyear_rcd[, unique(InstitutionType)]))
+                 new = paste0("exn_", dt_atyear_rcd[, unique(InstitutionType)]))
 
     return(dt_atyear_rcd_wide)
 }
@@ -113,7 +113,7 @@ gd_atyear_raw <- function(dt_af_exhbs, dt_af_people, dt_af_links_exhb_ppl, dt_af
                                       .(PeopleID, BirthYear, Nationality, Gender, first_year)]
     
     ## calculate total exhibition count
-    ## dt_atyear_exhbcnt <- dt_cbn[, .(exhbN_all = .N), .(year = begin_year, PeopleID)]
+    ## dt_atyear_exhbcnt <- dt_cbn[, .(exn_all = .N), .(year = begin_year, PeopleID)]
 
     ## get the exhibition counts grouped by (reclassified) institutional form
     ## if I want multiple classifications, I can easily get them here
@@ -121,19 +121,19 @@ gd_atyear_raw <- function(dt_af_exhbs, dt_af_people, dt_af_links_exhb_ppl, dt_af
         
     ## merge all the exhibition counts together
     dt_cbn_prep1 <- merge(dt_atyear_grid, dt_atyear_rcd_wide, by = c("year", "PeopleID"), all.x = T) %>%
-        setnafill(type = "const", fill = 0, cols = keep(names(.), ~grepl("exhbN", .x))) %>% 
-        .[, exhbN_all := rowSums(.SD), .SDcols = patterns("exhbN")]
+        setnafill(type = "const", fill = 0, cols = keep(names(.), ~grepl("exn", .x))) %>% 
+        .[, exn_all := rowSums(.SD), .SDcols = patterns("exn")]
     
     ## dt_cbn_prep1 <- Reduce(\(x,y) merge(x,y, by = c("year", "PeopleID"), all.x = T),
     ##                        list(dt_atyear_grid, dt_atyear_exhbcnt, dt_atyear_rcd_wide))
     
     ## set up exhibition names to refer to them later on
-    ## l_cols_exhbN <- keep(names(dt_cbn_prep1), ~grepl("exhbN_", .x))
+    ## l_cols_exn <- keep(names(dt_cbn_prep1), ~grepl("exn_", .x))
 
     ## fill up no exhibition with zero, calculate last exhibition year
     dt_atyear_raw <- copy(dt_cbn_prep1) %>%
-        ## setnafill("const", cols = l_cols_exhbN, fill = 0) %>%
-        .[, `:=`(year_last_exhb = max(year[which(exhbN_all > 0)])), PeopleID] %>% 
+        ## setnafill("const", cols = l_cols_exn, fill = 0) %>%
+        .[, `:=`(year_last_exhb = max(year[which(exn_all > 0)])), PeopleID] %>% 
         .[, `:=`(last_exhb = (year == year_last_exhb)*1)] %>% # last year
         .[, `:=`(age = year - BirthYear, career_year = year - first_year)] %>% # other career stage data
         .[order(PeopleID, year)]
@@ -354,32 +354,32 @@ gd_exhbppl_watyear <- function(dt_exhbppl, dt_atyear_evc) {
     ## manually switch in EVC; fuck me that's ugly
     dt_exhbppl_watyear <- merge(
         dt_exhbppl,
-        ## dt_atyear_foster[, c(list(PeopleID = PeopleID, begin_year = year), .SD), .SDcols = patterns("exhbN")],
-        dt_atyear_foster2[, c(list(PeopleID = PeopleID, begin_year = year), .SD), .SDcols = patterns("exhbN|evc")],
+        ## dt_atyear_foster[, c(list(PeopleID = PeopleID, begin_year = year), .SD), .SDcols = patterns("exn")],
+        dt_atyear_foster2[, c(list(PeopleID = PeopleID, begin_year = year), .SD), .SDcols = patterns("exn|evc")],
         by = c("PeopleID", "begin_year")) %>%
         .[order(PeopleID, begin_year)]
 
-    ## minor differences between cnt_prevexhb and exhbN_all_cum: exhbN_all_cum is only previous year?
+    ## minor differences between cnt_prevexhb and exn_all_cum: exn_all_cum is only previous year?
     ## hmm not quite: diffs can also be negative -> FIXME: make sure there's no ambiguity
 
     
     ## now can calculate institution-specific effect: total count, relative
     ## how many new exhibitions are in the next 5 years
-    dt_exhbppl_watyear[, `:=`(exhbN_grow5_cnt = exhbN_all_cum_n5 - cnt_prevexhb,
+    dt_exhbppl_watyear[, `:=`(exn_grow5_cnt = exn_all_cum_n5 - cnt_prevexhb,
                                         # by how much does the total exhibition count grow
-                              exhbN_grow5_perc =  100*((exhbN_all_cum_n5/cnt_prevexhb)-1),
+                              exn_grow5_perc =  100*((exn_all_cum_n5/cnt_prevexhb)-1),
                               evc_grow5_cnt = evc_n5 - evc_s5,
                               evc_grow5_prop = evc_n5/evc_s5)] %>%   # hmm do i need log here?
-        .[, `:=`(exhbN_perc_n5s5 = 100*((exhbN_grow5_cnt/exhbN_all_s5)-1))]
+        .[, `:=`(exn_perc_n5s5 = 100*((exn_grow5_cnt/exn_all_s5)-1))]
 
 
-    ## dt_exhbppl_watyear[PeopleID ==44 & begin_year > 2005, .(PeopleID, begin_year, exhbN_all, exhbN_all_cum_n5,
-    ##                                                         cnt_prevexhb, exhbN_grow5_cnt, exhbN_grow5_perc,
+    ## dt_exhbppl_watyear[PeopleID ==44 & begin_year > 2005, .(PeopleID, begin_year, exn_all, exn_all_cum_n5,
+    ##                                                         cnt_prevexhb, exn_grow5_cnt, exn_grow5_perc,
     ##                                                         evc_grow5_cnt, evc_grow5_prop)] %>%
     ##     print(n=40)
 
 
-    ## dt_exhbppl_watyear[PeopleID ==44 & begin_year > 2005, .(PeopleID, begin_year, exhbN_all, evc_ay_ttl, evc_s5,
+    ## dt_exhbppl_watyear[PeopleID ==44 & begin_year > 2005, .(PeopleID, begin_year, exn_all, evc_ay_ttl, evc_s5,
     ##                                                         evc_n5, evc_grow5_cnt, evc_grow5_prop)] %>%
     ##     print(n=80)
     attr(dt_exhbppl_watyear, "gnrtdby") <- as.character(match.call()[[1]])
@@ -394,7 +394,7 @@ gd_insgrow5 <- function(dt_exhbppl_watyear, l_cols_summary) {
     dt_insgrow5 <- dt_exhbppl_watyear[, lapply(.SD, \(x) mean(x[!is.infinite(x)], na.rm = T)),
                                       .(InstitutionType, InstitutionID),
                                       .SDcols = intersect(l_cols_summary, names(dt_exhbppl_watyear))] %>%
-        .[, exhbN_perc_n5s5_org := 100*((exhbN_grow5_cnt/exhbN_all_s5)-1)]
+        .[, exn_perc_n5s5_org := 100*((exn_grow5_cnt/exn_all_s5)-1)]
 
     attr(dt_insgrow5, "gnrtdby") <- as.character(match.call()[[1]])
     return(dt_insgrow5)

@@ -31,7 +31,7 @@ dt_atyear_evc[, c(list(PeopleID = PeopleID, year = year), .SD), .SDcols = patter
 dt_exhbppl_watyear <- gd_exhbppl_watyear(dt_exhbppl, dt_atyear_evc)
 
 ## "evc_grow5_cnt", "evc_grow5_prop"
-l_cols_summary <- c("exhbN_all_cum", "exhbN_all_s5", "exhbN_grow5_cnt", "exhbN_grow5_perc", "exhbN_perc_n5s5", "exhbN_perc_n5s5_org")
+l_cols_summary <- c("exn_all_cum", "exn_all_s5", "exn_grow5_cnt", "exn_grow5_perc", "exn_perc_n5s5", "exn_perc_n5s5_org")
 
 
 dt_insgrow5 <- gd_insgrow5(dt_exhbppl_watyear, l_cols_summary)

@@ -5,7 +5,7 @@ gp_hist_crap <- function(dt_atyear_foster) {
     ## fixme: ugly af, idk what's the point
 
 
-    melt(dt_atyear_foster, id.vars = c("PeopleID", "year"), measure.vars = patterns("exhbN_.*_s5"),
+    melt(dt_atyear_foster, id.vars = c("PeopleID", "year"), measure.vars = patterns("exn_.*_s5"),
          variable.name = "vrbl", value.name = "vlu") %>%
         .[grepl("s5", vrbl)] %>% na.omit %>%
         ggplot(aes(x=vlu, fill = vrbl)) +
@@ -19,15 +19,15 @@ gp_hist_crap <- function(dt_atyear_foster) {
 
 gp_mainseq <- function(dt_atyear_foster) {
     gw_fargs(match.call())
-    #' main-sequence inspired scatterplot: exhb_all_cum ~ career_year, with color of exhbN_all
+    #' main-sequence inspired scatterplot: exhb_all_cum ~ career_year, with color of exn_all
     #' basically only shows cumulative advantage tho...
     #' more informative would be tiles
     
 
     ## descriptive plots
-    ## exhbN_all_cum ~ cy: looks cute, but color is essentially also only cumulative advantage
+    ## exn_all_cum ~ cy: looks cute, but color is essentially also only cumulative advantage
     dt_atyear_foster %>% .[sample(1:.N, size = 1e4)] %>%
-        ggplot(aes(x=career_year, y = exhbN_all_cum, color = exhbN_all)) +
+        ggplot(aes(x=career_year, y = exn_all_cum, color = exn_all)) +
         geom_jitter(size = 0.4, height = 0.01) +
         ## scale_y_continuous(trans = scales::log10_trans()) +
         scale_y_continuous(trans = scales::asinh_trans(), breaks = c(0,3, 10, 30,100,300,750)) +
@@ -44,18 +44,18 @@ gp_mainseq <- function(dt_atyear_foster) {
 gp_activity_jitter <- function(dt_atyear_foster) {
     gw_fargs(match.call())
 
-    ## exhbN_all ~ cy: idk what's the point
+    ## exn_all ~ cy: idk what's the point
     dt_atyear_foster %>% .[sample(1:.N, size = 1e4)] %>% 
-        ggplot(aes(x=career_year, y = exhbN_all)) + geom_jitter(size = 0.1, height = 0.03) +
+        ggplot(aes(x=career_year, y = exn_all)) + geom_jitter(size = 0.1, height = 0.03) +
         scale_y_continuous(trans = scales::asinh_trans(), breaks = c(0, 3, 10, 30, 60))
     }
 
 
 gp_cumad_jitter <- function(dt_atyear_foster) {
     gw_fargs(match.call())
-    ## exhbN_all ~ exhnb_all_cum: muh cumulative advantage
+    ## exn_all ~ exhnb_all_cum: muh cumulative advantage
     dt_atyear_foster %>% .[sample(1:.N, size = 1e4)] %>%
-        ggplot(aes(x=exhbN_all_cum, y = exhbN_all)) +
+        ggplot(aes(x=exn_all_cum, y = exn_all)) +
         geom_jitter(size = 0.1, # width = 0.003, if x not log
                     ## width = 0.03, # if x log
                     width = 0.05,
@@ -71,7 +71,7 @@ gp_insgrow5 <- function(dt_insgrow5) {
 
 
     dt_insgrow5 %>% .[, .SD[sample(1:.N, size = min(.N, 500))], InstitutionType] %>% 
-        ggplot(aes(y=exhbN_grow5_perc, x = exhbN_grow5_cnt, color = InstitutionType)) +
+        ggplot(aes(y=exn_grow5_perc, x = exn_grow5_cnt, color = InstitutionType)) +
         geom_point(size = 0.4) + 
         ## geom_smooth(se = F) +
         scale_x_continuous(trans = scales::transform_asinh(), breaks = l_asinh_breaks) +
@@ -89,7 +89,7 @@ gp_insgrow5_contours <- function(dt_insgrow5) {
     p_insgrow5 <- gp_insgrow5(dt_insgrow5)
 
     dt_contours <- dt_insgrow5 %>% na.omit %>%
-        .[, kde2d_tidy(asinh(exhbN_grow5_cnt), asinh(exhbN_grow5_perc),n=150), InstitutionType] %>%
+        .[, kde2d_tidy(asinh(exn_grow5_cnt), asinh(exn_grow5_perc),n=150), InstitutionType] %>%
         .[, contourLines_tidy(x,y,z, levels = gd_zlvls(z, c(0.1, 0.2, 0.5, 0.8))[, z]), InstitutionType] %>% 
         .[, level2 := as.integer(factor(level)), InstitutionType] %>% #  .[, .N, level2]
         .[level2 == 4, .(x = sinh(x), y= sinh(y), InstitutionType)]
@@ -150,10 +150,10 @@ gt_grow5_sumry <- function(dt_exhbppl_watyear, dt_insgrow5, l_cols_summary) {
         melt(id.vars = c("InstitutionType", "src"))) %>%
         dcast(InstitutionType + src ~ variable) %>% 
         .[order(InstitutionType), .SD, .SDcols = c("InstitutionType", "src", l_cols_summary)] %>%
-        .[, exhbN_perc_n5s5_org := trimws(format(exhbN_perc_n5s5_org, digits = 2))] %>% # FIXME: absolute hacky way to get 
-        .[exhbN_perc_n5s5_org == "NA", exhbN_perc_n5s5_org := ""] %>% 
+        .[, exn_perc_n5s5_org := trimws(format(exn_perc_n5s5_org, digits = 2))] %>% # FIXME: absolute hacky way to get 
+        .[exn_perc_n5s5_org == "NA", exn_perc_n5s5_org := ""] %>% 
         ## setnafill(type = "const", fill = 0, cols = l_cols_summary) %>%
-        setnames(old = names(.), new = gsub("exhbN_", "", names(.))) %>% 
+        setnames(old = names(.), new = gsub("exn_", "", names(.))) %>% 
         gt_plain
 }
 
@@ -178,11 +178,11 @@ gt_insgrow5_topperc <- function(dt_insgrow5, dt_af_instns_rcd, l_cols_summary) {
     gw_fargs(match.call())
     #' most influential orgs by type in terms of percent
 
-    dt_insgrow5[order(-exhbN_grow5_perc)][, head(.SD), InstitutionType,
+    dt_insgrow5[order(-exn_grow5_perc)][, head(.SD), InstitutionType,
                                           .SDcols = c("InstitutionID", l_cols_summary)] %>% 
         dt_af_instns_rcd[, .(InstitutionID, Name, City, Country)][., on = "InstitutionID"] %>%
         .[, `:=`(InstitutionID = NULL)] %>%
-        ## .[, .(exhbN_grow5_cnt, exhbN_grow5_perc, evc_grow5_cnt, evc_grow5_prop)] %>% 
+        ## .[, .(exn_grow5_cnt, exn_grow5_perc, evc_grow5_cnt, evc_grow5_prop)] %>% 
         setnafill(fill = 999, type = "const", cols = l_cols_summary) %>%
         gt_plain
     
@@ -192,10 +192,10 @@ gt_insgrow5_topcnt <- function(dt_insgrow5, dt_af_instns_rcd, l_cols_summary) {
     gw_fargs(match.call())
 
     ## most influential in exhibition count
-    dt_insgrow5[order(-exhbN_grow5_cnt)][, head(.SD), InstitutionType] %>% 
+    dt_insgrow5[order(-exn_grow5_cnt)][, head(.SD), InstitutionType] %>% 
         copy(dt_af_instns_rcd)[, InstitutionType := NULL][., on = "InstitutionID"] %>% 
         .[, `:=`(InstitutionID = NULL)] %>%
-        ## .[, .(exhbN_grow5_cnt, exhbN_grow5_perc, evc_grow5_cnt, evc_grow5_prop)] %>% 
+        ## .[, .(exn_grow5_cnt, exn_grow5_perc, evc_grow5_cnt, evc_grow5_prop)] %>% 
         setnafill(fill = 999, type = "const", cols = l_cols_summary) %>%
         gt_plain
 
@@ -217,28 +217,28 @@ gd_nbrs <- function() {
 }
 
 
-gp_dist_exhbN_pes <- function(dt_atyear_foster) {
+gp_dist_exn_pi <- function(dt_atyear_foster) {
 
-## dt_atyear_foster[, .N, exhbN_pes] %>%
+## dt_atyear_foster[, .N, exn_pes] %>%
 ##     .[, perc := 100*(N/sum(N))] %>% 
-##     ggplot(aes(x=exhbN_pes, y = N)) +
+##     ggplot(aes(x=exn_pes, y = N)) +
 ##     ## geom_col(width = 0.3) +
 ##     geom_step() + 
 ##     scale_x_continuous(trans = scales::asinh_trans(), breaks = l_asinh_breaks)
 
 
 
-    dt_atyear_foster[, .N, cut(exhbN_pes, unique(l_asinh_breaks))] %>%
+    dt_atyear_foster[, .N, cut(exn_pi, unique(l_asinh_breaks))] %>%
         .[, perc := 100*(N/sum(N))] %>% 
         .[, perc_fmt := sprintf("%s%%", format(perc,digits = 1, nsmall = 0)), .I] %>% 
         .[, c("edge_lo", "edge_hi") := jtls::edge(cut), .I] %>%
         .[, edge_lop1 := edge_lo + 1] %>%
-        .[, cut_exhb_pes := ifelse(edge_hi == edge_lop1, edge_hi, sprintf("%s-%s", edge_lop1, edge_hi))] %>%
-        .[order(cut)] %>% .[, cut_exhb_pes := factor(cut_exhb_pes, cut_exhb_pes)] %>% 
-        ggplot(aes(x=cut_exhb_pes, y = N, label = perc_fmt)) +
+        .[, cut_exhb_pi := ifelse(edge_hi == edge_lop1, edge_hi, sprintf("%s-%s", edge_lop1, edge_hi))] %>%
+        .[order(cut)] %>% .[, cut_exhb_pi := factor(cut_exhb_pi, cut_exhb_pi)] %>% 
+        ggplot(aes(x=cut_exhb_pi, y = N, label = perc_fmt)) +
         geom_col() +
         geom_text(vjust = -0.7) +
-        labs(x="Number of exhibitions in Public Exhibition Spaces per year") +
+        labs(x="Number of exhibitions in Public Institutions per year") +
         scale_y_continuous(labels = scales::label_comma()) +
         coord_cartesian(ylim = c(NA, 5.5e5))
 
@@ -262,16 +262,16 @@ gp_grow_arrow <- function(dt_insgrow5) {
     gw_fargs(match.call())
     
     dt_sums <- dt_insgrow5[, map(.SD, ~mean(.x[!is.infinite(.x)], na.rm = T)), .(vlu = InstitutionType),
-                           .SDcols = c("exhbN_all_s5", "exhbN_grow5_cnt", "exhbN_perc_n5s5_org")] %>%
-        .[, `:=`(x = "exhbN_grow5_cnt", y2 = exhbN_grow5_cnt)] %>%
+                           .SDcols = c("exn_all_s5", "exn_grow5_cnt", "exn_perc_n5s5_org")] %>%
+        .[, `:=`(x = "exn_grow5_cnt", y2 = exn_grow5_cnt)] %>%
         .[vlu == "pes", y2 := y2 + 3]
 
     dt_sums2 <- merge(dt_sums, gc_vvs() %>% chuck("dt_ctgterm_lbls"), by = "vlu")
     
-    c_lbls_x <- c(exhbN_all_s5 = "Before (5 year span)", exhbN_grow5_cnt = "After (5 year span)")
+    c_lbls_x <- c(exn_all_s5 = "Before (5 year span)", exn_grow5_cnt = "After (5 year span)")
 
 
-    melt(dt_sums, id.vars = "vlu", measure.vars = c("exhbN_all_s5", "exhbN_grow5_cnt")) %>%
+    melt(dt_sums, id.vars = "vlu", measure.vars = c("exn_all_s5", "exn_grow5_cnt")) %>%
         ggplot(aes(x=variable, y = value, color = vlu, group = vlu)) +
         geom_point(size = 2, show.legend = F) +
         geom_path(arrow = arrow(angle = 15, type = "closed"), show.legend = F) +

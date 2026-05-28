@@ -3,12 +3,12 @@ gc_plts <- function() {
 
     list(
         p_pminfl_cbn = list(
-            r_pes = quote(l_mdls$r_pes1),
+            r_pes = quote(l_mdls$r_pi_UI),
             r_auc = quote(l_mdls$r_auc),
             width = 14, height = 7,
             caption = "influence of PM exhibitions"),
-        p_pminfl_pes = list(
-            r_pes = quote(l_mdls$r_pes_s5),
+        p_pminfl_pi = list(
+            r_pes = quote(l_mdls$r_pi_UI),
             ## r_pes = quote(l_mdls$r_pes1),
             width = 9, height = 7,
             caption = "influence of PM exhibitions"),
@@ -25,27 +25,27 @@ gc_plts <- function() {
             dt_atyear_foster = quote(dt_atyear_foster),
             width = 14, height =7,
             caption = "activity jitter"),
-        p_insgrow5 = list(
-            dt_insgrow5 = quote(dt_insgrow5),
-            width = 14, height =9,
-            caption = "growth relations"),
-        p_insgrow5_contours = list(
-            dt_insgrow5 = quote(dt_insgrow5),
-            width = 14, height =9,
-            caption = "growth relations"),
+        ## p_insgrow5 = list(
+        ##     dt_insgrow5 = quote(dt_insgrow5),
+        ##     width = 14, height =9,
+        ##     caption = "growth relations"),
+        ## p_insgrow5_contours = list(
+        ##     dt_insgrow5 = quote(dt_insgrow5),
+        ##     width = 14, height =9,
+        ##     caption = "growth relations"),
         p_cumad_jitter = list(
             dt_atyear_foster = quote(dt_atyear_foster),
             width = 14, height = 7,
             caption = "cumulative advantage whatever"),
-        p_insgrow5_dist = list(
-            dt_insgrow5 = quote(dt_insgrow5),
-            l_cols_summary = quote(l_cols_summary),
-            width = 14, height = 18, caption = "grow5 dists"),
+        ## p_insgrow5_dist = list(
+        ##     dt_insgrow5 = quote(dt_insgrow5),
+        ##     l_cols_summary = quote(l_cols_summary),
+        ##     width = 14, height = 18, caption = "grow5 dists"),
         p_mainseq = list(
             dt_atyear_foster = quote(dt_atyear_foster),
             width = 14, height = 7,
             caption = "cumulative advantage"),
-        p_dist_exhbN_pes = list(
+        p_dist_exn_pi = list(
             dt_atyear_foster = quote(dt_atyear_foster),
             width = 14, height = 7,
             caption = "distribution of yearly PES exhibitions"),
@@ -55,24 +55,24 @@ gc_plts <- function() {
             caption = "distribution of yearly aucturn turnover"),
         p_coef_trans = list(
             l_mdls = quote(l_mdls),
-            width = 14, height = 6,
+            width = 14, height = 10,
             caption = "coefs"),
-        p_pred_exhbNcum = list(
+        p_pred_exncum = list(
             dt_atyear_foster = quote(dt_atyear_foster),
             width = 14, height = 7,
-            caption = "coefs"),
+            caption = "coefs")
         ## p_grow_arrow = list(#  dont re-render for now
         ##     dt_insgrow5 = quote(dt_insgrow5),
         ##     width = 12, height = 6,
         ##     caption = "descs"),
-        p_grow_perc_arrow = list(
-            dt_insgrow5 = quote(dt_insgrow5),
-            width = 12, height = 7,
-            caption = "grow"),
-        p_insevc = list(
-            dt_insevc = quote(dt_insevc),
-            width = 14, height = 7,
-            caption = "EVC distribution")
+        ## p_grow_perc_arrow = list(
+        ##     dt_insgrow5 = quote(dt_insgrow5),
+        ##     width = 12, height = 7,
+        ##     caption = "grow"),
+        ## p_insevc = list(
+        ##     dt_insevc = quote(dt_insevc),
+        ##     width = 14, height = 7,
+        ##     caption = "EVC distribution")
         )}
 
 

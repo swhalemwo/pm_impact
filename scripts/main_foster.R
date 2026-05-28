@@ -158,14 +158,14 @@ l_mdls <- gl_mdls(dt_atyear_foster_smol)
 ##     coord_cartesian(xlim = c(1e-3,1e3))
 
 
-## dt_exhbppl_watyear[is.infinite(exhbN_grow5_perc), uniqueN(PeopleID)]
+## dt_exhbppl_watyear[is.infinite(exn_grow5_perc), uniqueN(PeopleID)]
 
 
 ## distribution of institution-level growth factors (ability of individual museums to promote)
 
     
-walk(names(gc_tbls()), ~lapply(c(gtbl, wtbl), \(f) f(.x)))
-walk(names(gc_plts()), ~lapply(c(gplt, wplt), \(f) f(.x)))
+walk(names(gc_tbls()), ~lapply(c(gtbl, wtbl), \(f) f(.x))) # currently all use grow/insflow objects
+walk(names(gc_plts())[-(1:9)], ~lapply(c(gplt, wplt), \(f) f(.x)))
 
 
 jtls::gwd_clgrph()
