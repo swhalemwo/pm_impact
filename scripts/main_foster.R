@@ -78,7 +78,7 @@ if (interactive()) {
     b_min_mdls <- F
 }
 
-
+b_min_mdls <- T
 
 if (interactive()) {stop("it's interactive time")}
 ## ** main
@@ -137,13 +137,13 @@ dt_atyear_raw <- gd_atyear_raw(dt_af_exhbs, dt_af_people, dt_af_links_exhb_ppl, 
 dt_atyear_foster <- gd_atyear_foster(dt_atyear_raw, c_datargs$baby)
 
 
+if (b_min_mdls) { 
 
-l_mdls <- gl_mdls(dt_atyear_foster) # , dt_atyear_evc)
-
-dt_atyear_foster_smol <- dt_atyear_foster[year %between% c(2010, 2012)]
-
-
-l_mdls <- gl_mdls(dt_atyear_foster_smol)
+    dt_atyear_foster_smol <- dt_atyear_foster[year %between% c(2010, 2012)]
+    l_mdls <- gl_mdls(dt_atyear_foster_smol)
+} else {
+    l_mdls <- gl_mdls(dt_atyear_foster) # , dt_atyear_evc)
+}
 
 
 ## dt_atyear_evc[, map(.SD, ~sum(is.na(.x)))] %>% t %>% adt %>% .[, .N, V1]
@@ -163,9 +163,11 @@ l_mdls <- gl_mdls(dt_atyear_foster_smol)
 
 ## distribution of institution-level growth factors (ability of individual museums to promote)
 
-    
-walk(names(gc_tbls()), ~lapply(c(gtbl, wtbl), \(f) f(.x))) # currently all use grow/insflow objects
-walk(names(gc_plts())[-(1:9)], ~lapply(c(gplt, wplt), \(f) f(.x)))
+if (!b_min_mdls) {    
+    walk(names(gc_tbls()), ~lapply(c(gtbl, wtbl), \(f) f(.x))) # currently all use grow/insflow objects
+}
+
+walk(names(gc_plts()), ~lapply(c(gplt, wplt), \(f) f(.x)))
 
 
 jtls::gwd_clgrph()
