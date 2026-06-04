@@ -2,15 +2,8 @@ library(PanelMatch)
 library(data.table)
 library(fixest)
 
-# Correct extraction: 
-# PanelMatch keeps original data in the 'panel.data' attribute/slot
-# The PanelMatch object is a list, but we can't just call $panel.data on it
-# The PanelData object is what we passed to PanelMatch
-
 prepare_matched_data <- function(pm_object, panel_data) {
-  # pm_data is the PanelData object
-  # which IS a data.frame in this package
-  df_raw <- as.data.frame(panel_data)
+  df_raw <- as.data.table(panel_data)
   
   matched_data_list <- lapply(names(pm_object$att), function(set_name) {
     set <- pm_object$att[[set_name]]
@@ -20,23 +13,34 @@ prepare_matched_data <- function(pm_object, panel_data) {
     unit_id <- as.integer(parts[1])
     time_id <- as.integer(parts[2])
     
-    # Set contains the control units
-    combined_ids <- c(unit_id, as.integer(set))
+    lead_periods <- pm_object$lead
     
-    # We get data for these units for time_id
-    matched_set_df <- df_raw[df_raw$wbcode2 %in% combined_ids & df_raw$year == time_id, ]
+    set_dfs <- lapply(lead_periods, function(l) {
+      combined_ids <- c(unit_id, as.integer(set))
+      curr_time <- time_id + l
+      
+      matched_set_df <- df_raw[wbcode2 %in% combined_ids & year == curr_time]
+      
+      if(nrow(matched_set_df) == 0) return(NULL)
+      
+      w <- rep(1, nrow(matched_set_df))
+      ctrl_idx <- which(matched_set_df$wbcode2 %in% as.integer(set))
+      matched_ids <- matched_set_df$wbcode2[ctrl_idx]
+      w[ctrl_idx] <- weights[match(matched_ids, as.integer(set))]
+      
+      matched_set_df[, matched_weights := w]
+      matched_set_df[, set_id := set_name]
+      matched_set_df[, lead := l]
+      return(matched_set_df)
+    })
     
-    matched_set_df$matched_weights <- 1
-    # Control units get the weights
-    if (!is.null(weights)) {
-      matched_set_df$matched_weights[matched_set_df$wbcode2 %in% as.integer(set)] <- weights
-    }
-    
-    matched_set_df$set_id <- set_name
-    return(matched_set_df)
+    return(rbindlist(set_dfs))
   })
   
-  return(rbindlist(matched_data_list))
+  res <- rbindlist(matched_data_list)
+  # The column "dem" in 'dem' dataset was numeric, ensure it stays that way
+  res[, dem := as.numeric(dem)]
+  return(res)
 }
 
 data(dem)
@@ -58,10 +62,9 @@ pe_results <- PanelEstimate(sets = pm_results, panel.data = pm_data, se.method =
 
 matched_df <- prepare_matched_data(pm_results, pm_data)
 
-# Replicate with OLS
-lm_est <- lm(y ~ dem, data = matched_df, weights = matched_weights)
+lm_est <- lm(y ~ dem, data = matched_df, weights = matched_df$matched_weights)
 
-cat("PanelEstimate result (t+0):\n")
-print(pe_results$estimate["t+0"])
-cat("\nReplication (OLS) result:\n")
+cat("PanelEstimate (pooled ATT):\n")
+print(mean(pe_results$estimate))
+cat("\nReplication (OLS):\n")
 print(coef(lm_est)["dem"])
