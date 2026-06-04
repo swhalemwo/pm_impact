@@ -135,7 +135,7 @@ panel_estimate <- function (sets, data, se.method = "bootstrap", number.iteratio
     }
     else {
 
-        data <- data[,c("wbcode2", "year", "dem", "y", "tradewb")]
+        ## data <- data[,c("wbcode2", "year", "dem", "y", "tradewb")]
         
         data <- my_prepare_data(data.in = data, lead = lead, sets.att = sets.att, 
             sets.atc = sets.atc, qoi.in = qoi, dependent.variable = dependent)
@@ -164,8 +164,7 @@ calculate_estimates <- function (qoi.in, data.in, lead, number.iterations, att.t
     atc.treated.unit.ids, outcome.variable, unit.id.variable, 
     confidence.level, att.sets, atc.sets, placebo.test = FALSE, 
     lag, se.method, pooled = FALSE, parallel = FALSE, num.cores = 1) {
-    pt.estimates <- calculate_point_estimates(qoi.in, data.in, 
-        lead, outcome.variable, pooled)
+    pt.estimates <- calculate_point_estimates(qoi.in, data.in, lead, outcome.variable, pooled)
     if (identical(se.method, "bootstrap")) {
         if (parallel) {
             coefs <- handle_bootstrap_parallel(qoi.in = qoi.in, 
@@ -454,4 +453,67 @@ my_prepare_data <- function (data.in, lead, sets.att = NULL, sets.atc = NULL, qo
     }
     data.in[, dependent.variable][is.na(data.in[, dependent.variable])] <- 0
     return(data.in)
+}
+
+
+
+calculate_point_estimates <- function (qoi.in, data.in, lead, outcome.variable, pooled = FALSE) {
+
+    browser()
+    if (identical(qoi.in, "att") || identical(qoi.in, "atc") || 
+        identical(qoi.in, "art")) {
+        col.idx <- sapply(lead, function(x) paste0("Wit_", qoi.in, 
+            x))
+        x.in <- data.in[, col.idx, drop = FALSE]
+        y.in <- data.in[c(outcome.variable)][, 1]
+        z.in <- data.in[, paste0("dits_", qoi.in)]
+        o.coefs <- sapply(x.in, equality_four, y = y.in, z = z.in)
+        if (identical(qoi.in, "atc")) 
+            o.coefs <- -o.coefs
+        if (all(lead >= 0)) {
+            if (length(lead[lead < 0]) > 1) {
+                names(o.coefs)[(length(o.coefs) - max(lead[lead >= 
+                  0])):length(o.coefs)] <- sapply(lead[lead >= 
+                  0], function(x) paste0("t+", x))
+                names(o.coefs)[(length(o.coefs) - length(lead) + 
+                  1):length(lead[lead < 0])] <- sapply(lead[lead < 
+                  0], function(x) paste0("t", x))
+            }
+            else {
+                names(o.coefs) <- sapply(lead, function(x) paste0("t+", 
+                  x))
+            }
+        }
+        if (pooled) {
+            o.coefs <- mean(o.coefs, na.rm = TRUE)
+            names(o.coefs) <- NULL
+        }
+    }
+    else if (identical(qoi.in, "ate")) {
+        o.coefs_att <- sapply(data.in[, sapply(lead, function(x) paste0("Wit_att", 
+            x)), drop = FALSE], equality_four, y = data.in[c(outcome.variable)][, 
+            1], z = data.in$dits_att)
+        o.coefs_atc <- -sapply(data.in[, sapply(lead, function(x) paste0("Wit_atc", 
+            x)), drop = FALSE], equality_four, y = data.in[c(outcome.variable)][, 
+            1], z = data.in$dits_atc)
+        o.coefs <- (o.coefs_att * sum(data.in$dits_att) + o.coefs_atc * 
+            sum(data.in$dits_atc))/(sum(data.in$dits_att) + sum(data.in$dits_atc))
+        if (length(lead[lead < 0]) > 1) {
+            names(o.coefs)[(length(o.coefs) - max(lead[lead >= 
+                0])):length(o.coefs)] <- sapply(lead[lead >= 
+                0], function(x) paste0("t+", x))
+            names(o.coefs)[(length(o.coefs) - length(lead) + 
+                1):length(lead[lead < 0])] <- sapply(lead[lead < 
+                0], function(x) paste0("t", x))
+        }
+        else {
+            names(o.coefs) <- sapply(lead, function(x) paste0("t+", 
+                x))
+        }
+        if (pooled) {
+            o.coefs <- mean(o.coefs, na.rm = TRUE)
+            names(o.coefs) <- NULL
+        }
+    }
+    return(o.coefs)
 }
