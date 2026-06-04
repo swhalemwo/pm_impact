@@ -105,16 +105,60 @@ pe_results <- PanelEstimate(sets = pm_results, panel.data = pm_data, se.method =
 ## ** custom right approach: uses y diff (ydi)
 
 dt_pm_long <- prep_pm_long(pm_results, adt(dem))
+
+dt_pm_long[, dem_l1 := shift(dem)]
+
+dt_pm_long[year == as.integer(strsplit(set, "\\.")[[1]][2]) & wbcode2 == as.integer(strsplit(set, "\\.")[[1]][1])]
+
+dt_pm_long[, `:=`(set_year = as.integer(str_split(set, "\\.")[[1]][2]),
+                  set_cry = as.integer(str_split(set, "\\.")[[1]][1]))]
+
+dt_pm_long[, `:=`(set_year = as.integer(tstrsplit(set, "\\.")[1]))]
+
+str_split(c("10.20", "30.40"), "\\.")
+
+tstrsplit(c("10.20", "30.40"), "\\.")
+# FIX THIS
+
+
+
+
+dt_pm_long[, .(wbcode2, year, set, set_year, set_cry)] %>% print(n=40)
+
+dt_
+
+
+
+
 feols(y - y_lag ~ type | set, dt_pm_long, weights = ~weight) # -0.6
 rx <- feols(c(y_dil0, y_dil1, y_dil2, y_dil3, y_dil4) ~ type | set, dt_pm_long, weights = ~weight) # DV has to be diff
 
-dt_mnl <- map(rx, ~tidy(.x) %>% adt) %>% rbindlist(idcol = "spec")
+dt_mnl <- map(rx, ~tidy(.x) %>% adt) %>% rbindlist(idcol = "spec") %>%
+    .[, year := as.integer(gsub("lhs: y_dil", "", spec))]
 
 
 ## ** comparison
 
 rbind(
     pe_results %>% summary %>% adt %>% .[, .(estimate, std.error, year = 0:(.N-1), src = "PM")],
-    dt_mnl[, .(estimate, std.error, year = as.integer(gsub("lhs: y_dil", "", spec)), src = "MNL")]) %>%
+    dt_mnl[, .(estimate, std.error, year, src = "MNL")]) %>%
     dcast(year ~ src, value.var = c("estimate", "std.error"))
 
+
+
+## ** expansion: decade
+dt_pm_long[, decade := 10*floor(year/10)][, decade := factor(decade, levels = sort(unique(decade)))]
+
+r_dcd <- feols(c(y_dil0, y_dil1, y_dil2, y_dil3, y_dil4) ~ type*decade | set, dt_pm_long, weights = ~weight, cluster = ~wbcode2)
+
+## feols(c(y_dil0, y_dil1, y_dil2, y_dil3, y_dil4) ~ type | set + wbcode2, dt_pm_long, weights = ~weight)
+## gemini says DiD already accounts for differences from means
+
+
+dt_dcd <- map(r_dcd, ~tidy(.x) %>% adt) %>% rbindlist(idcol = "spec") %>%
+    .[, `:=`(year = gsub("lhs: y_dil", "", spec), decade = gsub("typetreat:decade", "", term))] %>%
+    .[decade == "typetreat", decade := levels(dt_pm_long$decade)[1]] %>%
+    rbind(copy(dt_mnl)[, `:=`(decade = "all")])
+
+
+dt_dcd %>% ggplot(aes(x=year, y = estimate, group = decade, color = decade)) + geom_line()
