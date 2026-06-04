@@ -122,7 +122,7 @@ panel_estimate <- function (sets, data, se.method = "bootstrap", number.iteratio
             treated.unit.ids.att <- NULL
     }
     if (placebo.test) {
-        data <- prepare_data(data.in = data, lead = max(placebo.lead):0, 
+        data <- my_prepare_data(data.in = data, lead = max(placebo.lead):0, 
             sets.att = sets.att, sets.atc = sets.atc, qoi.in = qoi, 
             dependent.variable = dependent)
         pe.results <- calculate_placebo_estimates(qoi.in = qoi, 
@@ -134,7 +134,10 @@ panel_estimate <- function (sets, data, se.method = "bootstrap", number.iteratio
             se.method = se.method, parallel = parallel, num.cores = num.cores)
     }
     else {
-        data <- prepare_data(data.in = data, lead = lead, sets.att = sets.att, 
+
+        data <- data[,c("wbcode2", "year", "dem", "y", "tradewb")]
+        
+        data <- my_prepare_data(data.in = data, lead = lead, sets.att = sets.att, 
             sets.atc = sets.atc, qoi.in = qoi, dependent.variable = dependent)
 
         pe.results <- calculate_estimates(qoi.in = qoi, data.in = data, 
@@ -406,4 +409,49 @@ my_handle_bootstrap <- function (qoi.in, data.in, lead, number.iterations, att.t
     else {
         stop("qoi misspecified")
     }
+}
+
+
+my_prepare_data <- function (data.in, lead, sets.att = NULL, sets.atc = NULL, qoi.in, 
+                             dependent.variable) {
+
+    browser()
+
+    if (identical(qoi.in, "att") || identical(qoi.in, "art") || 
+        identical(qoi.in, "ate")) {
+        if (!identical(qoi.in, "ate")) 
+            qoi.t <- qoi.in
+        if (identical(qoi.in, "ate")) 
+            qoi.t <- "att"
+        for (j in lead) {
+            dense.wits <- getWits(lead = j, data = data.in, matched_sets = sets.att)
+            data.in = merge(x = data.in, y = dense.wits, all.x = TRUE, 
+                by.x = colnames(data.in)[1:2], by.y = c("id", 
+                  "t"))
+            colnames(data.in)[length(data.in)] <- paste0("Wit_", 
+                qoi.t, j)
+            data.in[is.na(data.in[, length(data.in)]), length(data.in)] <- 0
+        }
+        data.in[, paste0("dit_", qoi.t)] <- getDits(matched_sets = sets.att, 
+            data = data.in)
+        colnames(data.in)[length(data.in)] <- paste0("dits_", 
+            qoi.t)
+        data.in[, paste0("Wit_", qoi.t, "-1")] <- 0
+    }
+    if (identical(qoi.in, "atc") || identical(qoi.in, "ate")) {
+        for (j in lead) {
+            dense.wits <- getWits(lead = j, data = data.in, matched_sets = sets.atc)
+            data.in = merge(x = data.in, y = dense.wits, all.x = TRUE, 
+                by.x = colnames(data.in)[1:2], by.y = c("id", 
+                  "t"))
+            colnames(data.in)[length(data.in)] <- paste0("Wit_atc", 
+                j)
+            data.in[is.na(data.in[, length(data.in)]), length(data.in)] <- 0
+        }
+        data.in$dit_atc <- getDits(matched_sets = sets.atc, data = data.in)
+        colnames(data.in)[length(data.in)] <- "dits_atc"
+        data.in$`Wit_atc-1` <- 0
+    }
+    data.in[, dependent.variable][is.na(data.in[, dependent.variable])] <- 0
+    return(data.in)
 }
