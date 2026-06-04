@@ -37,13 +37,12 @@ prepare_matched_data <- function(pm_object, panel_data) {
     return(rbindlist(set_dfs))
   })
   
-  res <- rbindlist(matched_data_list)
-  # The column "dem" in 'dem' dataset was numeric, ensure it stays that way
-  res[, dem := as.numeric(dem)]
-  return(res)
+  return(rbindlist(matched_data_list))
 }
 
 data(dem)
+dem <- as.data.frame(lapply(dem, function(x) if(is.list(x)) unlist(x) else x))
+
 pm_data <- PanelData(panel.data = dem,
                      unit.id = "wbcode2",
                      time.id = "year",
