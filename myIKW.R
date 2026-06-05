@@ -106,27 +106,14 @@ pe_results <- PanelEstimate(sets = pm_results, panel.data = pm_data, se.method =
 
 dt_pm_long <- prep_pm_long(pm_results, adt(dem))
 
-dt_pm_long[, dem_l1 := shift(dem)]
 
-dt_pm_long[year == as.integer(strsplit(set, "\\.")[[1]][2]) & wbcode2 == as.integer(strsplit(set, "\\.")[[1]][1])]
+## get treatment indicator
+## dt_pm_long[, c("set_cry", "set_year") := tstrsplit(set, "\\.", type.convert = as.integer)]
 
-dt_pm_long[, `:=`(set_year = as.integer(str_split(set, "\\.")[[1]][2]),
-                  set_cry = as.integer(str_split(set, "\\.")[[1]][1]))]
+## dt_pm_long[year == set_year & wbcode2 == set_cry, Dit := 1] %>%
+##     setnafill(fill = 0 , cols = "Dit")
 
-dt_pm_long[, `:=`(set_year = as.integer(tstrsplit(set, "\\.")[1]))]
-
-str_split(c("10.20", "30.40"), "\\.")
-
-tstrsplit(c("10.20", "30.40"), "\\.")
-# FIX THIS
-
-
-
-
-dt_pm_long[, .(wbcode2, year, set, set_year, set_cry)] %>% print(n=40)
-
-dt_
-
+## dt_pm_long[order(set), .(wbcode2, year, set, set_year, set_cry, Dit)] %>% print(n=200)
 
 
 
@@ -161,4 +148,18 @@ dt_dcd <- map(r_dcd, ~tidy(.x) %>% adt) %>% rbindlist(idcol = "spec") %>%
     rbind(copy(dt_mnl)[, `:=`(decade = "all")])
 
 
+map(r_dcd, ~gd_intr_grp_slopes(.x, "typetreat", "decade")) %>% rbindlist(idcol = "spec") %>%
+    .[, `:=`(year = gsub("lhs: y_dil", "", spec))] %>%
+    rbind(copy(dt_mnl)[, `:=`(category = "all",p.value = NULL, statistic = NULL)] %>%
+          setnames(old = c("std.error", "term"), new = c("se", "vrbl"))) %>%
+    ggplot(aes(x=year, y = estimate, group = category, color = category)) + geom_line()
+
+dt_pm_long[type == "treat", .N, decade]
+
 dt_dcd %>% ggplot(aes(x=year, y = estimate, group = decade, color = decade)) + geom_line()
+
+
+
+
+DisplayTreatment(panel.data = dem.panel, legend.position = "none",
+                 xlab = "year", ylab = "Country Code")
