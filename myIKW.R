@@ -152,7 +152,11 @@ map(r_dcd, ~gd_intr_grp_slopes(.x, "typetreat", "decade")) %>% rbindlist(idcol =
     .[, `:=`(year = gsub("lhs: y_dil", "", spec))] %>%
     rbind(copy(dt_mnl)[, `:=`(category = "all",p.value = NULL, statistic = NULL)] %>%
           setnames(old = c("std.error", "term"), new = c("se", "vrbl"))) %>%
-    ggplot(aes(x=year, y = estimate, group = category, color = category)) + geom_line()
+    ggplot(aes(x=year, y = estimate, group = category, color = category,
+               ymin = estimate - 1.96*se, ymax = estimate + 1.96*se, fill = category)) +
+    geom_line() +
+    geom_ribbon(alpha = 0.2)
+    
 
 dt_pm_long[type == "treat", .N, decade]
 
