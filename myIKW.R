@@ -133,19 +133,22 @@ rbind(
 
 
 
-## ** expansion: decade
+## ** expansion: effect variation by decade
 dt_pm_long[, decade := 10*floor(year/10)][, decade := factor(decade, levels = sort(unique(decade)))]
 
-r_dcd <- feols(c(y_dil0, y_dil1, y_dil2, y_dil3, y_dil4) ~ type*decade | set, dt_pm_long, weights = ~weight, cluster = ~wbcode2)
+r_dcd <- feols(c(y_dil0, y_dil1, y_dil2, y_dil3, y_dil4) ~ type*decade | set, dt_pm_long,
+               weights = ~weight, cluster = ~wbcode2)
 
 ## feols(c(y_dil0, y_dil1, y_dil2, y_dil3, y_dil4) ~ type | set + wbcode2, dt_pm_long, weights = ~weight)
 ## gemini says DiD already accounts for differences from means
 
 
-dt_dcd <- map(r_dcd, ~tidy(.x) %>% adt) %>% rbindlist(idcol = "spec") %>%
-    .[, `:=`(year = gsub("lhs: y_dil", "", spec), decade = gsub("typetreat:decade", "", term))] %>%
-    .[decade == "typetreat", decade := levels(dt_pm_long$decade)[1]] %>%
-    rbind(copy(dt_mnl)[, `:=`(decade = "all")])
+## dt_dcd <- map(r_dcd, ~tidy(.x) %>% adt) %>% rbindlist(idcol = "spec") %>%
+##     .[, `:=`(year = gsub("lhs: y_dil", "", spec), decade = gsub("typetreat:decade", "", term))] %>%
+##     .[decade == "typetreat", decade := levels(dt_pm_long$decade)[1]] %>%
+##     rbind(copy(dt_mnl)[, `:=`(decade = "all")])
+
+## dt_dcd %>% ggplot(aes(x=year, y = estimate, group = decade, color = decade)) + geom_line()
 
 
 map(r_dcd, ~gd_intr_grp_slopes(.x, "typetreat", "decade")) %>% rbindlist(idcol = "spec") %>%
@@ -160,10 +163,8 @@ map(r_dcd, ~gd_intr_grp_slopes(.x, "typetreat", "decade")) %>% rbindlist(idcol =
 
 dt_pm_long[type == "treat", .N, decade]
 
-dt_dcd %>% ggplot(aes(x=year, y = estimate, group = decade, color = decade)) + geom_line()
 
 
 
-
-DisplayTreatment(panel.data = dem.panel, legend.position = "none",
+DisplayTreatment(panel.data = pm_data, legend.position = "none",
                  xlab = "year", ylab = "Country Code")
