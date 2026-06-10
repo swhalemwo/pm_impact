@@ -41,9 +41,11 @@ match_treatment_history <- function(dt, L, treatment_col = "exn_pm",
   setkey(treated, year, hist_str)
   setkey(controls, year, hist_str)
   
+  # Using allow.cartesian=TRUE to allow multiple controls per treated unit
   matched <- controls[treated, .(control_id = PeopleID, treated_id = i.PeopleID, year, hist_str), 
                       nomatch = NULL, 
-                      on = .(year, hist_str)]
+                      on = .(year, hist_str),
+                      allow.cartesian = TRUE]
   
   return(matched)
 }
