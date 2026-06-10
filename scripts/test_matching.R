@@ -12,7 +12,7 @@ run_test_match <- function(n_treated) {
   dt_sample <- dt_test[PeopleID %in% sample_ids]
   
   mem_pre_match <- mem_used()
-  match_res <- match_treatment_history(dt_sample, L = 3)
+  match_res <- match_treatment_history(dt_sample, L = 5)
   mem_post_match <- mem_used()
   
   mem_delta <- mem_post_match - mem_pre_match
