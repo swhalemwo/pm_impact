@@ -24,6 +24,7 @@ library(sf) # locating toti
 library(rnaturalearth) # locating toti
 library(readr, include.only = "read_csv") # read google sheets
 library(R.utils, include.only = "withTimeout")
+library(MatchIt)
 set.seed(42)
 
 refresh_pipeline <- function() {

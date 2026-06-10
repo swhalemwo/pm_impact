@@ -345,11 +345,7 @@ fwrite(dt_test, "dt_test.csv")
 
 dt_match <- match_treatment_history(dt_test[year >= 2000], L=5, return_type = "matches-info")
 
-
 dt_match[, .N, match_tier]
-
-
-
 
 dt_match[, uniqueN(treated_id), match_tier]
 
@@ -359,34 +355,56 @@ dt_match[, .(nbr_tiers = uniqueN(match_tier)), treated_id][, max(nbr_tiers)]
 
 
 
-dt_match_smol <- dt_match[year == 2010]
+
 
 ## only look at 2010
 dt_atyear_foster[year == 2010 & PeopleID == 17753]
 
 ## have both control and treatment in long format
 dt_match_long <- rbind(
-    dt_match_smol[, .(PeopleID = control_id, year, match_key, match_tier, treat = 0,
+    dt_match[, .(PeopleID = control_id, year, match_key, match_tier, treat = 0,
                       set = paste0(treated_id, "_", year))],
-    dt_match_smol[, head(.SD,1), treated_id][, .(PeopleID= treated_id, year, match_key, match_tier, treat = 1,
-                                                 set = paste0(paste0(treated_id, "_", year)))])
+    dt_match[, head(.SD,1), treated_id][, .(PeopleID= treated_id, year, match_key, match_tier, treat = 1,
+                                                 set = paste0(paste0(treated_id, "_", year)))]) %>%
+    merge(dt_test, by = c("PeopleID", "year")) #
 
+
+dt_match_smol <- dt_match_long[year == 2010]
 
 ## dt_match_long[set == "13918_2010"]
 ## dt_match_smol[treated_id == 13918]
 
 ## only look at one 
-dt_match_tiny <- dt_match_long[set == "13918_2010"] %>% 
-    merge(dt_test, by = c("PeopleID", "year"))
+dt_match_tiny <- dt_match_long[set == "13918_2010"] 
+    
 
-t1 = Sys.time()         
+t1 = Sys.time()
+## single obs
 r_match <- matchit(treat ~ BirthYear + exn_all_cum,
                    data = dt_match_tiny,
                    method = "cem",
                    cutpoints = list(BirthYear = 5, exn_all_cum = 5))
 t2 = Sys.time()
 
-    
+## one year
+r_match2 <- matchit(treat ~ set + BirthYear + exn_all_cum,
+                    data = dt_match_smol,
+                    method = "cem",
+                    cutpoints = list(BirthYear = 8, exn_all_cum = 8))
+
+## all years
+r_match3 <- matchit(treat ~ set + BirthYear + exn_all_cum,
+                    data = dt_match_long,
+                    method = "cem",
+                    cutpoints = list(BirthYear = 8, exn_all_cum = 8))
+
+## matching entire set means that groups gets bigger -> likely more overlap than if groups were based only on single treat
+
+r_match2 %>% summary
+
+dt_match_long[, `:=`(subclass_all = r_match2$subclass)]
+
+
+dt_match_long[set == "13918_2010", .(PeopleID, treat, subclass_all, subclass_single = r_match$subclass)] %>% summary
     
 
-matchit(
