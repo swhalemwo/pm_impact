@@ -331,7 +331,8 @@ dt_natgrid <- dt_af_people[, .(nat = unlist(tstrsplit(Nationality, ","))), Peopl
 dt_test <- dt_atyear_foster[, .SD, .SDcols = c("PeopleID", "year", "Gender", "exn_pi", "exn_pm",
                                                "exn_pm_cum", "exn_pm_cum_ihs",
                                                "exn_pi_cum", "exn_pi_cum_ihs",
-                                               "BirthYear", "career_year", "exn_all_cum", "exn_all_s5")] %>%
+                                               "BirthYear", "career_year", "exn_all_cum_ihs",
+                                               "exn_all_s5")] %>%
     merge(dt_natgrid, by = "PeopleID") %>%
     .[, any_pm := fifelse(max(exn_pm_cum_ihs) == 0, 0, 1), PeopleID] %>%
     .[, Gender := fifelse(Gender %in% c("Male", "Female"), Gender, "Other")] %>%
@@ -408,3 +409,45 @@ dt_match_long[, `:=`(subclass_all = r_match2$subclass)]
 dt_match_long[set == "13918_2010", .(PeopleID, treat, subclass_all, subclass_single = r_match$subclass)] %>% summary
     
 
+
+
+dt_ref <- refine_matches(dt_match, dt_test, covariates = c("BirthYear", "exn_all_cum_ihs"),
+                         cutpoints = list(BirthYear = 8, exn_all_cum_ihs = 16))
+
+
+dt_ref[!is.na(subclass), map(.SD, mean), treat, .SDcols = c("BirthYear", "exn_all_cum_ihs")]
+
+dt_match[, uniqueN(treated_id)] # 10k
+dt_ref[!is.na(subclass), uniqueN(subclass)] # 7.7k -> 2.3k dropped
+
+
+
+
+dt_ref[!is.na(subclass)] %>% melt(id.vars = c("set", "PeopleID", "treat"),
+                                  measure.vars = c("BirthYear", "exn_all_cum_ihs", "career_year")) %>%
+    ggplot(aes(x=value, color = factor(treat))) + 
+    geom_density() +
+    facet_wrap(~variable, scales = "free")
+
+## just look at effect quickly:
+
+
+l_leads <- 0:5
+l_col_leads <- paste0("exn_pi_n", l_leads)
+l_y_diff <- paste0("exn_pi_dil", l_leads)
+
+dt_dv <- dt_atyear_foster[, .(PeopleID, year, exn_pi)] %>%
+    .[, exn_pi_l1 := shift(exn_pi, 1), PeopleID] %>%
+    .[, (l_col_leads) := map(l_leads, ~shift(exn_pi, -.x)), PeopleID] %>%
+    .[, (l_y_diff) := map(l_col_leads, ~get(.x) - exn_pi_l1)]
+
+dt_dv[PeopleID == 11, .(PeopleID, year, exn_pi, exn_pi_dil1, exn_pi_dil2, exn_pi_dil3)] %>% print(n=80)
+
+
+## hmm but what about weights? -> really should check matchit vignettes
+dt_cbn <- merge(dt_ref[!is.na(subclass)], dt_dv[, .SD, .SDcols = !"exn_pi"] , by = c("PeopleID", "year")) %>%
+    .[treat == 0, weight := 1/.N, subclass] %>%
+    .[treat ==1, weight := 1]
+
+
+feols(exn_pi_dil1 ~ treat, dt_cbn, weights = ~weight)
