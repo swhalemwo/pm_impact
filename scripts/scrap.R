@@ -340,4 +340,13 @@ dt_test <- dt_atyear_foster[, .SD, .SDcols = c("PeopleID", "year", "Gender", "ex
 
 fwrite(dt_test, "dt_test.csv")
 
-dt_match <- match_treatment_history(dt_test, L=5, return_summary = F)
+dt_match <- match_treatment_history(dt_test[year >= 2000], L=5, return_type = "matches-info")
+
+
+dt_match[, .N, match_tier]
+
+dt_match[, .N, treated_id]
+
+dt_match[, .(nbr_tiers = uniqueN(match_tier)), treated_id]
+
+

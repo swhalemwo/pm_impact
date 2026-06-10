@@ -55,7 +55,8 @@ l_funcfiles <- c(
     paste0(c_dirs$code, "panel.R"),
     paste0(c_dirs$code, "descriptives.R"), 
      ## paste0(c_dirs$code, "rem_funcs.R")
-    paste0(c_dirs$code, "network.R") 
+    paste0(c_dirs$code, "network.R"),
+    paste0(c_dirs$code, "mymatch.R") 
 )
 
 invisible(lapply(l_funcfiles, \(x) source(x, echo = F, verbose = F, print.eval = F)))

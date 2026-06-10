@@ -28,6 +28,16 @@ if(all(c("match_key", "match_tier") %in% names(matches_info))) {
   stop("FAILURE: Missing debugging columns.")
 }
 
+
+# 4. Test number of tiers
+dt_tiercnts <- matches_info[, .(nbr_tiers = uniqueN(match_tier)), treated_id]
+if (max(dt_tiercnts$nbr_tiers) > 1) {
+    stop("some treated are in multiple tiers")
+} else {
+    print("SUCCESS: all treated are in only one tier")
+}
+
+
 # 4. Check Tier counts
 print("Tier distribution:")
 print(table(matches_info$match_tier))
