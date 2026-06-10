@@ -9,17 +9,12 @@ match_treatment_history <- function(dt, L, treatment_col = "exn_pm",
   
   d <- prepare_data(dt, L, treatment_col, history_col, unit_id, time_id)
   
-  # Check if we have enough data - maybe L is too big for a single year?
-  # L=3 requires 4 years of data (t, t-1, t-2, t-3). 
-  # If tid=2010, we need 2007-2010.
-  if(nrow(d) == 0) {
-    # If empty, let's try a smaller L for the test or warn
-    warning("Data is empty after processing. Ensure L lags are available.")
-    return(data.table())
-  }
+  if(nrow(d) == 0) return(data.table())
 
-  # Tier 1: Exact Match (History + Nationality + Gender)
   d[, tier1_key := paste(hist_str, Nationality, Gender, sep = "_")]
+  
+  # Crucial: return_summary controls what execute_tier_match returns
+  # For summary, it returns (uid, N). For full, (control_id, treated_id, year).
   matches_t1 <- execute_tier_match(d, "tier1_key", return_summary = return_summary)
   
   matched_uid <- if(return_summary) unique(matches_t1$uid) else unique(matches_t1$treated_id)
@@ -41,7 +36,7 @@ prepare_data <- function(dt, L, t_col, h_col, uid, tid) {
   d[, treat_bin := as.integer(get(t_col) > 0)]
   lag_cols <- paste0("lag_", 1:L)
   d[, (lag_cols) := shift(get(h_col), 1:L), by = uid]
-  # We return even if incomplete to see what's happening
+  d <- d[complete.cases(d[, ..lag_cols])]
   d[, hist_str := do.call(paste, c(.SD, sep = "_")), .SDcols = lag_cols]
   return(d)
 }
@@ -58,9 +53,12 @@ execute_tier_match <- function(d, key_col, controls_pool = NULL, return_summary 
     setkeyv(trtd, key_col); setkeyv(ctrls, key_col)
     
     if (return_summary) {
+      # Return counts + treated UID (for orphan tracking)
+      # .EACHI returns matches for EACH treated unit
       counts <- ctrls[trtd, .(uid = i.uid, N = .N), on = key_col, nomatch = NULL, by = .EACHI]
       results[[as.character(yr)]] <- counts[N > 0]
     } else {
+      # Return actual pairs
       matched <- ctrls[trtd, .(control_id = uid, treated_id = i.uid, year = yr), 
                        on = key_col, nomatch = NULL, allow.cartesian = TRUE]
       results[[as.character(yr)]] <- matched
@@ -70,10 +68,11 @@ execute_tier_match <- function(d, key_col, controls_pool = NULL, return_summary 
 }
 
 calculate_summary <- function(d, matches) {
+  # N comes from summary matches_t1/t2 which have column N
   data.table(
     total_treated = uniqueN(d[treat_bin == 1, uid]),
     treated_matched = uniqueN(matches$uid),
-    avg_matches_per_treated = ifelse(uniqueN(matches$uid) > 0, mean(matches$N), 0),
+    avg_matches_per_treated = sum(matches$N) / uniqueN(matches$uid),
     total_matches = sum(matches$N)
   )
 }
