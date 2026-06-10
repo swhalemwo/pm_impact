@@ -316,3 +316,28 @@ dt_coefs <- gd_coefs(l_mdls)
 
 
 gp_coefs(dt_coefs)
+
+## * matching
+
+## custom nationality handling for multiple nationality: more compact to avoid long match_strings
+dt_natgrid <- dt_af_people[, .(nat = unlist(tstrsplit(Nationality, ","))), PeopleID] %>%
+    .[, iso3c := countrycode(nat, "country.name", "iso3c",
+                             custom_match = c("Kosovo" = "XKX", "Micronesia" = "MCN"))] %>%
+    .[order(PeopleID, iso3c)] %>%
+    .[, .(Nationality = paste0(iso3c, collapse = ",")), PeopleID]
+
+
+
+dt_test <- dt_atyear_foster[, .SD, .SDcols = c("PeopleID", "year", "Gender", "exn_pi", "exn_pm",
+                                               "exn_pm_cum", "exn_pm_cum_ihs", "exn_pi_cum_ihs")] %>%
+    merge(dt_natgrid, by = "PeopleID") %>% 
+    .[, any_pm := fifelse(max(exn_pm_cum_ihs) == 0, 0, 1), PeopleID] %>%
+    .[, Gender := fifelse(Gender %in% c("Male", "Female"), Gender, "Other")] %>%
+    .[any_pm == 1, year_first_pm := year[min(which(exn_pm_cum_ihs != 0))], PeopleID] %>%
+    .[, time_to_first_pm := year - year_first_pm] %>% 
+    .[year %between% c(2000, END_YEAR)]
+
+
+fwrite(dt_test, "dt_test.csv")
+
+dt_match <- match_treatment_history(dt_test, L=5, return_summary = F)

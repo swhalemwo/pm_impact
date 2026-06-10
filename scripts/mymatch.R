@@ -5,26 +5,24 @@ library(data.table)
 match_treatment_history <- function(dt, L, treatment_col = "exn_pm", 
                                     history_col = "exn_pm_cum",
                                     unit_id = "PeopleID", time_id = "year", 
-                                    return_summary = TRUE) {
+                                    return_type = "summary") {
   
   d <- prepare_data(dt, L, treatment_col, history_col, unit_id, time_id)
   
-  if(nrow(d) == 0) return(data.table())
-
+  # Tier 1: Exact Match (History + Nationality + Gender)
   d[, tier1_key := paste(hist_str, Nationality, Gender, sep = "_")]
+  matches_t1 <- execute_tier_match(d, "tier1_key", return_type = return_type, tier = 1)
   
-  # Crucial: return_summary controls what execute_tier_match returns
-  # For summary, it returns (uid, N). For full, (control_id, treated_id, year).
-  matches_t1 <- execute_tier_match(d, "tier1_key", return_summary = return_summary)
-  
-  matched_uid <- if(return_summary) unique(matches_t1$uid) else unique(matches_t1$treated_id)
-  
+  # Tier 2: Exact Match (History only for orphans)
+  matched_uid <- if(return_type == "summary") unique(matches_t1$uid) else unique(matches_t1$treated_id)
   orphaned_treated <- d[treat_bin == 1 & !(uid %in% matched_uid)]
-  matches_t2 <- execute_tier_match(orphaned_treated, "hist_str", controls_pool = d[treat_bin == 0], return_summary = return_summary)
+  
+  matches_t2 <- execute_tier_match(orphaned_treated, "hist_str", controls_pool = d[treat_bin == 0], 
+                                   return_type = return_type, tier = 2)
   
   all_matches <- rbind(matches_t1, matches_t2, fill=TRUE)
   
-  if (return_summary) return(calculate_summary(d, all_matches))
+  if (return_type == "summary") return(calculate_summary(d, all_matches))
   return(all_matches)
 }
 
@@ -41,7 +39,7 @@ prepare_data <- function(dt, L, t_col, h_col, uid, tid) {
   return(d)
 }
 
-execute_tier_match <- function(d, key_col, controls_pool = NULL, return_summary = TRUE) {
+execute_tier_match <- function(d, key_col, controls_pool = NULL, return_type = "summary", tier = 1) {
   results <- list()
   years <- sort(unique(d$tid))
   for (yr in years) {
@@ -52,15 +50,19 @@ execute_tier_match <- function(d, key_col, controls_pool = NULL, return_summary 
     
     setkeyv(trtd, key_col); setkeyv(ctrls, key_col)
     
-    if (return_summary) {
-      # Return counts + treated UID (for orphan tracking)
-      # .EACHI returns matches for EACH treated unit
+    if (return_type == "summary") {
       counts <- ctrls[trtd, .(uid = i.uid, N = .N), on = key_col, nomatch = NULL, by = .EACHI]
       results[[as.character(yr)]] <- counts[N > 0]
     } else {
-      # Return actual pairs
-      matched <- ctrls[trtd, .(control_id = uid, treated_id = i.uid, year = yr), 
-                       on = key_col, nomatch = NULL, allow.cartesian = TRUE]
+      # Return pairs, with optional extra info
+      if (return_type == "matches-info") {
+         # Must use list(...) instead of .() to avoid symbol lookup errors
+         matched <- ctrls[trtd, list(control_id = uid, treated_id = i.uid, year = yr, match_key = get(key_col), match_tier = tier), 
+                          on = key_col, nomatch = NULL, allow.cartesian = TRUE]
+      } else {
+         matched <- ctrls[trtd, list(control_id = uid, treated_id = i.uid, year = yr), 
+                          on = key_col, nomatch = NULL, allow.cartesian = TRUE]
+      }
       results[[as.character(yr)]] <- matched
     }
   }
@@ -68,11 +70,10 @@ execute_tier_match <- function(d, key_col, controls_pool = NULL, return_summary 
 }
 
 calculate_summary <- function(d, matches) {
-  # N comes from summary matches_t1/t2 which have column N
   data.table(
     total_treated = uniqueN(d[treat_bin == 1, uid]),
     treated_matched = uniqueN(matches$uid),
-    avg_matches_per_treated = sum(matches$N) / uniqueN(matches$uid),
+    avg_matches_per_treated = ifelse(uniqueN(matches$uid) > 0, sum(matches$N) / uniqueN(matches$uid), 0),
     total_matches = sum(matches$N)
   )
 }
