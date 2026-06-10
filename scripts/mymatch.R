@@ -24,11 +24,11 @@ match_treatment_history <- function(dt, L, treatment_col = "exn_pm",
   
   # Tier 1: Exact Match (History + Nationality + Gender)
   d[, tier1_key := paste(hist_str, Nationality, Gender, sep = "_")]
-  matches_t1 <- execute_tier_match(d, "tier1_key")
+  matches_t1 <- execute_tier_match(d, "tier1_key", return_summary = return_summary)
   
   # Tier 2: Exact Match (History only for orphans)
   orphaned_treated <- d[treat_bin == 1 & !(uid %in% matches_t1$uid)]
-  matches_t2 <- execute_tier_match(orphaned_treated, "hist_str", controls_pool = d[treat_bin == 0])
+  matches_t2 <- execute_tier_match(orphaned_treated, "hist_str", controls_pool = d[treat_bin == 0], return_summary = return_summary)
   
   all_matches <- rbind(matches_t1, matches_t2, fill=TRUE)
   
@@ -36,14 +36,8 @@ match_treatment_history <- function(dt, L, treatment_col = "exn_pm",
   return(all_matches)
 }
 
-#' Prepare data for matching
-#' @param dt Input data.table.
-#' @param L Number of lags.
-#' @param t_col Name of treatment column.
-#' @param h_col Name of history column.
-#' @param uid Name of unit id column.
-#' @param tid Name of time id column.
-#' @return A prepared data.table with history signatures.
+# --- Helper Functions ---
+
 prepare_data <- function(dt, L, t_col, h_col, uid, tid) {
   d <- copy(dt)
   setnames(d, c(uid, tid), c("uid", "tid"))
@@ -55,12 +49,7 @@ prepare_data <- function(dt, L, t_col, h_col, uid, tid) {
   return(d)
 }
 
-#' Execute tier-specific matching
-#' @param d The data.table to match within.
-#' @param key_col Column name representing the exact match grouping.
-#' @param controls_pool Optional pool of controls (if NULL, derives from d).
-#' @return A data.table containing match counts per treated unit.
-execute_tier_match <- function(d, key_col, controls_pool = NULL) {
+execute_tier_match <- function(d, key_col, controls_pool = NULL, return_summary = TRUE) {
   results <- list()
   years <- sort(unique(d$tid))
   for (yr in years) {
@@ -71,17 +60,19 @@ execute_tier_match <- function(d, key_col, controls_pool = NULL) {
     
     setkeyv(trtd, key_col); setkeyv(ctrls, key_col)
     
-    # Identify matches for EACH treated row using by=.EACHI
-    counts <- ctrls[trtd, .(uid = i.uid, N = .N), on = key_col, nomatch = NULL, by = .EACHI]
-    results[[as.character(yr)]] <- counts[N > 0]
+    if (return_summary) {
+      counts <- ctrls[trtd, .(uid = i.uid, N = .N), on = key_col, nomatch = NULL, by = .EACHI]
+      results[[as.character(yr)]] <- counts[N > 0]
+    } else {
+      # Return actual control_id and treated_id pairs
+      matched <- ctrls[trtd, .(control_id = uid, treated_id = i.uid, year = yr), 
+                       on = key_col, nomatch = NULL, allow.cartesian = TRUE]
+      results[[as.character(yr)]] <- matched
+    }
   }
   return(rbindlist(results, fill=TRUE))
 }
 
-#' Calculate summary statistics for matches
-#' @param d The full prepared dataset.
-#' @param matches Data.table of matches (uid and match count N).
-#' @return A summary data.table.
 calculate_summary <- function(d, matches) {
   data.table(
     total_treated = uniqueN(d[treat_bin == 1, uid]),
