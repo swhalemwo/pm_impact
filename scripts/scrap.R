@@ -329,13 +329,16 @@ dt_natgrid <- dt_af_people[, .(nat = unlist(tstrsplit(Nationality, ","))), Peopl
 
 
 dt_test <- dt_atyear_foster[, .SD, .SDcols = c("PeopleID", "year", "Gender", "exn_pi", "exn_pm",
-                                               "exn_pm_cum", "exn_pm_cum_ihs", "exn_pi_cum_ihs")] %>%
-    merge(dt_natgrid, by = "PeopleID") %>% 
+                                               "exn_pm_cum", "exn_pm_cum_ihs",
+                                               "exn_pi_cum", "exn_pi_cum_ihs",
+                                               "BirthYear", "career_year", "exn_all_cum", "exn_all_s5")] %>%
+    merge(dt_natgrid, by = "PeopleID") %>%
     .[, any_pm := fifelse(max(exn_pm_cum_ihs) == 0, 0, 1), PeopleID] %>%
     .[, Gender := fifelse(Gender %in% c("Male", "Female"), Gender, "Other")] %>%
     .[any_pm == 1, year_first_pm := year[min(which(exn_pm_cum_ihs != 0))], PeopleID] %>%
     .[, time_to_first_pm := year - year_first_pm] %>% 
-    .[year %between% c(2000, END_YEAR)]
+    .[year %between% c(2000, END_YEAR)] %>%
+    .[order(PeopleID, year)]
 
 
 fwrite(dt_test, "dt_test.csv")
@@ -345,8 +348,45 @@ dt_match <- match_treatment_history(dt_test[year >= 2000], L=5, return_type = "m
 
 dt_match[, .N, match_tier]
 
+
+
+
+dt_match[, uniqueN(treated_id), match_tier]
+
 dt_match[, .N, treated_id]
 
-dt_match[, .(nbr_tiers = uniqueN(match_tier)), treated_id]
+dt_match[, .(nbr_tiers = uniqueN(match_tier)), treated_id][, max(nbr_tiers)]
 
 
+
+dt_match_smol <- dt_match[year == 2010]
+
+## only look at 2010
+dt_atyear_foster[year == 2010 & PeopleID == 17753]
+
+## have both control and treatment in long format
+dt_match_long <- rbind(
+    dt_match_smol[, .(PeopleID = control_id, year, match_key, match_tier, treat = 0,
+                      set = paste0(treated_id, "_", year))],
+    dt_match_smol[, head(.SD,1), treated_id][, .(PeopleID= treated_id, year, match_key, match_tier, treat = 1,
+                                                 set = paste0(paste0(treated_id, "_", year)))])
+
+
+## dt_match_long[set == "13918_2010"]
+## dt_match_smol[treated_id == 13918]
+
+## only look at one 
+dt_match_tiny <- dt_match_long[set == "13918_2010"] %>% 
+    merge(dt_test, by = c("PeopleID", "year"))
+
+t1 = Sys.time()         
+r_match <- matchit(treat ~ BirthYear + exn_all_cum,
+                   data = dt_match_tiny,
+                   method = "cem",
+                   cutpoints = list(BirthYear = 5, exn_all_cum = 5))
+t2 = Sys.time()
+
+    
+    
+
+matchit(
