@@ -5,7 +5,8 @@ match_treatment_history <- function(dt, L, treatment_col = "exn_pm",
                                     binary_treatment = TRUE) {
   
   d <- copy(dt)
-  setorderv(d, c(unit_id, time_id))
+  # Standardize column names for join
+  setnames(d, c(unit_id, time_id), c("uid", "tid"))
   
   if (binary_treatment) {
     d[, treat_bin := as.integer(get(treatment_col) > 0)]
@@ -21,6 +22,8 @@ match_treatment_history <- function(dt, L, treatment_col = "exn_pm",
   years <- sort(unique(d$tid))
   results <- list()
   
+  ## years <- 2010
+
   for (yr in years) {
     d_yr <- d[tid == yr]
     treated <- d_yr[treat_bin == 1]
@@ -31,10 +34,14 @@ match_treatment_history <- function(dt, L, treatment_col = "exn_pm",
       setkey(controls, hist_str)
       
       # Join without dynamic column resolution
-      matched <- controls[treated, .(control_id = uid, treated_id = i.uid, year = yr), 
+      matched <- controls[treated, .(control_id = uid, treated_id = i.uid, year = yr, hist_str), 
                           nomatch = NULL, 
                           on = .(hist_str), 
                           allow.cartesian = TRUE]
+
+      ## matched[, .N, hist_str]
+      ## matched[, .(uniqueN(treated_id)), hist_str]
+      
       results[[as.character(yr)]] <- matched
     }
   }
