@@ -14,21 +14,30 @@ match_treatment_history <- function(dt, L, treatment_col = "exn_pm",
   }
   
   lag_cols <- paste0("lag_", 1:L)
-  d[, (lag_cols) := shift(treat_bin, 1:L), by = unit_id]
+  d[, (lag_cols) := shift(treat_bin, 1:L), by = uid]
   d <- d[complete.cases(d[, ..lag_cols])]
   d[, hist_str := do.call(paste, c(.SD, sep = "_")), .SDcols = lag_cols]
   
-  treated <- d[treat_bin == 1]
-  controls <- d[treat_bin == 0]
+  years <- sort(unique(d$tid))
+  results <- list()
   
-  setkey(treated, year, hist_str)
-  setkey(controls, year, hist_str)
+  for (yr in years) {
+    d_yr <- d[tid == yr]
+    treated <- d_yr[treat_bin == 1]
+    controls <- d_yr[treat_bin == 0]
+    
+    if (nrow(treated) > 0 && nrow(controls) > 0) {
+      setkey(treated, hist_str)
+      setkey(controls, hist_str)
+      
+      # Join without dynamic column resolution
+      matched <- controls[treated, .(control_id = uid, treated_id = i.uid, year = yr), 
+                          nomatch = NULL, 
+                          on = .(hist_str), 
+                          allow.cartesian = TRUE]
+      results[[as.character(yr)]] <- matched
+    }
+  }
   
-  # Allow cartesian product because one treated unit can match multiple controls
-  matched <- controls[treated, .(control_id = PeopleID, treated_id = i.PeopleID, year, hist_str), 
-                      nomatch = NULL, 
-                      on = .(year, hist_str), 
-                      allow.cartesian = TRUE]
-  
-  return(matched)
+  return(rbindlist(results))
 }
