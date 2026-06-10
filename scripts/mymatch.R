@@ -1,7 +1,21 @@
 library(data.table)
+library(MatchIt)
 
-# --- Core Matching Logic ---
-
+#' Match on treatment history using a two-tier exact matching strategy.
+#'
+#' @description
+#' This function performs a hierarchical matching process:
+#' 1. Tier 1: Exact matching on treatment history, nationality, and gender.
+#' 2. Tier 2: Exact matching on treatment history only for units not matched in Tier 1.
+#'
+#' @param dt A data.table containing the panel data.
+#' @param L Integer. The number of lags of treatment history to match on.
+#' @param treatment_col String. The column name of the treatment variable.
+#' @param history_col String. The column name for the cumulative history variable.
+#' @param unit_id String. The column name of the unit identifier.
+#' @param time_id String. The column name of the time identifier.
+#' @param return_type Option: "summary", "matches", "matches-info".
+#' @return A data.table containing either summary statistics or all matched pairs.
 match_treatment_history <- function(dt, L, treatment_col = "exn_pm", 
                                     history_col = "exn_pm_cum",
                                     unit_id = "PeopleID", time_id = "year", 
@@ -26,6 +40,34 @@ match_treatment_history <- function(dt, L, treatment_col = "exn_pm",
   return(all_matches)
 }
 
+#' Refine matches using Coarsened Exact Matching (CEM)
+#'
+#' @param dt_match Data.table of raw matches (control_id, treated_id, year).
+#' @param dt_full The full panel data containing covariates.
+#' @param covariates Character vector. Covariates for refinement.
+#' @param cutpoints List. Cutpoints for CEM.
+#' @return A data.table with an added 'subclass' column for refinement.
+refine_matches <- function(dt_match, dt_full, covariates = c("BirthYear", "exn_all_cum"), 
+                           cutpoints = list(BirthYear = 8, exn_all_cum = 8)) {
+  
+  # 1. Transform matches to long format
+  dt_match_long <- rbind(
+    dt_match[, .(PeopleID = control_id, year, treat = 0, set = paste0(treated_id, "_", year))],
+    dt_match[, head(.SD, 1), treated_id][, .(PeopleID = treated_id, year, treat = 1, set = paste0(treated_id, "_", year))]
+  )
+  
+  # 2. Add covariates
+  dt_match_long <- merge(dt_match_long, dt_full, by = c("PeopleID", "year"))
+  
+  # 3. Apply CEM via matchit
+  formula <- as.formula(paste("treat ~ set +", paste(covariates, collapse = " + ")))
+  r_match <- matchit(formula, data = dt_match_long, method = "cem", cutpoints = cutpoints)
+  
+  # 4. Assign subclasses
+  dt_match_long[, subclass := r_match$subclass]
+  return(dt_match_long)
+}
+
 # --- Helper Functions ---
 
 prepare_data <- function(dt, L, t_col, h_col, uid, tid) {
@@ -45,23 +87,19 @@ execute_tier_match <- function(d, key_col, controls_pool = NULL, return_type = "
   for (yr in years) {
     ctrls <- if(is.null(controls_pool)) d[tid == yr & treat_bin == 0] else controls_pool[tid == yr]
     trtd <- d[tid == yr & treat_bin == 1]
-    
     if (nrow(trtd) == 0 || nrow(ctrls) == 0) next
-    
     setkeyv(trtd, key_col); setkeyv(ctrls, key_col)
     
     if (return_type == "summary") {
       counts <- ctrls[trtd, .(uid = i.uid, N = .N), on = key_col, nomatch = NULL, by = .EACHI]
       results[[as.character(yr)]] <- counts[N > 0]
     } else {
-      # Return pairs, with optional extra info
       if (return_type == "matches-info") {
-         # Must use list(...) instead of .() to avoid symbol lookup errors
-         matched <- ctrls[trtd, list(control_id = uid, treated_id = i.uid, year = yr, match_key = get(key_col), match_tier = tier), 
-                          on = key_col, nomatch = NULL, allow.cartesian = TRUE]
+        matched <- ctrls[trtd, list(control_id = uid, treated_id = i.uid, year = yr, match_key = get(key_col), match_tier = tier), 
+                         on = key_col, nomatch = NULL, allow.cartesian = TRUE]
       } else {
-         matched <- ctrls[trtd, list(control_id = uid, treated_id = i.uid, year = yr), 
-                          on = key_col, nomatch = NULL, allow.cartesian = TRUE]
+        matched <- ctrls[trtd, list(control_id = uid, treated_id = i.uid, year = yr), 
+                         on = key_col, nomatch = NULL, allow.cartesian = TRUE]
       }
       results[[as.character(yr)]] <- matched
     }
