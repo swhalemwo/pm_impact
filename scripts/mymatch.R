@@ -1,5 +1,6 @@
 library(data.table)
 library(MatchIt)
+library(cobalt)
 
 #' Match on treatment history using a two-tier exact matching strategy.
 #'
@@ -43,10 +44,13 @@ match_treatment_history <- function(dt, L, treatment_col = "exn_pm",
 #' Refine matches using Coarsened Exact Matching (CEM)
 #'
 #' @param dt_match Data.table of raw matches (control_id, treated_id, year).
+#'   Must contain match_tier column (i.e., produced with return_type = "matches-info").
 #' @param dt_full The full panel data containing covariates.
 #' @param covariates Character vector. Covariates for refinement.
 #' @param cutpoints List. Cutpoints for CEM.
-#' @return A data.table with an added 'subclass' column for refinement.
+#' @return A list with:
+#'   \item{data}{data.table with subclass column assigned}
+#'   \item{matchit}{the raw matchit object for diagnostics}
 refine_matches <- function(dt_match, dt_full, covariates = c("BirthYear", "exn_all_cum"), 
                            cutpoints = list(BirthYear = 8, exn_all_cum = 8)) {
   
@@ -65,7 +69,239 @@ refine_matches <- function(dt_match, dt_full, covariates = c("BirthYear", "exn_a
   
   # 4. Assign subclasses
   dt_match_long[, subclass := r_match$subclass]
-  return(dt_match_long)
+  return(list(data = dt_match_long, matchit = r_match))
+}
+
+#' Run the full matching pipeline and return quality diagnostics.
+#'
+#' @description
+#' Convenience wrapper that runs match_treatment_history (in matches-info mode)
+#' followed by refine_matches, then calls quality_report_matches. Use this
+#' when doing parameter grid search.
+#'
+#' @param dt Panel data.table.
+#' @param params Named list of matching parameters. Expected fields:
+#'   L, treatment_col, history_col, unit_id, time_id (passed to match_treatment_history);
+#'   covariates, cutpoints (passed to refine_matches).
+#' @param dt_full Full panel data for covariate merging in refinement.
+#' @param sample_n_treated Optional integer. If set and the number of unique
+#'   matched treated units exceeds this, a random sample of that many treated
+#'   units (with all their controls) is used for the CEM stage. Stage-1
+#'   indicators are always computed on the full match set. Default NULL = no sampling.
+#'   Recommended ~1000-2000 for large panels — bal.compute/bal.tab scale poorly
+#'   beyond a few million rows.
+#' @return A single-row data.table of quality indicators (suitable for rbinding across runs).
+run_matching_pipeline <- function(dt, params, dt_full = dt, sample_n_treated = NULL) {
+
+  dt_match <- match_treatment_history(
+    dt,
+    L             = params$L,
+    treatment_col = params$treatment_col,
+    history_col   = params$history_col,
+    unit_id       = params$unit_id,
+    time_id       = params$time_id,
+    return_type   = "matches-info"
+  )
+
+  if (nrow(dt_match) == 0) {
+    warning("run_matching_pipeline: no matches found, returning NA quality row.")
+    return(quality_report_matches(dt, dt_match, matchit_obj = NULL,
+                                  refined_data = NULL, params = params))
+  }
+
+  # subsample treated for CEM stage if requested
+  dt_match_for_cem <- dt_match
+  if (!is.null(sample_n_treated)) {
+    treated_all <- unique(dt_match$treated_id)
+    if (length(treated_all) > sample_n_treated) {
+      keep <- sample(treated_all, sample_n_treated)
+      dt_match_for_cem <- dt_match[treated_id %in% keep]
+    }
+  }
+
+  refined <- refine_matches(dt_match_for_cem, dt_full,
+                            covariates = params$covariates,
+                            cutpoints  = params$cutpoints)
+
+  quality_report_matches(dt, dt_match,
+                         matchit_obj  = refined$matchit,
+                         refined_data = refined$data,
+                         params       = params)
+}
+
+#' Compute a flat single-row quality report for one parameter combination.
+#'
+#' @description
+#' Extracts stage-1 (exact matching) and stage-2 (CEM) quality indicators into
+#' a single data.table row. Designed so that many rows can be rbind-ed into a
+#' comparison table when doing parameter grid search.
+#'
+#' Stage-1 indicators (from dt_match):
+#'   n_treated, n_matched, match_rate, pct_tier1, pct_tier2,
+#'   avg_controls_per_treated, min_controls_per_treated
+#'
+#' Stage-2 indicators (from matchit_obj + refined_data via cobalt):
+#'   n_after_cem, cem_match_rate, L1_before, L1_after (multivariate L1 via
+#'   cobalt::bal.compute, stat = "l1.med"),
+#'   and per-covariate SMD and variance ratio before/after (via cobalt::bal.tab
+#'   on the covariate frame directly — bypasses the explosion of `set` dummies
+#'   that summary.matchit would otherwise report).
+#'
+#' @param dt_prepared data.table after prepare_data() — used for n_treated denominator.
+#'   Alternatively pass the raw panel; the function only needs uniqueN of treated units.
+#' @param dt_match data.table from match_treatment_history(..., return_type="matches-info").
+#' @param matchit_obj The matchit object from refine_matches()$matchit. NULL if no refinement.
+#' @param refined_data The data slot from refine_matches()$data. Required when
+#'   matchit_obj is provided (used to compute balance on the real covariates only).
+#' @param params Named list of parameters used for this run (appended as columns).
+#'   The `covariates` field tells us which covariates to extract balance stats for.
+#' @return Single-row data.table.
+quality_report_matches <- function(dt_prepared, dt_match, matchit_obj = NULL,
+                                   refined_data = NULL, params = list()) {
+
+  # --- Stage 1: exact matching coverage ---
+  # dt_prepared may be raw panel or already prepare_data() output; handle both
+  if ("treat_bin" %in% names(dt_prepared)) {
+    n_treated <- uniqueN(dt_prepared[treat_bin == 1, uid])
+  } else {
+    t_col <- if (!is.null(params$treatment_col)) params$treatment_col else "exn_pm"
+    n_treated <- uniqueN(dt_prepared[get(t_col) > 0, get(if (!is.null(params$unit_id)) params$unit_id else "PeopleID")])
+  }
+
+  if (nrow(dt_match) == 0) {
+    n_matched  <- 0L
+    match_rate <- 0
+    pct_tier1  <- NA_real_
+    pct_tier2  <- NA_real_
+    avg_ctrl   <- NA_real_
+    min_ctrl   <- NA_real_
+  } else {
+    matched_treated <- unique(dt_match$treated_id)
+    n_matched  <- length(matched_treated)
+    match_rate <- n_matched / n_treated
+
+    # tier breakdown (only available in matches-info mode, which we always use here)
+    if ("match_tier" %in% names(dt_match)) {
+      tier_counts <- dt_match[, .(n_pairs = .N), by = .(treated_id, match_tier)]
+      tier_counts <- tier_counts[, .(tier = match_tier[1]), by = treated_id]  # one row per treated
+      pct_tier1 <- mean(tier_counts$tier == 1)
+      pct_tier2 <- mean(tier_counts$tier == 2)
+    } else {
+      pct_tier1 <- NA_real_
+      pct_tier2 <- NA_real_
+    }
+
+    # controls-per-treated
+    ctrl_counts <- dt_match[, .(n_ctrl = uniqueN(control_id)), by = treated_id]
+    avg_ctrl <- mean(ctrl_counts$n_ctrl)
+    min_ctrl <- min(ctrl_counts$n_ctrl)
+  }
+
+  s1 <- data.table(
+    n_treated              = n_treated,
+    n_matched              = n_matched,
+    match_rate             = round(match_rate, 4),
+    pct_tier1              = round(pct_tier1, 4),
+    pct_tier2              = round(pct_tier2, 4),
+    avg_controls_per_treated = round(avg_ctrl, 2),
+    min_controls_per_treated = min_ctrl
+  )
+
+  # --- Stage 2: CEM balance diagnostics (via cobalt) ---
+  if (is.null(matchit_obj) || is.null(refined_data)) {
+    s2 <- data.table(
+      n_after_cem    = NA_integer_,
+      cem_match_rate = NA_real_,
+      L1_before      = NA_real_,
+      L1_after       = NA_real_
+    )
+  } else {
+    w_after  <- matchit_obj$weights
+    treat_v  <- refined_data$treat
+
+    # n after CEM: treated units with positive weight
+    n_after_cem    <- sum(treat_v == 1 & w_after > 0)
+    # cem_match_rate: of the treated fed INTO cem, what % survived
+    n_treated_in_cem <- sum(treat_v == 1)
+    cem_match_rate <- if (n_treated_in_cem > 0) round(n_after_cem / n_treated_in_cem, 4) else NA_real_
+
+    # Identify the real covariates (from params; fall back to defaults of refine_matches)
+    covs <- if (!is.null(params$covariates)) params$covariates else c("BirthYear", "exn_all_cum")
+    covs <- intersect(covs, names(refined_data))
+
+    if (length(covs) == 0) {
+      L1_before <- NA_real_
+      L1_after  <- NA_real_
+      bal_before <- data.table()
+      bal_after  <- data.table()
+    } else {
+      cov_df <- refined_data[, ..covs]
+
+      # Multivariate L1 (l1.med) via cobalt — unweighted vs CEM weights
+      L1_before <- tryCatch(
+        round(bal.compute(cov_df, treat = treat_v,
+                          weights = rep(1, length(treat_v)), stat = "l1.med"), 4),
+        error = function(e) NA_real_
+      )
+      L1_after <- tryCatch(
+        round(bal.compute(cov_df, treat = treat_v,
+                          weights = w_after, stat = "l1.med"), 4),
+        error = function(e) NA_real_
+      )
+
+
+      ## bal.compute(cov_df, treat = treat_v, weights = w_after, stat = "mahalanobis")
+
+      # Per-covariate SMD + variance ratio, before and after
+      bt <- tryCatch(
+        bal.tab(cov_df, treat = treat_v, weights = w_after, un = TRUE,
+                stats = c("mean.diffs", "variance.ratios"),
+                binary = "std", continuous = "std"),
+        error = function(e) NULL
+      )
+
+      if (!is.null(bt) && !is.null(bt$Balance)) {
+        bal <- bt$Balance
+        # bal is a data.frame with rownames = covariate names, columns:
+        #   Diff.Un, V.Ratio.Un, Diff.Adj, V.Ratio.Adj (and Type)
+
+        get_val <- function(rn, col) {
+          if (rn %in% rownames(bal) && col %in% colnames(bal)) round(bal[rn, col], 4) else NA_real_
+        }
+        
+        before_list <- lapply(covs, function(v) {
+          setNames(data.table(get_val(v, "Diff.Un"), get_val(v, "V.Ratio.Un")),
+                   c(paste0("smd_", v, "_before"), paste0("vr_", v, "_before")))
+        })
+        after_list <- lapply(covs, function(v) {
+          setNames(data.table(get_val(v, "Diff.Adj"), get_val(v, "V.Ratio.Adj")),
+                   c(paste0("smd_", v, "_after"), paste0("vr_", v, "_after")))
+        })
+        
+        bal_before <- do.call(cbind, before_list)
+        bal_after  <- do.call(cbind, after_list)
+        
+      } else {
+        bal_before <- data.table()
+        bal_after  <- data.table()
+      }
+    }
+
+    s2 <- data.table(n_after_cem    = as.integer(n_after_cem),
+                     cem_match_rate = cem_match_rate,
+                     L1_before      = L1_before,
+                     L1_after       = L1_after)
+    
+    if (nrow(bal_before) > 0) s2 <- cbind(s2, bal_before)
+    if (nrow(bal_after)  > 0) s2 <- cbind(s2, bal_after)
+  }
+
+  # --- Combine with params ---
+  params_dt <- if (length(params) > 0) as.data.table(lapply(params, function(x) {
+    if (length(x) > 1) paste(x, collapse = ",") else x
+  })) else data.table()
+
+  cbind(params_dt, s1, s2)
 }
 
 # --- Helper Functions ---

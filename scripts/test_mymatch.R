@@ -42,23 +42,108 @@ print("SUCCESS: Matches-Info returns debugging columns.")
 
 # 5. Test Refinement (CEM) on Full Data
 print("--- Testing Refinement (CEM) on Full Data ---")
-# Use the full match output
-dt_refined <- refine_matches(full_matches, dt, 
-                             covariates = c("BirthYear", "exn_all_cum"),
-                             cutpoints = list(BirthYear = 8, exn_all_cum = 8))
+# refine_matches requires matches-info mode (for match_tier column)
+refined <- refine_matches(matches_info, dt,
+                          covariates = c("BirthYear", "exn_all_cum"),
+                          cutpoints = list(BirthYear = 8, exn_all_cum = 8))
 
-if("subclass" %in% names(dt_refined)) {
-  print("SUCCESS: Refinement returned subclass assignments.")
-  print(head(dt_refined))
-} else {
-  stop("FAILURE: Refinement failed.")
+if (!is.list(refined) || !all(c("data", "matchit") %in% names(refined))) {
+  stop("FAILURE: refine_matches must return a list with 'data' and 'matchit'.")
 }
+if (!"subclass" %in% names(refined$data)) {
+  stop("FAILURE: refined$data missing 'subclass' column.")
+}
+if (!inherits(refined$matchit, "matchit")) {
+  stop("FAILURE: refined$matchit is not a matchit object.")
+}
+print("SUCCESS: Refinement returned list with data (subclass) and matchit object.")
+print(head(refined$data))
 
-# 4. Test number of tiers
+# 6. Test number of tiers
 dt_tiercnts <- matches_info[, .(nbr_tiers = uniqueN(match_tier)), treated_id]
 if (max(dt_tiercnts$nbr_tiers) > 1) {
     stop("some treated are in multiple tiers")
 } else {
     print("SUCCESS: all treated are in only one tier")
 }
+
+# 7. Test quality_report_matches() directly
+# Note: on large match sets (millions of rows) bal.compute/bal.tab are slow.
+# We subsample to a manageable number of treated for the CEM stage,
+# but keep stage-1 stats computed on the full matches_info.
+print("--- Testing quality_report_matches ---")
+set.seed(1)
+treated_sample <- sample(unique(matches_info$treated_id),
+                         min(500, uniqueN(matches_info$treated_id)))
+mi_small <- matches_info[treated_id %in% treated_sample]
+refined_small <- refine_matches(mi_small, dt,
+                                covariates = c("BirthYear", "exn_all_cum"),
+                                cutpoints = list(BirthYear = 8, exn_all_cum = 8))
+
+qr <- quality_report_matches(
+  dt_prepared  = dt,
+  dt_match     = matches_info,        # full set -> stage-1 indicators reflect everything
+  matchit_obj  = refined_small$matchit,
+  refined_data = refined_small$data,
+  params       = list(L = 3, treatment_col = "exn_pm",
+                      covariates = c("BirthYear", "exn_all_cum"))
+)
+
+stopifnot(is.data.table(qr))
+stopifnot(nrow(qr) == 1)
+
+# stage-1 indicator columns
+s1_cols <- c("n_treated", "n_matched", "match_rate",
+             "pct_tier1", "pct_tier2",
+             "avg_controls_per_treated", "min_controls_per_treated")
+missing_s1 <- setdiff(s1_cols, names(qr))
+if (length(missing_s1) > 0) stop("FAILURE: quality_report missing stage-1 cols: ", paste(missing_s1, collapse=", "))
+
+# stage-2 indicator columns
+s2_cols <- c("n_after_cem", "cem_match_rate", "L1_before", "L1_after")
+missing_s2 <- setdiff(s2_cols, names(qr))
+if (length(missing_s2) > 0) stop("FAILURE: quality_report missing stage-2 cols: ", paste(missing_s2, collapse=", "))
+
+# per-covariate SMD columns
+expected_smd <- c("smd_BirthYear_before", "smd_BirthYear_after",
+                  "smd_exn_all_cum_before", "smd_exn_all_cum_after")
+missing_smd <- setdiff(expected_smd, names(qr))
+if (length(missing_smd) > 0) stop("FAILURE: quality_report missing per-covariate SMD cols: ", paste(missing_smd, collapse=", "))
+
+# sanity: match_rate in [0,1], tier pct sum to ~1
+stopifnot(qr$match_rate >= 0 && qr$match_rate <= 1)
+stopifnot(abs((qr$pct_tier1 + qr$pct_tier2) - 1) < 1e-6)
+# n_matched should equal uniqueN(treated_id) of matches_info
+stopifnot(qr$n_matched == uniqueN(matches_info$treated_id))
+
+print("SUCCESS: quality_report_matches returns expected schema and sane values.")
+print(qr)
+
+# 8. Test run_matching_pipeline (end-to-end wrapper)
+print("--- Testing run_matching_pipeline ---")
+params <- list(
+  L             = 3,
+  treatment_col = "exn_pm",
+  history_col   = "exn_pm_cum",
+  unit_id       = "PeopleID",
+  time_id       = "year",
+  covariates    = c("BirthYear", "exn_all_cum"),
+  cutpoints     = list(BirthYear = 8, exn_all_cum = 8)
+)
+qr2 <- run_matching_pipeline(dt, params, sample_n_treated = 500)
+
+stopifnot(is.data.table(qr2) && nrow(qr2) == 1)
+# should contain params columns too
+stopifnot("L" %in% names(qr2))
+stopifnot(qr2$L == 3)
+# core indicators should agree with the manually-assembled run
+stopifnot(qr2$n_matched == qr$n_matched)
+stopifnot(qr2$n_treated == qr$n_treated)
+
+# verify rbind-ability across runs (the whole point of the flat row design)
+combined <- rbind(qr, qr2, fill = TRUE)
+stopifnot(nrow(combined) == 2)
+print("SUCCESS: run_matching_pipeline produces rbind-able quality rows.")
+print(qr2)
+
 print("All tests passed.")
