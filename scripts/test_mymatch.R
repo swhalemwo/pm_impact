@@ -44,8 +44,8 @@ print("SUCCESS: Matches-Info returns debugging columns.")
 print("--- Testing Refinement (CEM) on Full Data ---")
 # refine_matches requires matches-info mode (for match_tier column)
 refined <- refine_matches(matches_info, dt,
-                          covariates = c("BirthYear", "exn_all_cum"),
-                          cutpoints = list(BirthYear = 8, exn_all_cum = 8))
+                          covariates = c("BirthYear", "exn_all_cum_ihs"),
+                          cutpoints = list(BirthYear = 8, exn_all_cum_ihs = 8))
 
 if (!is.list(refined) || !all(c("data", "matchit") %in% names(refined))) {
   stop("FAILURE: refine_matches must return a list with 'data' and 'matchit'.")
@@ -77,8 +77,8 @@ treated_sample <- sample(unique(matches_info$treated_id),
                          min(500, uniqueN(matches_info$treated_id)))
 mi_small <- matches_info[treated_id %in% treated_sample]
 refined_small <- refine_matches(mi_small, dt,
-                                covariates = c("BirthYear", "exn_all_cum"),
-                                cutpoints = list(BirthYear = 8, exn_all_cum = 8))
+                                covariates = c("BirthYear", "exn_all_cum_ihs"),
+                                cutpoints = list(BirthYear = 8, exn_all_cum_ihs = 8))
 
 qr <- quality_report_matches(
   dt_prepared  = dt,
@@ -86,7 +86,7 @@ qr <- quality_report_matches(
   matchit_obj  = refined_small$matchit,
   refined_data = refined_small$data,
   params       = list(L = 3, treatment_col = "exn_pm",
-                      covariates = c("BirthYear", "exn_all_cum"))
+                      covariates = c("BirthYear", "exn_all_cum_ihs"))
 )
 
 stopifnot(is.data.table(qr))
@@ -106,7 +106,7 @@ if (length(missing_s2) > 0) stop("FAILURE: quality_report missing stage-2 cols: 
 
 # per-covariate SMD columns
 expected_smd <- c("smd_BirthYear_before", "smd_BirthYear_after",
-                  "smd_exn_all_cum_before", "smd_exn_all_cum_after")
+                  "smd_exn_all_cum_ihs_before", "smd_exn_all_cum_ihs_after")
 missing_smd <- setdiff(expected_smd, names(qr))
 if (length(missing_smd) > 0) stop("FAILURE: quality_report missing per-covariate SMD cols: ", paste(missing_smd, collapse=", "))
 
@@ -127,8 +127,8 @@ params <- list(
   history_col   = "exn_pm_cum",
   unit_id       = "PeopleID",
   time_id       = "year",
-  covariates    = c("BirthYear", "exn_all_cum"),
-  cutpoints     = list(BirthYear = 8, exn_all_cum = 8)
+  covariates    = c("BirthYear", "exn_all_cum_ihs"),
+  cutpoints     = list(BirthYear = 8, exn_all_cum_ihs = 8)
 )
 qr2 <- run_matching_pipeline(dt, params, sample_n_treated = 500)
 
