@@ -9,16 +9,18 @@ print("--- Testing Summary Mode ---")
 summary_res <- match_treatment_history(dt, L = 3, return_type = "summary")
 print(summary_res)
 
-if(all(c("control_id", "treated_id", "year") %in% names(matches)) && 
-   !any(c("match_key", "match_tier") %in% names(matches))) {
-  print("SUCCESS: Matches mode returns only base columns.")
-} else {
-  stop("FAILURE: Matches mode returns incorrect columns.")
-}
 # 2. Test Full Match Mode
 print("--- Testing Full Match Mode ---")
 full_matches <- match_treatment_history(dt, L = 3, return_type = "matches")
 print(paste("Full matches rows:", nrow(full_matches)))
+
+
+if(all(c("control_id", "treated_id", "year") %in% names(full_matches)) && 
+   !any(c("match_key", "match_tier") %in% names(full_matches))) {
+  print("SUCCESS: Matches mode returns only base columns.")
+} else {
+  stop("FAILURE: Matches mode returns incorrect columns.")
+}
 
 # 3. Consistency Check (Replicate Summary from Full)
 print("--- Running Rigorous Consistency Check ---")
