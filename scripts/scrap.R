@@ -415,17 +415,24 @@ dt_ref <- refine_matches(dt_match, dt_test, covariates = c("BirthYear", "exn_all
                          cutpoints = list(BirthYear = 8, exn_all_cum_ihs = 16))
 
 
+
+
 dt_ref[!is.na(subclass), map(.SD, mean), treat, .SDcols = c("BirthYear", "exn_all_cum_ihs")]
 
 dt_match[, uniqueN(treated_id)] # 10k
 dt_ref[!is.na(subclass), uniqueN(subclass)] # 7.7k -> 2.3k dropped
 
 
+dt_ref_matched <-dt_ref[!is.na(subclass)] %>% 
+    .[treat == 0, weight := 1/.N, subclass] %>%
+    .[treat ==1, weight := 1]
 
 
-dt_ref[!is.na(subclass)] %>% melt(id.vars = c("set", "PeopleID", "treat"),
+
+
+dt_ref_matched %>% melt(id.vars = c("set", "PeopleID", "treat", "weight"),
                                   measure.vars = c("BirthYear", "exn_all_cum_ihs", "career_year")) %>%
-    ggplot(aes(x=value, color = factor(treat))) + 
+    ggplot(aes(x=value, color = factor(treat), weight = weight)) + 
     geom_density() +
     facet_wrap(~variable, scales = "free")
 
@@ -445,9 +452,7 @@ dt_dv[PeopleID == 11, .(PeopleID, year, exn_pi, exn_pi_dil1, exn_pi_dil2, exn_pi
 
 
 ## hmm but what about weights? -> really should check matchit vignettes
-dt_cbn <- merge(dt_ref[!is.na(subclass)], dt_dv[, .SD, .SDcols = !"exn_pi"] , by = c("PeopleID", "year")) %>%
-    .[treat == 0, weight := 1/.N, subclass] %>%
-    .[treat ==1, weight := 1]
+dt_cbn <- merge(dt_ref_matched, dt_dv[, .SD, .SDcols = !"exn_pi"] , by = c("PeopleID", "year"))
+    
 
-
-feols(exn_pi_dil1 ~ treat, dt_cbn, weights = ~weight)
+feols(exn_pi_dil ~ treat | set, dt_cbn, weights = ~weight)
