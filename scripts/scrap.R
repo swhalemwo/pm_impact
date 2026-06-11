@@ -358,6 +358,38 @@ dt_match[, .(nbr_tiers = uniqueN(match_tier)), treated_id][, max(nbr_tiers)]
 
 
 
+
+
+
+dt_ref <- refine_matches(dt_match, dt_test, covariates = c("BirthYear", "exn_all_cum_ihs"),
+                         cutpoints = list(BirthYear = 8, exn_all_cum_ihs = 16))
+
+
+
+
+dt_ref[!is.na(subclass), map(.SD, mean), treat, .SDcols = c("BirthYear", "exn_all_cum_ihs")]
+
+dt_match[, uniqueN(treated_id)] # 10k
+dt_ref[!is.na(subclass), uniqueN(subclass)] # 7.7k -> 2.3k dropped
+
+
+dt_ref_matched <-dt_ref[!is.na(subclass)] %>% 
+    .[treat == 0, weight := 1/.N, subclass] %>%
+    .[treat ==1, weight := 1]
+
+## look at balance
+dt_ref_matched %>% melt(id.vars = c("set", "PeopleID", "treat", "weight"),
+                                  measure.vars = c("BirthYear", "exn_all_cum_ihs", "career_year")) %>%
+    ggplot(aes(x=value, color = factor(treat), weight = weight)) + 
+    geom_density() +
+    facet_wrap(~variable, scales = "free")
+
+
+report <- quality_report_matches(
+
+
+## ** matching checks
+    
 ## only look at 2010
 dt_atyear_foster[year == 2010 & PeopleID == 17753]
 
@@ -410,33 +442,7 @@ dt_match_long[set == "13918_2010", .(PeopleID, treat, subclass_all, subclass_sin
     
 
 
-
-dt_ref <- refine_matches(dt_match, dt_test, covariates = c("BirthYear", "exn_all_cum_ihs"),
-                         cutpoints = list(BirthYear = 8, exn_all_cum_ihs = 16))
-
-
-
-
-dt_ref[!is.na(subclass), map(.SD, mean), treat, .SDcols = c("BirthYear", "exn_all_cum_ihs")]
-
-dt_match[, uniqueN(treated_id)] # 10k
-dt_ref[!is.na(subclass), uniqueN(subclass)] # 7.7k -> 2.3k dropped
-
-
-dt_ref_matched <-dt_ref[!is.na(subclass)] %>% 
-    .[treat == 0, weight := 1/.N, subclass] %>%
-    .[treat ==1, weight := 1]
-
-
-
-
-dt_ref_matched %>% melt(id.vars = c("set", "PeopleID", "treat", "weight"),
-                                  measure.vars = c("BirthYear", "exn_all_cum_ihs", "career_year")) %>%
-    ggplot(aes(x=value, color = factor(treat), weight = weight)) + 
-    geom_density() +
-    facet_wrap(~variable, scales = "free")
-
-## just look at effect quickly:
+## ** just look at effect quickly:
 
 
 l_leads <- 0:5
