@@ -343,6 +343,8 @@ dt_test <- dt_atyear_foster[, .SD, .SDcols = c("PeopleID", "year", "Gender", "ex
 
 
 fwrite(dt_test, "dt_test.csv")
+    
+dt_test <- fread("dt_test.csv")
 
 dt_match <- match_treatment_history(dt_test[year >= 2000], L=5, return_type = "matches-info")
 
@@ -356,18 +358,13 @@ dt_match[, .(nbr_tiers = uniqueN(match_tier)), treated_id][, max(nbr_tiers)]
 
 
 
-
-
-
-
-
 dt_ref <- refine_matches(dt_match, dt_test, covariates = c("BirthYear", "exn_all_cum_ihs"),
                          cutpoints = list(BirthYear = 8, exn_all_cum_ihs = 16))
 
 
 
 
-dt_ref[!is.na(subclass), map(.SD, mean), treat, .SDcols = c("BirthYear", "exn_all_cum_ihs")]
+## dt_ref[!is.na(subclass), map(.SD, mean), treat, .SDcols = c("BirthYear", "exn_all_cum_ihs")]
 
 dt_match[, uniqueN(treated_id)] # 10k
 dt_ref[!is.na(subclass), uniqueN(subclass)] # 7.7k -> 2.3k dropped
@@ -385,7 +382,20 @@ dt_ref_matched %>% melt(id.vars = c("set", "PeopleID", "treat", "weight"),
     facet_wrap(~variable, scales = "free")
 
 
-report <- quality_report_matches(
+
+
+params <- list(
+  L             = 3,
+  treatment_col = "exn_pm",
+  history_col   = "exn_pm_cum",
+  unit_id       = "PeopleID",
+  time_id       = "year",
+  covariates    = c("BirthYear", "exn_all_cum_ihs"),
+  cutpoints     = list(BirthYear = 8, exn_all_cum_ihs = 8)
+)
+
+qr2 <- run_matching_pipeline(dt_test, params, sample_n_treated = 500)
+
 
 
 ## ** matching checks
