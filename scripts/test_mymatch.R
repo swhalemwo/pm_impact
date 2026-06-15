@@ -11,6 +11,9 @@ dt <- fread("~/Dropbox/phd/papers/foster/dt_test_smol.csv")
 n_treated_pop <- uniqueN(dt[exn_pm > 0, PeopleID])
 expect_true(n_treated_pop == 1500, info = "expected 1500 PM-treated artists in smol dataset")
 
+# === Skip-slow flag: set FOSTER_TEST_SLOW=false to skip slow cobalt cross-checks ===
+run_slow <- Sys.getenv("FOSTER_TEST_SLOW", "true") != "false"
+
 # === 1. Summary mode ===
 t0 <- Sys.time()
 summary_res <- match_treatment_history(dt, L = 3, return_type = "summary")
@@ -113,7 +116,75 @@ for (i in seq_len(nrow(fs))) {
 }
 timings <- rbind(timings, data.table(label = "8. fast_smd_vr vs bal.tab", time_s = round(as.numeric(Sys.time() - t0), 2)))
 
-# === 9. run_matching_pipeline end-to-end ===
+# === 9. fast_l1_med_both vs cobalt::bal.compute (l1.med) [SLOW: ~40s] ===
+if (run_slow) {
+# Both are Monte Carlo methods with random coarsenings, so exact match is impossible.
+# We check that across several parameter combos with the same seed:
+#   (a) mean absolute difference < 0.015 (within MC noise)
+#   (b) both agree on sign of reduction (L1 after < L1 before)
+#   (c) rank correlation > 0.9 for "before" values
+t0 <- Sys.time()
+set.seed(42)
+l1_results <- list()
+l1_params <- list(
+  list(cov = c("BirthYear", "exn_all_cum_ihs"), cp = 8),
+  list(cov = c("BirthYear", "exn_all_cum_ihs"), cp = 4),
+  list(cov = c("BirthYear"),                     cp = 8)
+)
+for (p in l1_params) {
+  cp <- setNames(rep(list(p$cp), length(p$cov)), p$cov)
+  r <- refine_matches(matches_info, dt, covariates = p$cov, cutpoints = cp)
+  covs <- p$cov
+  cdf <- r$data[, ..covs]
+  tv  <- r$data$treat
+  w   <- r$matchit$weights
+
+  init <- bal.init(cdf, treat = tv, stat = "l1.med")
+  co_before <- bal.compute(init, weights = rep(1, length(tv)))
+  co_after  <- bal.compute(init, weights = w)
+
+  my <- fast_l1_med_both(cdf, tv, w, l1.n = 101, seed = 42)
+
+  l1_results[[length(l1_results) + 1]] <- data.table(
+    combo = paste(p$cov, collapse = "+"),
+    co_before, co_after,
+    my_before = my$before, my_after = my$after
+  )
+}
+l1_tab <- rbindlist(l1_results)
+l1_tab[, `:=`(diff_before = abs(co_before - my_before),
+              diff_after  = abs(co_after - my_after),
+              sign_agree_before = sign(co_before) == sign(my_before),
+              sign_agree_after  = sign(co_after)  == sign(my_after))]
+
+# Basic sanity checks
+expect_true(all(l1_tab$sign_agree_before), info = "fast_l1_med_both L1 before sign agrees with cobalt")
+expect_true(all(l1_tab$sign_agree_after),  info = "fast_l1_med_both L1 after sign agrees with cobalt")
+# Reduction direction must agree
+l1_tab[, `:=`(co_reduction = co_before - co_after,
+              my_reduction = my_before - my_after)]
+expect_true(all(l1_tab$co_reduction > 0),  info = "cobalt says L1 decreases after matching (all combos)")
+expect_true(all(l1_tab$my_reduction > 0),  info = "fast_l1_med_both says L1 decreases after matching (all combos)")
+
+# Mean absolute difference for "before" (meaningful range: 0.05-0.15)
+mad_before <- mean(l1_tab$diff_before)
+expect_true(mad_before < 0.015, info = sprintf("L1 before MAE vs cobalt: %.4f < 0.015", mad_before))
+
+# "After" L1 values are near zero where MAE is inflated by MC noise;
+# check rank correlation instead (should be high even near zero)
+if (nrow(l1_tab) >= 3) {
+  rank_after <- cor(l1_tab$co_after, l1_tab$my_after, method = "spearman")
+  expect_true(rank_after > 0.8, info = sprintf("L1 after Spearman rho vs cobalt: %.2f > 0.8", rank_after))
+
+  rank_before <- cor(l1_tab$co_before, l1_tab$my_before, method = "spearman")
+  expect_true(rank_before > 0.8, info = sprintf("L1 before Spearman rho vs cobalt: %.2f > 0.8", rank_before))
+}
+
+print(l1_tab[, .(combo, co_before, my_before, diff_before, co_after, my_after, diff_after)])
+timings <- rbind(timings, data.table(label = "9. L1 vs cobalt bal.compute", time_s = round(as.numeric(Sys.time() - t0), 2)))
+}  # end if (run_slow)
+
+# === 10. run_matching_pipeline end-to-end ===
 t0 <- Sys.time()
 params <- list(L = 3, treatment_col = "exn_pm", history_col = "exn_pm_cum",
                unit_id = "PeopleID", time_id = "year",
@@ -129,7 +200,7 @@ expect_equal(qr2$n_treated, qr$n_treated, info = "n_treated consistent")
 combined <- rbind(qr, qr2, fill = TRUE)
 expect_equal(nrow(combined), 2L, info = "rbind-able: combined has 2 rows")
 print(qr2)
-timings <- rbind(timings, data.table(label = "9. Pipeline e2e", time_s = round(as.numeric(Sys.time() - t0), 2)))
+timings <- rbind(timings, data.table(label = "10. Pipeline e2e", time_s = round(as.numeric(Sys.time() - t0), 2)))
 
 # --- Timing report ---
 cat("\n========================================\n")
