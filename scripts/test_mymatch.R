@@ -118,11 +118,15 @@ timings <- rbind(timings, data.table(label = "8. fast_smd_vr vs bal.tab", time_s
 
 # === 9. fast_l1_med_both vs cobalt::bal.compute (l1.med) [SLOW: ~40s] ===
 if (run_slow) {
-# Both are Monte Carlo methods with random coarsenings, so exact match is impossible.
-# We check that across several parameter combos with the same seed:
-#   (a) mean absolute difference < 0.015 (within MC noise)
-#   (b) both agree on sign of reduction (L1 after < L1 before)
-#   (c) rank correlation > 0.9 for "before" values
+# Both use the same fixed-median-coarsening methodology.
+# "Before" values match nearly exactly (same algorithm, same seed → same RNG state
+# at time of coarsening generation if no prior cobalt calls have consumed draws).
+# "After" values may diverge slightly because cobalt and our code interleave RNG
+# calls differently across multiple combos, leading to different median coarsening
+# selections. Checks:
+#   (a) before MAE < 0.005 (same methodology, near-identical)
+#   (b) both agree on sign and reduction direction
+#   (c) rank correlation > 0.8 for both before and after
 t0 <- Sys.time()
 set.seed(42)
 l1_results <- list()
@@ -166,12 +170,11 @@ l1_tab[, `:=`(co_reduction = co_before - co_after,
 expect_true(all(l1_tab$co_reduction > 0),  info = "cobalt says L1 decreases after matching (all combos)")
 expect_true(all(l1_tab$my_reduction > 0),  info = "fast_l1_med_both says L1 decreases after matching (all combos)")
 
-# Mean absolute difference for "before" (meaningful range: 0.05-0.15)
+# Mean absolute difference for "before" (same methodology, should be very tight)
 mad_before <- mean(l1_tab$diff_before)
-expect_true(mad_before < 0.015, info = sprintf("L1 before MAE vs cobalt: %.4f < 0.015", mad_before))
+expect_true(mad_before < 0.005, info = sprintf("L1 before MAE vs cobalt: %.4f < 0.005", mad_before))
 
-# "After" L1 values are near zero where MAE is inflated by MC noise;
-# check rank correlation instead (should be high even near zero)
+# Rank correlation check for both before and after
 if (nrow(l1_tab) >= 3) {
   rank_after <- cor(l1_tab$co_after, l1_tab$my_after, method = "spearman")
   expect_true(rank_after > 0.8, info = sprintf("L1 after Spearman rho vs cobalt: %.2f > 0.8", rank_after))

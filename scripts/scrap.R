@@ -409,7 +409,7 @@ params <- list(
 )
 
 t1 = Sys.time()
-qr2 <- run_matching_pipeline(dt_test, params, sample_n_treated = 1000)
+qr2 <- run_matching_pipeline(dt_test, params, sample_n_treated = 1500)
 t2 = Sys.time()
 t2-t1
 
