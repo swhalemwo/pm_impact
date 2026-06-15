@@ -7,7 +7,8 @@ library(cobalt)
 timings <- data.table(label = character(), time_s = numeric())
 
 # Load small test data
-dt <- fread("~/Dropbox/phd/papers/foster/dt_test_smol.csv")
+## dt <- fread("~/Dropbox/phd/papers/foster/dt_test_smol.csv")
+dt <- fread("~/Dropbox/phd/papers/foster/dt_test.csv")
 n_treated_pop <- uniqueN(dt[exn_pm > 0, PeopleID])
 expect_true(n_treated_pop == 1500, info = "expected 1500 PM-treated artists in smol dataset")
 

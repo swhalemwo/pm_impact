@@ -449,9 +449,11 @@ rbind(dt_balvar, dt_balvar_old_1060) %>% # .[, sd(vlu), l1n]
 
 dt_balvar
 
+## 
+fast_l1_med_both(dt_match_smol_long[, .SD, .SDcols = params$covariates], dt_match_smol_long$treat,
+            weights.after= rep(1, dt_match_smol_long[, .N]), l1.max.bin = 12, l1.n = 101)
 
-fast_l1_med(dt_match_smol_long[, .SD, .SDcols = params$covariates], dt_match_smol_long$treat,
-            weights= rep(1, dt_match_smol_long[, .N]), l1.max.bin = 12, l1.n = 101)
+fast_l1_med_both(merge(dt_match, dt_test, by = c("PeopleID", "year"))
 
 
 ## ** matching checks
