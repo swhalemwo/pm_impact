@@ -357,9 +357,13 @@ dt_match[, .N, treated_id]
 dt_match[, .(nbr_tiers = uniqueN(match_tier)), treated_id][, max(nbr_tiers)]
 
 
+t1 <- Sys.time()
+l_ref <- refine_matches(dt_match, dt_test, covariates = c("BirthYear", "exn_all_cum_ihs"),
+                        cutpoints = list(BirthYear = 8, exn_all_cum_ihs = 16))
+t2 <- Sys.time()
+t2-t1
 
-dt_ref <- refine_matches(dt_match, dt_test, covariates = c("BirthYear", "exn_all_cum_ihs"),
-                         cutpoints = list(BirthYear = 8, exn_all_cum_ihs = 16))
+dt_ref <- l_ref$data
 
 
 
@@ -370,7 +374,7 @@ dt_match[, uniqueN(treated_id)] # 10k
 dt_ref[!is.na(subclass), uniqueN(subclass)] # 7.7k -> 2.3k dropped
 
 
-dt_ref_matched <-dt_ref[!is.na(subclass)] %>% 
+dt_ref_matched <- dt_ref[!is.na(subclass)] %>% 
     .[treat == 0, weight := 1/.N, subclass] %>%
     .[treat ==1, weight := 1]
 
@@ -394,8 +398,50 @@ params <- list(
   cutpoints     = list(BirthYear = 8, exn_all_cum_ihs = 8)
 )
 
-qr2 <- run_matching_pipeline(dt_test, params, sample_n_treated = 500)
+t1 = Sys.time()
+qr2 <- run_matching_pipeline(dt_test, params, sample_n_treated = 1000)
+t2 = Sys.time()
+t2-t1
 
+## ** check fast_l1_med
+
+## need small subset
+
+dt_match_smol <- dt_match[treated_id %in% sample(unique(treated_id), 150)]
+
+dt_match_smol_long <- rbind(
+    dt_match_smol[, .(PeopleID = control_id, year, treat = 0, set = paste0(treated_id, "_", year))],
+    dt_match_smol[, head(.SD, 1), treated_id][, .(PeopleID = treated_id, year, treat = 1,
+                                                  set = paste0(treated_id, "_", year))]) %>%
+    merge(dt_test, by = c("PeopleID", "year"))
+  
+## need to make bal.init: prepare data by binning?
+
+m_bal <- bal.init(dt_match_smol_long[, .SD, .SDcols = params$covariates],
+                  treat = dt_match_smol_long$treat, stat = "l1.med", l1.n = 10)
+bal.compute(m_bal) # computation is instant? 
+m_bal$coarsened.covs %>% table %>% names
+## hmm weird: preparation is what takes the time, but only one aggregation is returned
+## -> is it choosing the median of aggregations, rather than the median of stats of the aggregations? 
+
+## check variability
+
+dt_balvar <- map(seq(80,100,20), ~lapply(1:10, \(nbr)
+                                        bal.init(dt_match_smol_long[, .SD, .SDcols = params$covariates],
+                                                 treat = dt_match_smol_long$treat, stat = "l1.med", l1.n = .x) %>%
+                                        bal.compute %>%
+                                        list(vlu = ., nbr = nbr, l1n = .x)) %>% rbindlist) %>% rbindlist
+
+rbind(dt_balvar, dt_balvar_old_1060) %>% # .[, sd(vlu), l1n]
+    ## dt_balvar %>%
+    ggplot(aes(x=l1n, y = vlu)) + geom_point()
+
+
+dt_balvar
+
+
+fast_l1_med(dt_match_smol_long[, .SD, .SDcols = params$covariates], dt_match_smol_long$treat,
+            weights= rep(1, dt_match_smol_long[, .N]), l1.max.bin = 12, l1.n = 101)
 
 
 ## ** matching checks
