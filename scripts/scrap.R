@@ -347,8 +347,8 @@ fwrite(dt_test, "dt_test.csv")
 dt_test <- fread("dt_test.csv")
 
 ## make some smol data.frame for testing purposes
-l_at_wpm <- dt_test[exn_pm > 0, unique(PeopleID)]
-l_at_wopm <- setdiff(dt_test$PeopleID, l_at_wpm)
+l_at_wpm <- dt_test[exn_pm > 0, unique(PeopleID)] # artist which have at least one PM exhb
+l_at_wopm <- setdiff(dt_test$PeopleID, l_at_wpm) # artist which never have PM
 
 dt_test_smol <- dt_test[PeopleID %in% c(sample(l_at_wpm, 1500), sample(l_at_wopm, 1500))]
 
