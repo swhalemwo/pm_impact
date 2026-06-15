@@ -346,6 +346,16 @@ fwrite(dt_test, "dt_test.csv")
     
 dt_test <- fread("dt_test.csv")
 
+## make some smol data.frame for testing purposes
+l_at_wpm <- dt_test[exn_pm > 0, unique(PeopleID)]
+l_at_wopm <- setdiff(dt_test$PeopleID, l_at_wpm)
+
+dt_test_smol <- dt_test[PeopleID %in% c(sample(l_at_wpm, 1500), sample(l_at_wopm, 1500))]
+
+fwrite(dt_test_smol, "dt_test_smol.csv")
+
+
+
 dt_match <- match_treatment_history(dt_test[year >= 2000], L=5, return_type = "matches-info")
 
 dt_match[, .N, match_tier]
