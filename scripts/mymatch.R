@@ -237,46 +237,41 @@ quality_report_matches <- function(dt_prepared, dt_match, matchit_obj = NULL,
     } else {
       cov_df <- refined_data[, ..covs]
 
-      # Multivariate L1 (l1.med) — fast data.table implementation that
-      # replicates cobalt::bal.compute(stat = "l1.med") within Monte Carlo
-      # noise but is ~5x faster (and scales to >10M rows in ~2s).
-      # See fast_l1_med() at the bottom of this file.
-      L1_before <- tryCatch(
-        round(fast_l1_med(cov_df, treat = treat_v,
-                          weights = rep(1, length(treat_v))), 4),
-        error = function(e) NA_real_
+      # L1 imbalance: fast combined before+after in a single pass (~5x vs 2x bal.compute)
+      l1_results <- tryCatch(
+        fast_l1_med_both(cov_df, treat_v, w_after, l1.n = 51L),
+        error = function(e) list(before = NA_real_, after = NA_real_)
       )
-      L1_after <- tryCatch(
-        round(fast_l1_med(cov_df, treat = treat_v, weights = w_after), 4),
-        error = function(e) NA_real_
-      )
+      L1_before <- round(l1_results$before, 4)
+      L1_after  <- round(l1_results$after,  4)
 
-      # Per-covariate SMD + variance ratio, before and after
-      bt <- tryCatch(
-        bal.tab(cov_df, treat = treat_v, weights = w_after, un = TRUE,
-                stats = c("mean.diffs", "variance.ratios"),
-                binary = "std", continuous = "std"),
+      # Per-covariate SMD + variance ratio: fast data.table version (~17x vs bal.tab)
+      smd_results <- tryCatch(
+        fast_smd_vr(cov_df, treat_v, w_after),
         error = function(e) NULL
       )
 
-      if (!is.null(bt) && !is.null(bt$Balance)) {
-        bal <- bt$Balance
-        # bal is a data.frame with rownames = covariate names, columns:
-        #   Diff.Un, V.Ratio.Un, Diff.Adj, V.Ratio.Adj (and Type)
-
-        get_val <- function(rn, col) {
-          if (rn %in% rownames(bal) && col %in% colnames(bal)) round(bal[rn, col], 4) else NA_real_
-        }
-        
+      if (!is.null(smd_results) && nrow(smd_results) > 0) {
         before_list <- lapply(covs, function(v) {
-          setNames(data.table(get_val(v, "Diff.Un"), get_val(v, "V.Ratio.Un")),
-                   c(paste0("smd_", v, "_before"), paste0("vr_", v, "_before")))
+          row <- smd_results[cov == v]
+          if (nrow(row) == 0) {
+            setNames(data.table(NA_real_, NA_real_),
+                     c(paste0("smd_", v, "_before"), paste0("vr_", v, "_before")))
+          } else {
+            setNames(data.table(round(row$smd_un, 4), round(row$vr_un, 4)),
+                     c(paste0("smd_", v, "_before"), paste0("vr_", v, "_before")))
+          }
         })
         after_list <- lapply(covs, function(v) {
-          setNames(data.table(get_val(v, "Diff.Adj"), get_val(v, "V.Ratio.Adj")),
-                   c(paste0("smd_", v, "_after"), paste0("vr_", v, "_after")))
+          row <- smd_results[cov == v]
+          if (nrow(row) == 0) {
+            setNames(data.table(NA_real_, NA_real_),
+                     c(paste0("smd_", v, "_after"), paste0("vr_", v, "_after")))
+          } else {
+            setNames(data.table(round(row$smd_adj, 4), round(row$vr_adj, 4)),
+                     c(paste0("smd_", v, "_after"), paste0("vr_", v, "_after")))
+          }
         })
-        
         bal_before <- do.call(cbind, before_list)
         bal_after  <- do.call(cbind, after_list)
         
@@ -383,42 +378,132 @@ calculate_summary <- function(d, matches) {
 fast_l1_med <- function(cov_df, treat, weights,
                         l1.n = 101L, l1.min.bin = 2L, l1.max.bin = 7L,
                         seed = NULL) {
+  # Wrapper around fast_l1_med_both for backward compatibility.
+  # Returns only the entry matching the weight type (before/unweighted or after/weighted).
+  both <- fast_l1_med_both(cov_df, treat, weights, l1.n, l1.min.bin, l1.max.bin, seed)
+  # If weights are uniform (all 1), this is "before"; otherwise "after"
+  if (isTRUE(all(weights == 1))) both[["before"]] else both[["after"]]
+}
+
+#' Fast multivariate L1 imbalance, before+after in a single pass.
+#'
+#' Like fast_l1_med but computes both unweighted (before) and weighted (after)
+#' L1 in a single pass over the data — the inner loop (~101 iterations) bins
+#' the covariates once per iteration and computes both metrics simultaneously,
+#' roughly halving total time vs two separate calls.
+#'
+#' @inheritParams fast_l1_med
+#' @param weights_after Weight vector for the "after" (matched) state.
+#' @return Named list with `before` and `after` entries (each numeric in [0,1]).
+fast_l1_med_both <- function(cov_df, treat, weights_after,
+                             l1.n = 51L, l1.min.bin = 2L, l1.max.bin = 7L,
+                             seed = NULL) {
   if (!is.null(seed)) set.seed(seed)
   dt_loc <- as.data.table(cov_df)
   cov_names <- copy(names(dt_loc))
-  dt_loc[, `:=`(.treat = treat, .w = weights)]
-  # normalize weights within treatment group
-  dt_loc[, .w := .w / sum(.w), by = .treat]
+  n <- length(treat)
 
+  # treat indicators
+  is_t <- as.logical(treat)
+  is_c <- !is_t
+
+  # Normalize weights: uniform (before) and observed (after)
+  w_u <- rep(1, n)
+  w_u[is_t] <- w_u[is_t] / sum(w_u[is_t])
+  w_u[is_c] <- w_u[is_c] / sum(w_u[is_c])
+  w_o <- weights_after
+  w_o[is_t] <- w_o[is_t] / sum(w_o[is_t])
+  w_o[is_c] <- w_o[is_c] / sum(w_o[is_c])
+
+  dt_loc[, `:=`(.wu = w_u, .wo = w_o, .t = is_t)]
+
+  # Precompute per-covariate ranges
+  ranges <- lapply(cov_names, function(c) range(dt_loc[[c]], na.rm = TRUE))
   nu <- vapply(cov_names, function(c) uniqueN(dt_loc[[c]]), integer(1))
 
-  l1s <- numeric(l1.n)
+  l1s_b <- numeric(l1.n)
+  l1s_a <- numeric(l1.n)
+  cut_cols <- paste0(".b_", cov_names)
+
   for (k in seq_len(l1.n)) {
-    nbins <- vapply(cov_names, function(c) {
-      sample(seq(min(l1.min.bin, nu[[c]]), min(l1.max.bin, nu[[c]])), 1L)
+    nbins <- vapply(seq_along(cov_names), function(i) {
+      rng <- seq(min(l1.min.bin, nu[i]), min(l1.max.bin, nu[i]))
+      rng[sample.int(length(rng), 1L)]
     }, integer(1))
 
-    cut_cols <- paste0(".b_", cov_names)
     for (i in seq_along(cov_names)) {
-      vals <- dt_loc[[cov_names[i]]]
-      rng  <- range(vals, na.rm = TRUE)
+      rng <- ranges[[i]]
       if (diff(rng) == 0) {
         dt_loc[[cut_cols[i]]] <- 1L
       } else {
         breaks <- seq(rng[1], rng[2], length.out = nbins[i] + 1)
-        dt_loc[[cut_cols[i]]] <- as.integer(findInterval(vals, breaks, rightmost.closed = TRUE))
+        dt_loc[[cut_cols[i]]] <- as.integer(
+          findInterval(dt_loc[[cov_names[i]]], breaks, rightmost.closed = TRUE))
       }
     }
 
-    agg <- dt_loc[, .(w_T = sum(.w * (.treat == 1)),
-                      w_C = sum(.w * (.treat == 0))),
+    # Single aggregation: unweighted + weighted sums 
+    agg <- dt_loc[, .(wT_u = sum(.wu * .t),
+                      wC_u = sum(.wu * !.t),
+                      wT_o = sum(.wo * .t),
+                      wC_o = sum(.wo * !.t)),
                   by = cut_cols]
-    res_stat <- sum(abs(agg$w_T - agg$w_C)) / 2
-    
-    l1s[k] <- res_stat
-    ## print(res_stat)
+
+    l1s_b[k] <- sum(abs(agg$wT_u - agg$wC_u)) / 2
+    l1s_a[k] <- sum(abs(agg$wT_o - agg$wC_o)) / 2
 
     dt_loc[, (cut_cols) := NULL]
   }
-  median(l1s)
+
+  list(before = median(l1s_b), after = median(l1s_a))
+}
+
+#' Fast per-covariate SMD + variance ratio (~17x faster than cobalt::bal.tab).
+#'
+#' Computes standardized mean differences and variance ratios for each covariate,
+#' both unweighted (before) and weighted (after), matching cobalt defaults:
+#' `s.d.denom = "pooled"` (unweighted pooled SD in the denominator).
+#'
+#' @param cov_df data.frame or data.table of numeric covariates.
+#' @param treat 0/1 or logical vector, length == nrow(cov_df).
+#' @param weights non-negative weight vector (CEM weights).
+#' @return data.table with columns: cov, smd_un, vr_un, smd_adj, vr_adj.
+fast_smd_vr <- function(cov_df, treat, weights) {
+  d <- as.data.table(cov_df)
+  cov_names <- copy(names(d))
+  d[, .treat := as.logical(treat)]
+  d[, .w := weights]
+
+  out <- lapply(cov_names, function(cn) {
+    vT <- d[.treat == TRUE,  get(cn)]
+    vC <- d[.treat == FALSE, get(cn)]
+
+    # Unweighted (before)
+    mT_u <- mean(vT); mC_u <- mean(vC)
+    vT_u <- var(vT); vC_u <- var(vC)
+    sd_p <- sqrt((vT_u + vC_u) / 2)
+    smd_u <- (mT_u - mC_u) / sd_p
+    vr_u  <- vT_u / vC_u
+
+    # Weighted (after) per cobalt formula:
+    #   normalize weights within each group to sum to 1
+    #   weighted variance = sum(w_norm * (x - mean)^2) / (1 - sum(w_norm^2))
+    wT <- d[.treat == TRUE,  .w]
+    wC <- d[.treat == FALSE, .w]
+    wTn <- wT / sum(wT)
+    wCn <- wC / sum(wC)
+
+    mT_w <- sum(wTn * vT)
+    mC_w <- sum(wCn * vC)
+    smd_a <- (mT_w - mC_w) / sd_p
+
+    vT_w <- sum(wTn * (vT - mT_w)^2) / (1 - sum(wTn^2))
+    vC_w <- sum(wCn * (vC - mC_w)^2) / (1 - sum(wCn^2))
+    vr_a <- vT_w / vC_w
+
+    list(cn, smd_u, vr_u, smd_a, vr_a)
+  })
+  r <- rbindlist(out)
+  setnames(r, c("cov", "smd_un", "vr_un", "smd_adj", "vr_adj"))
+  r
 }

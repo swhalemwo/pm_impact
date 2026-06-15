@@ -1,8 +1,8 @@
 library(data.table)
 source("~/Dropbox/phd/papers/foster/scripts/mymatch.R")
 
-# Load data
-dt <- fread("~/Dropbox/phd/papers/foster/dt_test.csv")
+# Load small test data (3,000 artists, 58K rows — subset with 1500 PM-treated + 1500 never-treated)
+dt <- fread("~/Dropbox/phd/papers/foster/dt_test_smol.csv")
 
 # 1. Test Matching (Summary Mode)
 print("--- Testing Summary Mode ---")
@@ -119,7 +119,26 @@ stopifnot(qr$n_matched == uniqueN(matches_info$treated_id))
 print("SUCCESS: quality_report_matches returns expected schema and sane values.")
 print(qr)
 
-# 8. Test run_matching_pipeline (end-to-end wrapper)
+# 8. Test fast_smd_vr matches bal.tab exactly
+print("--- Testing fast_smd_vr vs cobalt::bal.tab ---")
+cdf <- refined$data[, .(BirthYear, exn_pm_cum)]
+tv <- refined$data$treat
+w <- refined$matchit$weights
+
+bt <- bal.tab(cdf, treat = tv, weights = w, un = TRUE,
+              stats = c("mean.diffs", "variance.ratios"),
+              binary = "std", continuous = "std")
+fs <- fast_smd_vr(cdf, tv, w)
+
+for (i in seq_len(nrow(fs))) {
+  cn <- fs$cov[i]
+  if (abs(fs$smd_un[i] - bt$Balance[cn, "Diff.Un"])        > 1e-6) stop("FAILURE: smd_un mismatch for ", cn)
+  if (abs(fs$smd_adj[i] - bt$Balance[cn, "Diff.Adj"])       > 1e-6) stop("FAILURE: smd_adj mismatch for ", cn)
+  if (abs(fs$vr_un[i]  - bt$Balance[cn, "V.Ratio.Un"])      > 1e-6) stop("FAILURE: vr_un mismatch for ", cn)
+  if (abs(fs$vr_adj[i] - bt$Balance[cn, "V.Ratio.Adj"])      > 1e-6) stop("FAILURE: vr_adj mismatch for ", cn)
+}
+print("SUCCESS: fast_smd_vr matches bal.tab exactly.")
+
 print("--- Testing run_matching_pipeline ---")
 params <- list(
   L             = 3,
