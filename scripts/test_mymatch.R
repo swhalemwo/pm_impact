@@ -1,73 +1,63 @@
 library(data.table)
+library(tinytest)
 source("~/Dropbox/phd/papers/foster/scripts/mymatch.R")
 
-# Load small test data (3,000 artists, 58K rows — subset with 1500 PM-treated + 1500 never-treated)
+# Load small test data (3,000 artists, 58K rows)
 dt <- fread("~/Dropbox/phd/papers/foster/dt_test_smol.csv")
+n_treated_pop <- uniqueN(dt[exn_pm > 0, PeopleID])
+expect_true(n_treated_pop == 1500, info = "expected 1500 PM-treated artists in smol dataset")
 
-# 1. Test Matching (Summary Mode)
-print("--- Testing Summary Mode ---")
+# === 1. Summary mode ===
 summary_res <- match_treatment_history(dt, L = 3, return_type = "summary")
-print(summary_res)
+expect_true(is.data.frame(summary_res), info = "summary should be a data.frame")
+expect_true(all(c("total_treated", "treated_matched", "total_matches") %in% names(summary_res)),
+            info = "summary has expected columns")
+expect_true(summary_res$total_treated > 0, info = "non-zero treated count in summary")
 
-# 2. Test Full Match Mode
-print("--- Testing Full Match Mode ---")
+# === 2. Full match mode (no debugging columns) ===
 full_matches <- match_treatment_history(dt, L = 3, return_type = "matches")
-print(paste("Full matches rows:", nrow(full_matches)))
+expect_true(nrow(full_matches) > 0, info = "matches should be non-empty")
+expect_true(all(c("control_id", "treated_id", "year") %in% names(full_matches)),
+            info = "matches has base columns")
+expect_false(any(c("match_key", "match_tier") %in% names(full_matches)),
+             info = "matches mode should NOT contain match_key or match_tier")
 
-
-if(all(c("control_id", "treated_id", "year") %in% names(full_matches)) && 
-   !any(c("match_key", "match_tier") %in% names(full_matches))) {
-  print("SUCCESS: Matches mode returns only base columns.")
-} else {
-  stop("FAILURE: Matches mode returns incorrect columns.")
-}
-
-# 3. Consistency Check (Replicate Summary from Full)
-print("--- Running Rigorous Consistency Check ---")
+# === 3. Consistency check: summary mode == replicated from full matches ===
 full_summary <- data.table(
-  total_treated = uniqueN(dt[exn_pm > 0, PeopleID]),
-  treated_matched = uniqueN(full_matches$treated_id),
+  total_treated     = n_treated_pop,
+  treated_matched   = uniqueN(full_matches$treated_id),
   avg_matches_per_treated = mean(full_matches[, .N, by = treated_id]$N),
-  total_matches = nrow(full_matches)
+  total_matches     = nrow(full_matches)
 )
-stopifnot(all.equal(as.numeric(summary_res$total_matches), as.numeric(full_summary$total_matches)))
-stopifnot(all.equal(as.numeric(summary_res$treated_matched), as.numeric(full_summary$treated_matched)))
-print("SUCCESS: Consistency check passed.")
+expect_equal(as.numeric(summary_res$total_matches),    as.numeric(full_summary$total_matches),
+             info = "total_matches agrees between summary and full mode")
+expect_equal(as.numeric(summary_res$treated_matched),  as.numeric(full_summary$treated_matched),
+             info = "treated_matched agrees between summary and full mode")
 
-# 4. Test Matches-Info Mode
-print("--- Testing Matches-Info Mode ---")
+# === 4. Matches-info mode (includes debugging columns) ===
 matches_info <- match_treatment_history(dt, L = 3, return_type = "matches-info")
-stopifnot(all(c("match_key", "match_tier") %in% names(matches_info)))
-print("SUCCESS: Matches-Info returns debugging columns.")
+expect_true(all(c("match_key", "match_tier") %in% names(matches_info)),
+            info = "matches-info contains match_key and match_tier")
 
-# 5. Test Refinement (CEM)
-print("--- Testing Refinement (CEM) ---")
+# === 5. Tier exclusivity ===
+dt_tiercnts <- matches_info[, .(nbr_tiers = uniqueN(match_tier)), treated_id]
+expect_true(max(dt_tiercnts$nbr_tiers) == 1, info = "all treated units are in exactly one tier")
+
+# === 6. Refinement (CEM) ===
 refined <- refine_matches(matches_info, dt,
                           covariates = c("BirthYear", "exn_all_cum_ihs"),
                           cutpoints = list(BirthYear = 8, exn_all_cum_ihs = 8))
 
-if (!is.list(refined) || !all(c("data", "matchit") %in% names(refined))) {
-  stop("FAILURE: refine_matches must return a list with 'data' and 'matchit'.")
-}
-if (!"subclass" %in% names(refined$data)) {
-  stop("FAILURE: refined$data missing 'subclass' column.")
-}
-if (!inherits(refined$matchit, "matchit")) {
-  stop("FAILURE: refined$matchit is not a matchit object.")
-}
-print("SUCCESS: Refinement returned list with data (subclass) and matchit object.")
-print(head(refined$data))
+expect_true(is.list(refined), info = "refine_matches returns a list")
+expect_true(all(c("data", "matchit") %in% names(refined)),
+            info = "refine_matches list has data and matchit slots")
+expect_true("subclass" %in% names(refined$data),
+            info = "refined$data has subclass column")
+expect_true(inherits(refined$matchit, "matchit"),
+            info = "refined$matchit is a matchit object")
+expect_true(nrow(refined$data) > 0, info = "refined data is non-empty")
 
-# 6. Test number of tiers
-dt_tiercnts <- matches_info[, .(nbr_tiers = uniqueN(match_tier)), treated_id]
-if (max(dt_tiercnts$nbr_tiers) > 1) {
-    stop("some treated are in multiple tiers")
-} else {
-    print("SUCCESS: all treated are in only one tier")
-}
-
-# 7. Test quality_report_matches() directly
-print("--- Testing quality_report_matches ---")
+# === 7. quality_report_matches schema ===
 qr <- quality_report_matches(
   dt_prepared  = dt,
   dt_match     = matches_info,
@@ -77,41 +67,40 @@ qr <- quality_report_matches(
                       covariates = c("BirthYear", "exn_all_cum_ihs"))
 )
 
-stopifnot(is.data.table(qr))
-stopifnot(nrow(qr) == 1)
+expect_true(is.data.table(qr), info = "qr is a data.table")
+expect_equal(nrow(qr), 1L, info = "qr has exactly one row")
 
-# stage-1 indicator columns
 s1_cols <- c("n_treated", "n_matched", "match_rate",
              "pct_tier1", "pct_tier2",
              "avg_controls_per_treated", "min_controls_per_treated")
-missing_s1 <- setdiff(s1_cols, names(qr))
-if (length(missing_s1) > 0) stop("FAILURE: quality_report missing stage-1 cols: ", paste(missing_s1, collapse=", "))
+expect_true(all(s1_cols %in% names(qr)),
+            info = sprintf("stage-1 columns present; missing: %s",
+                           paste(setdiff(s1_cols, names(qr)), collapse = ", ")))
 
-# stage-2 indicator columns
 s2_cols <- c("n_after_cem", "cem_match_rate", "L1_before", "L1_after")
-missing_s2 <- setdiff(s2_cols, names(qr))
-if (length(missing_s2) > 0) stop("FAILURE: quality_report missing stage-2 cols: ", paste(missing_s2, collapse=", "))
+expect_true(all(s2_cols %in% names(qr)),
+            info = sprintf("stage-2 columns present; missing: %s",
+                           paste(setdiff(s2_cols, names(qr)), collapse = ", ")))
 
-# per-covariate SMD columns
 expected_smd <- c("smd_BirthYear_before", "smd_BirthYear_after",
                   "smd_exn_all_cum_ihs_before", "smd_exn_all_cum_ihs_after")
-missing_smd <- setdiff(expected_smd, names(qr))
-if (length(missing_smd) > 0) stop("FAILURE: quality_report missing per-covariate SMD cols: ", paste(missing_smd, collapse=", "))
+expect_true(all(expected_smd %in% names(qr)),
+            info = sprintf("per-covariate SMD columns present; missing: %s",
+                           paste(setdiff(expected_smd, names(qr)), collapse = ", ")))
 
-# sanity: match_rate in [0,1], tier pct sum to ~1
-stopifnot(qr$match_rate >= 0 && qr$match_rate <= 1)
-stopifnot(abs((qr$pct_tier1 + qr$pct_tier2) - 1) < 1e-6)
-# n_matched should equal uniqueN(treated_id) of matches_info
-stopifnot(qr$n_matched == uniqueN(matches_info$treated_id))
+expect_true(qr$match_rate >= 0, info = "match_rate >= 0")
+expect_true(qr$match_rate <= 1, info = "match_rate <= 1")
+expect_true(abs((qr$pct_tier1 + qr$pct_tier2) - 1) < 1e-6,
+            info = "pct_tier1 + pct_tier2 sums to 1")
+expect_equal(qr$n_matched, uniqueN(matches_info$treated_id),
+             info = "n_matched equals unique treated_id count")
 
-print("SUCCESS: quality_report_matches returns expected schema and sane values.")
 print(qr)
 
-# 8. Test fast_smd_vr matches bal.tab exactly
-print("--- Testing fast_smd_vr vs cobalt::bal.tab ---")
+# === 8. fast_smd_vr matches cobalt::bal.tab exactly ===
 cdf <- refined$data[, .(BirthYear, exn_all_cum_ihs)]
-tv <- refined$data$treat
-w <- refined$matchit$weights
+tv  <- refined$data$treat
+w   <- refined$matchit$weights
 
 bt <- bal.tab(cdf, treat = tv, weights = w, un = TRUE,
               stats = c("mean.diffs", "variance.ratios"),
@@ -120,15 +109,17 @@ fs <- fast_smd_vr(cdf, tv, w)
 
 for (i in seq_len(nrow(fs))) {
   cn <- fs$cov[i]
-  if (abs(fs$smd_un[i] - bt$Balance[cn, "Diff.Un"])        > 1e-6) stop("FAILURE: smd_un mismatch for ", cn)
-  if (abs(fs$smd_adj[i] - bt$Balance[cn, "Diff.Adj"])       > 1e-6) stop("FAILURE: smd_adj mismatch for ", cn)
-  if (abs(fs$vr_un[i]  - bt$Balance[cn, "V.Ratio.Un"])      > 1e-6) stop("FAILURE: vr_un mismatch for ", cn)
-  if (abs(fs$vr_adj[i] - bt$Balance[cn, "V.Ratio.Adj"])      > 1e-6) stop("FAILURE: vr_adj mismatch for ", cn)
+  expect_equal(fs$smd_un[i],   bt$Balance[cn, "Diff.Un"],    tolerance = 1e-6,
+               info = sprintf("%s smd_un", cn))
+  expect_equal(fs$smd_adj[i],  bt$Balance[cn, "Diff.Adj"],    tolerance = 1e-6,
+               info = sprintf("%s smd_adj", cn))
+  expect_equal(fs$vr_un[i],    bt$Balance[cn, "V.Ratio.Un"],  tolerance = 1e-6,
+               info = sprintf("%s vr_un", cn))
+  expect_equal(fs$vr_adj[i],   bt$Balance[cn, "V.Ratio.Adj"], tolerance = 1e-6,
+               info = sprintf("%s vr_adj", cn))
 }
-print("SUCCESS: fast_smd_vr matches bal.tab exactly.")
 
-# 9. Test run_matching_pipeline (end-to-end wrapper)
-print("--- Testing run_matching_pipeline ---")
+# === 9. run_matching_pipeline end-to-end ===
 params <- list(
   L             = 3,
   treatment_col = "exn_pm",
@@ -140,16 +131,14 @@ params <- list(
 )
 qr2 <- run_matching_pipeline(dt, params)
 
-stopifnot(is.data.table(qr2), nrow(qr2) == 1)
-stopifnot("L" %in% names(qr2))
-stopifnot(qr2$L == 3)
-stopifnot(qr2$n_matched == qr$n_matched)
-stopifnot(qr2$n_treated == qr$n_treated)
+expect_true(is.data.table(qr2), info = "qr2 is a data.table")
+expect_equal(nrow(qr2), 1L, info = "qr2 has exactly one row")
+expect_true("L" %in% names(qr2), info = "qr2 includes param columns")
+expect_equal(qr2$L, 3L, info = "L param passed through")
+expect_equal(qr2$n_matched, qr$n_matched, info = "n_matched consistent")
+expect_equal(qr2$n_treated, qr$n_treated, info = "n_treated consistent")
 
-# verify rbind-ability
 combined <- rbind(qr, qr2, fill = TRUE)
-stopifnot(nrow(combined) == 2)
-print("SUCCESS: run_matching_pipeline produces rbind-able quality rows.")
-print(qr2)
+expect_equal(nrow(combined), 2L, info = "rbind-able: combined has 2 rows")
 
-print("All tests passed.")
+print(qr2)
