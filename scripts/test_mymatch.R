@@ -40,9 +40,8 @@ matches_info <- match_treatment_history(dt, L = 3, return_type = "matches-info")
 stopifnot(all(c("match_key", "match_tier") %in% names(matches_info)))
 print("SUCCESS: Matches-Info returns debugging columns.")
 
-# 5. Test Refinement (CEM) on Full Data
-print("--- Testing Refinement (CEM) on Full Data ---")
-# refine_matches requires matches-info mode (for match_tier column)
+# 5. Test Refinement (CEM)
+print("--- Testing Refinement (CEM) ---")
 refined <- refine_matches(matches_info, dt,
                           covariates = c("BirthYear", "exn_all_cum_ihs"),
                           cutpoints = list(BirthYear = 8, exn_all_cum_ihs = 8))
@@ -68,23 +67,12 @@ if (max(dt_tiercnts$nbr_tiers) > 1) {
 }
 
 # 7. Test quality_report_matches() directly
-# Note: on large match sets (millions of rows) bal.compute/bal.tab are slow.
-# We subsample to a manageable number of treated for the CEM stage,
-# but keep stage-1 stats computed on the full matches_info.
 print("--- Testing quality_report_matches ---")
-set.seed(1)
-treated_sample <- sample(unique(matches_info$treated_id),
-                         min(500, uniqueN(matches_info$treated_id)))
-mi_small <- matches_info[treated_id %in% treated_sample]
-refined_small <- refine_matches(mi_small, dt,
-                                covariates = c("BirthYear", "exn_all_cum_ihs"),
-                                cutpoints = list(BirthYear = 8, exn_all_cum_ihs = 8))
-
 qr <- quality_report_matches(
   dt_prepared  = dt,
-  dt_match     = matches_info,        # full set -> stage-1 indicators reflect everything
-  matchit_obj  = refined_small$matchit,
-  refined_data = refined_small$data,
+  dt_match     = matches_info,
+  matchit_obj  = refined$matchit,
+  refined_data = refined$data,
   params       = list(L = 3, treatment_col = "exn_pm",
                       covariates = c("BirthYear", "exn_all_cum_ihs"))
 )
@@ -121,7 +109,7 @@ print(qr)
 
 # 8. Test fast_smd_vr matches bal.tab exactly
 print("--- Testing fast_smd_vr vs cobalt::bal.tab ---")
-cdf <- refined$data[, .(BirthYear, exn_pm_cum)]
+cdf <- refined$data[, .(BirthYear, exn_all_cum_ihs)]
 tv <- refined$data$treat
 w <- refined$matchit$weights
 
@@ -139,6 +127,7 @@ for (i in seq_len(nrow(fs))) {
 }
 print("SUCCESS: fast_smd_vr matches bal.tab exactly.")
 
+# 9. Test run_matching_pipeline (end-to-end wrapper)
 print("--- Testing run_matching_pipeline ---")
 params <- list(
   L             = 3,
@@ -149,17 +138,15 @@ params <- list(
   covariates    = c("BirthYear", "exn_all_cum_ihs"),
   cutpoints     = list(BirthYear = 8, exn_all_cum_ihs = 8)
 )
-qr2 <- run_matching_pipeline(dt, params, sample_n_treated = 500)
+qr2 <- run_matching_pipeline(dt, params)
 
-stopifnot(is.data.table(qr2) && nrow(qr2) == 1)
-# should contain params columns too
+stopifnot(is.data.table(qr2), nrow(qr2) == 1)
 stopifnot("L" %in% names(qr2))
 stopifnot(qr2$L == 3)
-# core indicators should agree with the manually-assembled run
 stopifnot(qr2$n_matched == qr$n_matched)
 stopifnot(qr2$n_treated == qr$n_treated)
 
-# verify rbind-ability across runs (the whole point of the flat row design)
+# verify rbind-ability
 combined <- rbind(qr, qr2, fill = TRUE)
 stopifnot(nrow(combined) == 2)
 print("SUCCESS: run_matching_pipeline produces rbind-able quality rows.")
