@@ -197,6 +197,81 @@ expect_equal(nrow(combined), 2L, info = "rbind-able: combined has 2 rows")
 print(qr2)
 timings <- rbind(timings, data.table(label = "10. Pipeline e2e", time_s = round(as.numeric(Sys.time() - t0), 2)))
 
+# === 11. gd_l1_med wrapper (before vs after) ===
+t0 <- Sys.time()
+l1_before <- gd_l1_med(cdf, tv, rep(1, length(tv)), l1.n = 51)
+l1_after  <- gd_l1_med(cdf, tv, w, l1.n = 51)
+expect_true(is.numeric(l1_before) && l1_before >= 0 && l1_before <= 1,
+            info = "gd_l1_med before in [0,1]")
+expect_true(is.numeric(l1_after)  && l1_after  >= 0 && l1_after  <= 1,
+            info = "gd_l1_med after in [0,1]")
+expect_true(l1_before > l1_after, info = "gd_l1_med before > after (balance improves)")
+timings <- rbind(timings, data.table(label = "11. gd_l1_med wrapper",
+                                     time_s = round(as.numeric(Sys.time() - t0), 2)))
+
+# === 12. gd_run_match_pipeline — empty matches ===
+t0 <- Sys.time()
+qr_empty <- gd_run_match_pipeline(dt[FALSE], params)
+expect_true(is.data.table(qr_empty), info = "qr_empty is a data.table")
+expect_equal(nrow(qr_empty), 1L, info = "qr_empty has one row")
+expect_equal(qr_empty$n_matched, 0L, info = "qr_empty n_matched == 0")
+expect_true(is.na(qr_empty$L1_before), info = "qr_empty L1 is NA")
+timings <- rbind(timings, data.table(label = "12. Pipeline empty matches",
+                                     time_s = round(as.numeric(Sys.time() - t0), 2)))
+
+# === 13. gd_run_match_pipeline — with sample_n_treated ===
+t0 <- Sys.time()
+qr_smp <- gd_run_match_pipeline(dt, params, sample_n_treated = 10L)
+expect_true(is.data.table(qr_smp), info = "qr_smp is a data.table")
+expect_equal(nrow(qr_smp), 1L, info = "qr_smp has one row")
+expect_equal(qr_smp$n_matched, qr2$n_matched,
+             info = "sample_n_treated leaves full match count unchanged")
+expect_true(qr_smp$n_after_cem <= 10L,
+            info = "sample_n_treated limits CEM stage to ≤10 treated")
+timings <- rbind(timings, data.table(label = "13. Pipeline with sampling",
+                                     time_s = round(as.numeric(Sys.time() - t0), 2)))
+
+# === 14. gd_quality_report_s1 — empty dt_match ===
+t0 <- Sys.time()
+s1_empty <- gd_quality_report_s1(dt, data.table(), params)
+expect_true(is.data.table(s1_empty), info = "s1_empty is a data.table")
+expect_equal(s1_empty$n_matched, 0L, info = "s1_empty n_matched == 0")
+expect_equal(s1_empty$match_rate, 0, info = "s1_empty match_rate == 0")
+expect_true(is.na(s1_empty$pct_tier1), info = "s1_empty pct_tier1 is NA")
+timings <- rbind(timings, data.table(label = "14. qr_s1 empty match",
+                                     time_s = round(as.numeric(Sys.time() - t0), 2)))
+
+# === 15. gd_quality_report_s2 — NULL matchit + no-cov intersect ===
+t0 <- Sys.time()
+s2_null <- gd_quality_report_s2(NULL, NULL, params)
+expect_true(is.data.table(s2_null), info = "s2_null is a data.table")
+expect_true(all(is.na(s2_null$n_after_cem)), info = "s2_null n_after_cem is NA")
+
+s2_nocov <- gd_quality_report_s2(refined$matchit, refined$data,
+                                  list(covariates = "nonexistent"))
+expect_true(is.data.table(s2_nocov), info = "s2_nocov is a data.table")
+expect_true(all(is.na(s2_nocov$L1_before)), info = "s2_nocov L1_before is NA")
+timings <- rbind(timings, data.table(label = "15. qr_s2 NULL/no-cov",
+                                     time_s = round(as.numeric(Sys.time() - t0), 2)))
+
+# === 16. gd_bal_cols_cov — no matching cov in smd_results ===
+t0 <- Sys.time()
+dt_smd <- gd_smd_vr(cdf, tv, w)
+bc <- gd_bal_cols_cov("nonexistent", dt_smd)
+expect_true(is.data.table(bc), info = "bc is a data.table")
+expect_equal(nrow(bc), 1L, info = "bc has one row")
+expect_true(all(is.na(unlist(bc))), info = "bc all NA for missing cov")
+timings <- rbind(timings, data.table(label = "16. bal_cols no match",
+                                     time_s = round(as.numeric(Sys.time() - t0), 2)))
+
+# === 17. gd_ematch_yr — NULL return (empty year) ===
+t0 <- Sys.time()
+dt_dummy <- copy(dt)[, `:=`(tid = year, treat_bin = fifelse(exn_pm > 0, 1L, 0L))]
+null_res <- gd_ematch_yr(1800, dt_dummy, NULL, "exn_pm", "matches", 1)
+expect_true(is.null(null_res), info = "ematch_yr returns NULL for empty year")
+timings <- rbind(timings, data.table(label = "17. ematch_yr NULL",
+                                     time_s = round(as.numeric(Sys.time() - t0), 2)))
+
 # --- Timing report ---
 cat("\n========================================\n")
 cat("          Timing Summary\n")
