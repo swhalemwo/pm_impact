@@ -1,4 +1,5 @@
 library(data.table)
+`%||%` <- function(x, y) if (is.null(x)) y else x
 library(MatchIt)
 library(cobalt)
 
@@ -158,144 +159,117 @@ run_matching_pipeline <- function(dt, params, dt_full = dt, sample_n_treated = N
 #' @return Single-row data.table.
 quality_report_matches <- function(dt_prepared, dt_match, matchit_obj = NULL,
                                    refined_data = NULL, params = list()) {
+  ## Stage 1: exact matching coverage
+  s1 <- qrm_s1(dt_prepared, dt_match, params)
 
-  # --- Stage 1: exact matching coverage ---
-  # dt_prepared may be raw panel or already prepare_data() output; handle both
-  if ("treat_bin" %in% names(dt_prepared)) {
-    n_treated <- uniqueN(dt_prepared[treat_bin == 1, uid])
+  ## Stage 2: CEM balance diagnostics
+  s2 <- qrm_s2(matchit_obj, refined_data, params)
+
+  ## Combine with params
+  params_dt <- if (length(params) > 0) {
+    as.data.table(lapply(params, function(x) {
+      if (length(x) > 1) paste(x, collapse = ",") else x
+    }))
+  } else data.table()
+
+  cbind(params_dt, s1, s2)
+}
+
+#' @rdname quality_report_matches
+#' Stage-1 helper: exact matching coverage from dt_match
+qrm_s1 <- function(dt_prepared, dt_match, params) {
+  ## count treated in the population
+  n_treated <- if ("treat_bin" %in% names(dt_prepared)) {
+    uniqueN(dt_prepared[treat_bin == 1, uid])
   } else {
-    t_col <- if (!is.null(params$treatment_col)) params$treatment_col else "exn_pm"
-    n_treated <- uniqueN(dt_prepared[get(t_col) > 0, get(if (!is.null(params$unit_id)) params$unit_id else "PeopleID")])
+    t_col <- params$treatment_col %||% "exn_pm"
+    uid_col <- params$unit_id %||% "PeopleID"
+    uniqueN(dt_prepared[get(t_col) > 0, get(uid_col)])
   }
 
   if (nrow(dt_match) == 0) {
-    n_matched  <- 0L
-    match_rate <- 0
-    pct_tier1  <- NA_real_
-    pct_tier2  <- NA_real_
-    avg_ctrl   <- NA_real_
-    min_ctrl   <- NA_real_
-  } else {
-    matched_treated <- unique(dt_match$treated_id)
-    n_matched  <- length(matched_treated)
-    match_rate <- n_matched / n_treated
-
-    # tier breakdown (only available in matches-info mode, which we always use here)
-    if ("match_tier" %in% names(dt_match)) {
-      tier_counts <- dt_match[, .(n_pairs = .N), by = .(treated_id, match_tier)]
-      tier_counts <- tier_counts[, .(tier = match_tier[1]), by = treated_id]  # one row per treated
-      pct_tier1 <- mean(tier_counts$tier == 1)
-      pct_tier2 <- mean(tier_counts$tier == 2)
-    } else {
-      pct_tier1 <- NA_real_
-      pct_tier2 <- NA_real_
-    }
-
-    # controls-per-treated
-    ctrl_counts <- dt_match[, .(n_ctrl = uniqueN(control_id)), by = treated_id]
-    avg_ctrl <- mean(ctrl_counts$n_ctrl)
-    min_ctrl <- min(ctrl_counts$n_ctrl)
+    return(data.table(n_treated = n_treated, n_matched = 0L, match_rate = 0,
+                      pct_tier1 = NA_real_, pct_tier2 = NA_real_,
+                      avg_controls_per_treated = NA_real_, min_controls_per_treated = NA_integer_))
   }
 
-  s1 <- data.table(
-    n_treated              = n_treated,
-    n_matched              = n_matched,
-    match_rate             = round(match_rate, 4),
-    pct_tier1              = round(pct_tier1, 4),
-    pct_tier2              = round(pct_tier2, 4),
-    avg_controls_per_treated = round(avg_ctrl, 2),
-    min_controls_per_treated = min_ctrl
-  )
+  matched_treated <- unique(dt_match$treated_id)
+  n_matched <- length(matched_treated)
 
-  # --- Stage 2: CEM balance diagnostics (via cobalt) ---
+  ## tier breakdown
+  if ("match_tier" %in% names(dt_match)) {
+    tier_counts <- dt_match[, .(tier = match_tier[1]), by = treated_id]
+    pct_tier1 <- mean(tier_counts$tier == 1)
+    pct_tier2 <- mean(tier_counts$tier == 2)
+  } else {
+    pct_tier1 <- NA_real_
+    pct_tier2 <- NA_real_
+  }
+
+  ## controls-per-treated
+  ctrl_counts <- dt_match[, .(n_ctrl = uniqueN(control_id)), by = treated_id]
+
+  data.table(n_treated = n_treated, n_matched = n_matched,
+             match_rate = round(n_matched / n_treated, 4),
+             pct_tier1 = round(pct_tier1, 4), pct_tier2 = round(pct_tier2, 4),
+             avg_controls_per_treated = round(mean(ctrl_counts$n_ctrl), 2),
+             min_controls_per_treated = min(ctrl_counts$n_ctrl))
+}
+
+#' @rdname quality_report_matches
+#' Stage-2 helper: CEM balance diagnostics from matchit object
+qrm_s2 <- function(matchit_obj, refined_data, params) {
   if (is.null(matchit_obj) || is.null(refined_data)) {
-    s2 <- data.table(
-      n_after_cem    = NA_integer_,
-      cem_match_rate = NA_real_,
-      L1_before      = NA_real_,
-      L1_after       = NA_real_
-    )
-  } else {
-    w_after  <- matchit_obj$weights
-    treat_v  <- refined_data$treat
-
-    # n after CEM: treated units with positive weight
-    n_after_cem    <- sum(treat_v == 1 & w_after > 0)
-    # cem_match_rate: of the treated fed INTO cem, what % survived
-    n_treated_in_cem <- sum(treat_v == 1)
-    cem_match_rate <- if (n_treated_in_cem > 0) round(n_after_cem / n_treated_in_cem, 4) else NA_real_
-
-    # Identify the real covariates (from params; fall back to defaults of refine_matches)
-    covs <- if (!is.null(params$covariates)) params$covariates else c("BirthYear", "exn_all_cum")
-    covs <- intersect(covs, names(refined_data))
-
-    if (length(covs) == 0) {
-      L1_before <- NA_real_
-      L1_after  <- NA_real_
-      bal_before <- data.table()
-      bal_after  <- data.table()
-    } else {
-      cov_df <- refined_data[, ..covs]
-
-      # L1 imbalance: fast combined before+after in a single pass (~5x vs 2x bal.compute)
-      l1_results <- tryCatch(
-        fast_l1_med_both(cov_df, treat_v, w_after, l1.n = 51L, l1.max.bin = 7L),
-        error = function(e) list(before = NA_real_, after = NA_real_)
-      )
-      L1_before <- round(l1_results$before, 4)
-      L1_after  <- round(l1_results$after,  4)
-
-      # Per-covariate SMD + variance ratio: fast data.table version (~17x vs bal.tab)
-      smd_results <- tryCatch(
-        fast_smd_vr(cov_df, treat_v, w_after),
-        error = function(e) NULL
-      )
-
-      if (!is.null(smd_results) && nrow(smd_results) > 0) {
-        before_list <- lapply(covs, function(v) {
-          row <- smd_results[cov == v]
-          if (nrow(row) == 0) {
-            setNames(data.table(NA_real_, NA_real_),
-                     c(paste0("smd_", v, "_before"), paste0("vr_", v, "_before")))
-          } else {
-            setNames(data.table(round(row$smd_un, 4), round(row$vr_un, 4)),
-                     c(paste0("smd_", v, "_before"), paste0("vr_", v, "_before")))
-          }
-        })
-        after_list <- lapply(covs, function(v) {
-          row <- smd_results[cov == v]
-          if (nrow(row) == 0) {
-            setNames(data.table(NA_real_, NA_real_),
-                     c(paste0("smd_", v, "_after"), paste0("vr_", v, "_after")))
-          } else {
-            setNames(data.table(round(row$smd_adj, 4), round(row$vr_adj, 4)),
-                     c(paste0("smd_", v, "_after"), paste0("vr_", v, "_after")))
-          }
-        })
-        bal_before <- do.call(cbind, before_list)
-        bal_after  <- do.call(cbind, after_list)
-        
-      } else {
-        bal_before <- data.table()
-        bal_after  <- data.table()
-      }
-    }
-
-    s2 <- data.table(n_after_cem    = as.integer(n_after_cem),
-                     cem_match_rate = cem_match_rate,
-                     L1_before      = L1_before,
-                     L1_after       = L1_after)
-    
-    if (nrow(bal_before) > 0) s2 <- cbind(s2, bal_before)
-    if (nrow(bal_after)  > 0) s2 <- cbind(s2, bal_after)
+    return(data.table(n_after_cem = NA_integer_, cem_match_rate = NA_real_,
+                      L1_before = NA_real_, L1_after = NA_real_))
   }
 
-  # --- Combine with params ---
-  params_dt <- if (length(params) > 0) as.data.table(lapply(params, function(x) {
-    if (length(x) > 1) paste(x, collapse = ",") else x
-  })) else data.table()
+  w_after <- matchit_obj$weights
+  treat_v <- refined_data$treat
 
-  cbind(params_dt, s1, s2)
+  ## n after CEM and match rate
+  n_after_cem <- sum(treat_v == 1 & w_after > 0)
+  n_treated_in_cem <- sum(treat_v == 1)
+  cem_match_rate <- if (n_treated_in_cem > 0) round(n_after_cem / n_treated_in_cem, 4) else NA_real_
+
+  ## identify real covariates (not set dummies)
+  covs <- intersect(params$covariates %||% c("BirthYear", "exn_all_cum"),
+                    names(refined_data))
+
+  if (length(covs) == 0) {
+    return(data.table(n_after_cem = as.integer(n_after_cem),
+                      cem_match_rate = cem_match_rate,
+                      L1_before = NA_real_, L1_after = NA_real_))
+  }
+
+  cov_df <- refined_data[, ..covs]
+
+  ## L1 imbalance
+  l1_results <- fast_l1_med_both(cov_df, treat_v, w_after, l1.n = 51L, l1.max.bin = 7L)
+
+  ## Per-covariate SMD + variance ratio
+  smd_results <- fast_smd_vr(cov_df, treat_v, w_after)
+
+  ## build SMD/VR columns
+  bal_parts <- lapply(covs, function(v) {
+    row <- smd_results[cov == v]
+    if (nrow(row) == 0) {
+      setNames(data.table(NA_real_, NA_real_, NA_real_, NA_real_),
+               c(paste0("smd_", v, "_before"), paste0("vr_", v, "_before"),
+                 paste0("smd_", v, "_after"),  paste0("vr_", v, "_after")))
+    } else {
+      setNames(data.table(round(row$smd_un, 4), round(row$vr_un, 4),
+                           round(row$smd_adj, 4), round(row$vr_adj, 4)),
+               c(paste0("smd_", v, "_before"), paste0("vr_", v, "_before"),
+                 paste0("smd_", v, "_after"),  paste0("vr_", v, "_after")))
+    }
+  })
+
+  data.table(n_after_cem = as.integer(n_after_cem),
+             cem_match_rate = cem_match_rate,
+             L1_before = round(l1_results$before, 4),
+             L1_after  = round(l1_results$after, 4)) %>%
+    cbind(do.call(cbind, bal_parts))
 }
 
 # --- Helper Functions ---
@@ -312,29 +286,26 @@ prepare_data <- function(dt, L, t_col, h_col, uid, tid) {
 }
 
 execute_tier_match <- function(d, key_col, controls_pool = NULL, return_type = "summary", tier = 1) {
-  results <- list()
+  ## apply matching per year, combine results
   years <- sort(unique(d$tid))
-  for (yr in years) {
-    ctrls <- if(is.null(controls_pool)) d[tid == yr & treat_bin == 0] else controls_pool[tid == yr]
+  
+  rbindlist(lapply(years, function(yr) {
+    ctrls <- if (is.null(controls_pool)) d[tid == yr & treat_bin == 0] else controls_pool[tid == yr]
     trtd <- d[tid == yr & treat_bin == 1]
-    if (nrow(trtd) == 0 || nrow(ctrls) == 0) next
-    setkeyv(trtd, key_col); setkeyv(ctrls, key_col)
+    if (nrow(trtd) == 0 || nrow(ctrls) == 0) return(NULL)
     
     if (return_type == "summary") {
-      counts <- ctrls[trtd, .(uid = i.uid, N = .N), on = key_col, nomatch = NULL, by = .EACHI]
-      results[[as.character(yr)]] <- counts[N > 0]
+      ctrls[trtd, .(uid = i.uid, N = .N), on = key_col, nomatch = NULL, by = .EACHI] %>%
+        .[N > 0]
+    } else if (return_type == "matches-info") {
+      ctrls[trtd, .(control_id = uid, treated_id = i.uid, year = yr,
+                     match_key = get(key_col), match_tier = tier),
+            on = key_col, nomatch = NULL, allow.cartesian = TRUE]
     } else {
-      if (return_type == "matches-info") {
-        matched <- ctrls[trtd, list(control_id = uid, treated_id = i.uid, year = yr, match_key = get(key_col), match_tier = tier), 
-                         on = key_col, nomatch = NULL, allow.cartesian = TRUE]
-      } else {
-        matched <- ctrls[trtd, list(control_id = uid, treated_id = i.uid, year = yr), 
-                         on = key_col, nomatch = NULL, allow.cartesian = TRUE]
-      }
-      results[[as.character(yr)]] <- matched
+      ctrls[trtd, .(control_id = uid, treated_id = i.uid, year = yr),
+            on = key_col, nomatch = NULL, allow.cartesian = TRUE]
     }
-  }
-  return(rbindlist(results, fill=TRUE))
+  }), fill = TRUE)
 }
 
 calculate_summary <- function(d, matches) {
@@ -415,7 +386,7 @@ fast_l1_med_both <- function(cov_df, treat, weights_after,
 
   is_t <- as.logical(treat)
 
-  # Uniform weights for finding median coarsening (step 2)
+  ## Uniform weights for finding median coarsening (step 2)
   w_u <- rep(1, n)
   w_u[is_t] <- w_u[is_t] / sum(w_u[is_t])
   w_u[!is_t] <- w_u[!is_t] / sum(w_u[!is_t])
@@ -427,42 +398,39 @@ fast_l1_med_both <- function(cov_df, treat, weights_after,
 
   cut_cols <- paste0(".b_", cov_names)
 
-  # Step 1-2: generate l1.n coarsenings, compute L1 under uniform weights, store bins
-  l1s_u <- numeric(l1.n)
-  bin_ids <- vector("list", l1.n)
-
-  for (k in seq_len(l1.n)) {
+  ## Step 1-2: generate l1.n coarsenings, compute L1 under uniform weights, store bins
+  l1_results <- lapply(seq_len(l1.n), function(k) {
     nbins <- vapply(seq_along(cov_names), function(i) {
       rng <- seq(min(l1.min.bin, nu[i]), min(l1.max.bin, nu[i]))
       rng[sample.int(length(rng), 1L)]
     }, integer(1))
 
-    for (i in seq_along(cov_names)) {
+    ## assign binned columns in one shot, replacing inner for-loop
+    dt_loc[, (cut_cols) := lapply(seq_along(cov_names), function(i) {
       rng <- ranges[[i]]
-      if (diff(rng) == 0) {
-        dt_loc[[cut_cols[i]]] <- 1L
-      } else {
-        breaks <- seq(rng[1], rng[2], length.out = nbins[i] + 1)
-        dt_loc[[cut_cols[i]]] <- as.integer(
-          findInterval(dt_loc[[cov_names[i]]], breaks, rightmost.closed = TRUE))
-      }
-    }
+      if (diff(rng) == 0) return(rep(1L, .N))
+      breaks <- seq(rng[1], rng[2], length.out = nbins[i] + 1)
+      as.integer(findInterval(get(cov_names[i]), breaks, rightmost.closed = TRUE))
+    })]
 
-    agg <- dt_loc[, .(wT = sum(.w_u * .t),
-                      wC = sum(.w_u * !.t)),
-                  by = cut_cols]
-    l1s_u[k] <- sum(abs(agg$wT - agg$wC)) / 2
+    agg <- dt_loc[, .(wT = sum(.w_u * .t), wC = sum(.w_u * !.t)), by = cut_cols]
+    l1_u <- sum(abs(agg$wT - agg$wC)) / 2
 
-    # store binned integer columns for median coarsening reuse
-    bin_ids[[k]] <- copy(dt_loc[, ..cut_cols])
+    ## store binned integer columns for median coarsening reuse
+    bin_df <- copy(dt_loc[, ..cut_cols])
     dt_loc[, (cut_cols) := NULL]
-  }
 
-  # Step 3: pick median coarsening
+    list(l1_u = l1_u, bin_df = bin_df)
+  })
+
+  l1s_u <- vapply(l1_results, `[[`, numeric(1), "l1_u")
+  bin_ids <- lapply(l1_results, `[[`, "bin_df")
+
+  ## Step 3: pick median coarsening
   median_idx <- which(l1s_u == sort(l1s_u, partial = ceiling(l1.n / 2))[ceiling(l1.n / 2)])[1]
   fixed_cuts <- bin_ids[[median_idx]]
 
-  # Step 4: compute before (uniform) and after (weighted) on the single fixed coarsening
+  ## Step 4: compute before (uniform) and after (weighted) on the single fixed coarsening
   fixed_cuts[, bin_id := do.call(paste, c(.SD, sep = "_"))]
   w_o <- weights_after
   w_o[is_t] <- w_o[is_t] / sum(w_o[is_t])
