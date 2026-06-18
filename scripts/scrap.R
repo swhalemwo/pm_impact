@@ -356,7 +356,7 @@ fwrite(dt_test_smol, "dt_test_smol.csv")
 
 
 
-dt_match <- match_treatment_history(dt_test[year >= 2000], L=5, return_type = "matches-info")
+dt_match <- gd_match_history(dt_test[year >= 2000], L=5, return_type = "matches-info")
 
 dt_match[, .N, match_tier]
 
@@ -368,7 +368,7 @@ dt_match[, .(nbr_tiers = uniqueN(match_tier)), treated_id][, max(nbr_tiers)]
 
 
 t1 <- Sys.time()
-l_ref <- refine_matches(dt_match, dt_test, covariates = c("BirthYear", "exn_all_cum_ihs"),
+l_ref <- gd_refine_matches(dt_match, dt_test, covariates = c("BirthYear", "exn_all_cum_ihs"),
                         cutpoints = list(BirthYear = 8, exn_all_cum_ihs = 16))
 t2 <- Sys.time()
 t2-t1
@@ -409,11 +409,11 @@ params <- list(
 )
 
 t1 = Sys.time()
-qr2 <- run_matching_pipeline(dt_test, params, sample_n_treated = 1500)
+qr2 <- gd_run_match_pipeline(dt_test, params, sample_n_treated = 1500)
 t2 = Sys.time()
 t2-t1
 
-## ** check fast_l1_med
+## ** check gd_l1_med
 
 ## need small subset
 
@@ -450,10 +450,10 @@ rbind(dt_balvar, dt_balvar_old_1060) %>% # .[, sd(vlu), l1n]
 dt_balvar
 
 ## 
-fast_l1_med_both(dt_match_smol_long[, .SD, .SDcols = params$covariates], dt_match_smol_long$treat,
+gd_l1_med_both(dt_match_smol_long[, .SD, .SDcols = params$covariates], dt_match_smol_long$treat,
             weights.after= rep(1, dt_match_smol_long[, .N]), l1.max.bin = 12, l1.n = 101)
 
-fast_l1_med_both(merge(dt_match, dt_test, by = c("PeopleID", "year"))
+gd_l1_med_both(merge(dt_match, dt_test, by = c("PeopleID", "year"))
 
 
 ## ** matching checks

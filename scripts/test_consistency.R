@@ -6,12 +6,12 @@ source("~/Dropbox/phd/papers/foster/scripts/mymatch.R")
 
 # 1. Run Summary Mode
 print("Running Summary Mode...")
-summary_res <- match_treatment_history(dt, L = 3, return_summary = TRUE)
+summary_res <- gd_match_history(dt, L = 3, return_summary = TRUE)
 print(summary_res)
 
 # 2. Run Full Match Mode
 print("Running Full Match Mode...")
-full_matches <- match_treatment_history(dt, L = 3, return_summary = FALSE)
+full_matches <- gd_match_history(dt, L = 3, return_summary = FALSE)
 
 # 3. Calculate Summary from Full Matches
 full_summary <- data.table(

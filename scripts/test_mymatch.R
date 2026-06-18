@@ -17,7 +17,7 @@ run_slow <- Sys.getenv("FOSTER_TEST_SLOW", "true") != "false"
 
 # === 1. Summary mode ===
 t0 <- Sys.time()
-summary_res <- match_treatment_history(dt, L = 3, return_type = "summary")
+summary_res <- gd_match_history(dt, L = 3, return_type = "summary")
 expect_true(is.data.frame(summary_res), info = "summary should be a data.frame")
 expect_true(all(c("total_treated", "treated_matched", "total_matches") %in% names(summary_res)),
             info = "summary has expected columns")
@@ -26,7 +26,7 @@ timings <- rbind(timings, data.table(label = "1. Summary mode", time_s = round(a
 
 # === 2. Full match mode ===
 t0 <- Sys.time()
-full_matches <- match_treatment_history(dt, L = 3, return_type = "matches")
+full_matches <- gd_match_history(dt, L = 3, return_type = "matches")
 expect_true(nrow(full_matches) > 0, info = "matches should be non-empty")
 expect_true(all(c("control_id", "treated_id", "year") %in% names(full_matches)),
             info = "matches has base columns")
@@ -50,7 +50,7 @@ timings <- rbind(timings, data.table(label = "3. Consistency check", time_s = ro
 
 # === 4. Matches-info mode ===
 t0 <- Sys.time()
-matches_info <- match_treatment_history(dt, L = 3, return_type = "matches-info")
+matches_info <- gd_match_history(dt, L = 3, return_type = "matches-info")
 expect_true(all(c("match_key", "match_tier") %in% names(matches_info)),
             info = "matches-info contains match_key and match_tier")
 timings <- rbind(timings, data.table(label = "4. Matches-info mode", time_s = round(as.numeric(Sys.time() - t0), 2)))
@@ -63,9 +63,9 @@ timings <- rbind(timings, data.table(label = "5. Tier exclusivity", time_s = rou
 
 # === 6. CEM refinement ===
 t0 <- Sys.time()
-refined <- refine_matches(matches_info, dt,
-                          covariates = c("BirthYear", "exn_all_cum_ihs"),
-                          cutpoints = list(BirthYear = 8, exn_all_cum_ihs = 8))
+refined <- gd_refine_matches(matches_info, dt,
+                             covariates = c("BirthYear", "exn_all_cum_ihs"),
+                             cutpoints = list(BirthYear = 8, exn_all_cum_ihs = 8))
 expect_true(is.list(refined), info = "refine_matches returns a list")
 expect_true(all(c("data", "matchit") %in% names(refined)),
             info = "refine_matches list has data and matchit slots")
@@ -74,9 +74,9 @@ expect_true(inherits(refined$matchit, "matchit"), info = "refined$matchit is a m
 expect_true(nrow(refined$data) > 0, info = "refined data is non-empty")
 timings <- rbind(timings, data.table(label = "6. CEM refinement", time_s = round(as.numeric(Sys.time() - t0), 2)))
 
-# === 7. quality_report_matches schema ===
+# === 7. gd_quality_report schema ===
 t0 <- Sys.time()
-qr <- quality_report_matches(
+qr <- gd_quality_report(
   dt_prepared  = dt,
   dt_match     = matches_info,
   matchit_obj  = refined$matchit,
@@ -97,9 +97,9 @@ expect_true(qr$match_rate >= 0 && qr$match_rate <= 1, info = "match_rate in [0,1
 expect_true(abs((qr$pct_tier1 + qr$pct_tier2) - 1) < 1e-6, info = "tier pcts sum to 1")
 expect_equal(qr$n_matched, uniqueN(matches_info$treated_id), info = "n_matched equals unique treated_id count")
 print(qr)
-timings <- rbind(timings, data.table(label = "7. quality_report schema", time_s = round(as.numeric(Sys.time() - t0), 2)))
+timings <- rbind(timings, data.table(label = "7. gd_quality_report schema", time_s = round(as.numeric(Sys.time() - t0), 2)))
 
-# === 8. fast_smd_vr matches bal.tab exactly ===
+# === 8. gd_smd_vr matches bal.tab exactly ===
 t0 <- Sys.time()
 cdf <- refined$data[, .(BirthYear, exn_all_cum_ihs)]
 tv  <- refined$data$treat
@@ -107,7 +107,7 @@ w   <- refined$matchit$weights
 bt <- bal.tab(cdf, treat = tv, weights = w, un = TRUE,
               stats = c("mean.diffs", "variance.ratios"),
               binary = "std", continuous = "std")
-fs <- fast_smd_vr(cdf, tv, w)
+fs <- gd_smd_vr(cdf, tv, w)
 for (i in seq_len(nrow(fs))) {
   cn <- fs$cov[i]
   expect_equal(fs$smd_un[i],  bt$Balance[cn, "Diff.Un"],    tolerance = 1e-6, info = sprintf("%s smd_un", cn))
@@ -115,19 +115,10 @@ for (i in seq_len(nrow(fs))) {
   expect_equal(fs$vr_un[i],   bt$Balance[cn, "V.Ratio.Un"],  tolerance = 1e-6, info = sprintf("%s vr_un", cn))
   expect_equal(fs$vr_adj[i],  bt$Balance[cn, "V.Ratio.Adj"], tolerance = 1e-6, info = sprintf("%s vr_adj", cn))
 }
-timings <- rbind(timings, data.table(label = "8. fast_smd_vr vs bal.tab", time_s = round(as.numeric(Sys.time() - t0), 2)))
+timings <- rbind(timings, data.table(label = "8. gd_smd_vr vs bal.tab", time_s = round(as.numeric(Sys.time() - t0), 2)))
 
-# === 9. fast_l1_med_both vs cobalt::bal.compute (l1.med) [SLOW: ~40s] ===
+# === 9. gd_l1_med_both vs cobalt::bal.compute (l1.med) [SLOW: ~40s] ===
 if (run_slow) {
-# Both use the same fixed-median-coarsening methodology.
-# "Before" values match nearly exactly (same algorithm, same seed → same RNG state
-# at time of coarsening generation if no prior cobalt calls have consumed draws).
-# "After" values may diverge slightly because cobalt and our code interleave RNG
-# calls differently across multiple combos, leading to different median coarsening
-# selections. Checks:
-#   (a) before MAE < 0.005 (same methodology, near-identical)
-#   (b) both agree on sign and reduction direction
-#   (c) rank correlation > 0.8 for both before and after
 t0 <- Sys.time()
 set.seed(42)
 l1_results <- list()
@@ -138,7 +129,7 @@ l1_params <- list(
 )
 for (p in l1_params) {
   cp <- setNames(rep(list(p$cp), length(p$cov)), p$cov)
-  r <- refine_matches(matches_info, dt, covariates = p$cov, cutpoints = cp)
+  r <- gd_refine_matches(matches_info, dt, covariates = p$cov, cutpoints = cp)
   covs <- p$cov
   cdf <- r$data[, ..covs]
   tv  <- r$data$treat
@@ -148,7 +139,7 @@ for (p in l1_params) {
   co_before <- bal.compute(init, weights = rep(1, length(tv)))
   co_after  <- bal.compute(init, weights = w)
 
-  my <- fast_l1_med_both(cdf, tv, w, l1.n = 101, seed = 42)
+  my <- gd_l1_med_both(cdf, tv, w, l1.n = 101, seed = 42)
 
   l1_results[[length(l1_results) + 1]] <- data.table(
     combo = paste(p$cov, collapse = "+"),
@@ -163,13 +154,13 @@ l1_tab[, `:=`(diff_before = abs(co_before - my_before),
               sign_agree_after  = sign(co_after)  == sign(my_after))]
 
 # Basic sanity checks
-expect_true(all(l1_tab$sign_agree_before), info = "fast_l1_med_both L1 before sign agrees with cobalt")
-expect_true(all(l1_tab$sign_agree_after),  info = "fast_l1_med_both L1 after sign agrees with cobalt")
+expect_true(all(l1_tab$sign_agree_before), info = "gd_l1_med_both L1 before sign agrees with cobalt")
+expect_true(all(l1_tab$sign_agree_after),  info = "gd_l1_med_both L1 after sign agrees with cobalt")
 # Reduction direction must agree
 l1_tab[, `:=`(co_reduction = co_before - co_after,
               my_reduction = my_before - my_after)]
 expect_true(all(l1_tab$co_reduction > 0),  info = "cobalt says L1 decreases after matching (all combos)")
-expect_true(all(l1_tab$my_reduction > 0),  info = "fast_l1_med_both says L1 decreases after matching (all combos)")
+expect_true(all(l1_tab$my_reduction > 0),  info = "gd_l1_med_both says L1 decreases after matching (all combos)")
 
 # Mean absolute difference for "before" (same methodology, should be very tight)
 mad_before <- mean(l1_tab$diff_before)
@@ -188,13 +179,13 @@ print(l1_tab[, .(combo, co_before, my_before, diff_before, co_after, my_after, d
 timings <- rbind(timings, data.table(label = "9. L1 vs cobalt bal.compute", time_s = round(as.numeric(Sys.time() - t0), 2)))
 }  # end if (run_slow)
 
-# === 10. run_matching_pipeline end-to-end ===
+# === 10. gd_run_match_pipeline end-to-end ===
 t0 <- Sys.time()
 params <- list(L = 3, treatment_col = "exn_pm", history_col = "exn_pm_cum",
                unit_id = "PeopleID", time_id = "year",
                covariates = c("BirthYear", "exn_all_cum_ihs"),
                cutpoints = list(BirthYear = 8, exn_all_cum_ihs = 8))
-qr2 <- run_matching_pipeline(dt, params)
+qr2 <- gd_run_match_pipeline(dt, params)
 expect_true(is.data.table(qr2), info = "qr2 is a data.table")
 expect_equal(nrow(qr2), 1L, info = "qr2 has exactly one row")
 expect_true("L" %in% names(qr2), info = "qr2 includes param columns")

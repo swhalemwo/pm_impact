@@ -19,29 +19,32 @@ library(cobalt)
 #' @param time_id String. The column name of the time identifier.
 #' @param return_type Option: "summary", "matches", "matches-info".
 #' @return A data.table containing either summary statistics or all matched pairs.
-match_treatment_history <- function(dt, L, treatment_col = "exn_pm",
-                                    history_col = "exn_pm_cum",
-                                    unit_id = "PeopleID", time_id = "year",
-                                    return_type = "summary") {
+gd_match_history <- function(dt, L, treatment_col = "exn_pm",
+                             history_col = "exn_pm_cum",
+                             unit_id = "PeopleID", time_id = "year",
+                             return_type = "summary") {
 
-  d <- prepare_data(dt, L, treatment_col, history_col, unit_id, time_id)
+  dt_d <- md_prep_match(dt, L, treatment_col, history_col, unit_id, time_id)
 
   ## Tier 1: exact match on history + Nationality + Gender
-  d[, tier1_key := paste(hist_str, Nationality, Gender, sep = "_")]
-  matches_t1 <- execute_tier_match(d, "tier1_key", return_type = return_type, tier = 1)
+  dt_d[, tier1_key := paste(hist_str, Nationality, Gender, sep = "_")]
+  dt_matches_t1 <- gd_tier_match(dt_d, "tier1_key", return_type = return_type, tier = 1)
 
   ## Tier 2: exact match on history only (for orphans from Tier 1)
-  matched_uid <- if (return_type == "summary") unique(matches_t1$uid) else unique(matches_t1$treated_id)
-  orphaned_treated <- d[treat_bin == 1 & !(uid %in% matched_uid)]
+  matched_uid <- if (return_type == "summary") {
+    unique(dt_matches_t1$uid)
+  } else unique(dt_matches_t1$treated_id)
 
-  matches_t2 <- execute_tier_match(orphaned_treated, "hist_str",
-                                   controls_pool = d[treat_bin == 0],
-                                   return_type = return_type, tier = 2)
+  dt_orphans <- dt_d[treat_bin == 1 & !(uid %in% matched_uid)]
 
-  all_matches <- rbind(matches_t1, matches_t2, fill = TRUE)
+  dt_matches_t2 <- gd_tier_match(dt_orphans, "hist_str",
+                                 controls_pool = dt_d[treat_bin == 0],
+                                 return_type = return_type, tier = 2)
 
-  if (return_type == "summary") return(calculate_summary(d, all_matches))
-  return(all_matches)
+  dt_all <- rbind(dt_matches_t1, dt_matches_t2, fill = TRUE)
+
+  if (return_type == "summary") return(gd_match_summary(dt_d, dt_all))
+  dt_all
 }
 
 #' Execute matching for a single year within a tier.
@@ -51,65 +54,69 @@ match_treatment_history <- function(dt, L, treatment_col = "exn_pm",
 #' given key column and formats the result according to return_type.
 #'
 #' @param yr Integer year to process.
-#' @param d data.table of all units (or orphaned treated units for Tier 2).
+#' @param dt_units data.table of all units (or orphaned treated units for Tier 2).
 #' @param controls_pool Optional separate pool of controls (used for Tier 2).
 #' @param key_col String name of the column to join on.
 #' @param return_type One of "summary", "matches", "matches-info".
 #' @param tier Integer tier number (1 or 2).
 #' @return data.table of matched pairs, or NULL if no matches exist.
-ematch_year_single <- function(yr, d, controls_pool, key_col, return_type, tier) {
+gd_ematch_yr <- function(yr, dt_units, controls_pool, key_col, return_type, tier) {
   ## extract treated and control pools for this year
-  ctrls <- if (is.null(controls_pool)) d[tid == yr & treat_bin == 0] else controls_pool[tid == yr]
-  trtd <- d[tid == yr & treat_bin == 1]
-  if (nrow(trtd) == 0 || nrow(ctrls) == 0) return(NULL)
+  dt_ctrls <- if (is.null(controls_pool)) {
+    dt_units[tid == yr & treat_bin == 0]
+  } else controls_pool[tid == yr]
+  dt_trtd <- dt_units[tid == yr & treat_bin == 1]
+
+  if (nrow(dt_trtd) == 0 || nrow(dt_ctrls) == 0) return(NULL)
 
   if (return_type == "summary") {
-    ctrls[trtd, .(uid = i.uid, N = .N), on = key_col, nomatch = NULL, by = .EACHI] %>%
+    dt_ctrls[dt_trtd, .(uid = i.uid, N = .N), on = key_col,
+             nomatch = NULL, by = .EACHI] %>%
       .[N > 0]
   } else if (return_type == "matches-info") {
-    ctrls[trtd, .(control_id = uid, treated_id = i.uid, year = yr,
-                   match_key = get(key_col), match_tier = tier),
-          on = key_col, nomatch = NULL, allow.cartesian = TRUE]
+    dt_ctrls[dt_trtd, .(control_id = uid, treated_id = i.uid, year = yr,
+                         match_key = get(key_col), match_tier = tier),
+             on = key_col, nomatch = NULL, allow.cartesian = TRUE]
   } else {
-    ctrls[trtd, .(control_id = uid, treated_id = i.uid, year = yr),
-          on = key_col, nomatch = NULL, allow.cartesian = TRUE]
+    dt_ctrls[dt_trtd, .(control_id = uid, treated_id = i.uid, year = yr),
+             on = key_col, nomatch = NULL, allow.cartesian = TRUE]
   }
 }
 
 #' Execute tier matching by applying year-by-year joins.
 #'
 #' @description
-#' Iterates over years and calls ematch_year_single for each.
+#' Iterates over years and calls gd_ematch_yr for each.
 #' Combines all years into a single data.table.
 #'
-#' @param d data.table of units (must have tid and treat_bin columns).
+#' @param dt_units data.table of units (must have tid and treat_bin columns).
 #' @param key_col Column name for the exact-match key.
 #' @param controls_pool Optional separate control pool.
 #' @param return_type One of "summary", "matches", "matches-info".
 #' @param tier Integer tier number.
 #' @return data.table of matched pairs across all years.
-execute_tier_match <- function(d, key_col, controls_pool = NULL,
-                               return_type = "summary", tier = 1) {
-  years <- sort(unique(d$tid))
+gd_tier_match <- function(dt_units, key_col, controls_pool = NULL,
+                          return_type = "summary", tier = 1) {
+  years <- sort(unique(dt_units$tid))
 
   rbindlist(lapply(years, function(yr) {
-    ematch_year_single(yr, d, controls_pool, key_col, return_type, tier)
+    gd_ematch_yr(yr, dt_units, controls_pool, key_col, return_type, tier)
   }), fill = TRUE)
 }
 
 #' Calculate summary statistics from matched pairs.
 #'
-#' @param d Prepared data (must have treat_bin and uid columns).
-#' @param matches Summary-mode match output (with uid and N columns).
+#' @param dt_d Prepared data (must have treat_bin and uid columns).
+#' @param dt_matches Summary-mode match output (with uid and N columns).
 #' @return data.table with total_treated, treated_matched, avg_matches_per_treated, total_matches.
-calculate_summary <- function(d, matches) {
+gd_match_summary <- function(dt_d, dt_matches) {
   data.table(
-    total_treated = uniqueN(d[treat_bin == 1, uid]),
-    treated_matched = uniqueN(matches$uid),
-    avg_matches_per_treated = if (uniqueN(matches$uid) > 0) {
-      sum(matches$N) / uniqueN(matches$uid)
+    total_treated = uniqueN(dt_d[treat_bin == 1, uid]),
+    treated_matched = uniqueN(dt_matches$uid),
+    avg_matches_per_treated = if (uniqueN(dt_matches$uid) > 0) {
+      sum(dt_matches$N) / uniqueN(dt_matches$uid)
     } else 0,
-    total_matches = sum(matches$N)
+    total_matches = sum(dt_matches$N)
   )
 }
 
@@ -127,18 +134,18 @@ calculate_summary <- function(d, matches) {
 #' @param uid Unit ID column name.
 #' @param tid Time ID column name.
 #' @return Modified copy of dt with uid, tid, treat_bin, lag_* and hist_str columns.
-prepare_data <- function(dt, L, t_col, h_col, uid, tid) {
-  d <- copy(dt)
-  setnames(d, c(uid, tid), c("uid", "tid"))
+md_prep_match <- function(dt, L, t_col, h_col, uid, tid) {
+  dt_d <- copy(dt)
+  setnames(dt_d, c(uid, tid), c("uid", "tid"))
 
-  d[, treat_bin := as.integer(get(t_col) > 0)]
+  dt_d[, treat_bin := as.integer(get(t_col) > 0)]
 
   lag_cols <- paste0("lag_", 1:L)
-  d[, (lag_cols) := shift(get(h_col), 1:L), by = uid]
-  d <- d[complete.cases(d[, ..lag_cols])]
+  dt_d[, (lag_cols) := shift(get(h_col), 1:L), by = uid]
+  dt_d <- dt_d[complete.cases(dt_d[, ..lag_cols])]
 
-  d[, hist_str := do.call(paste, c(.SD, sep = "_")), .SDcols = lag_cols]
-  d
+  dt_d[, hist_str := do.call(paste, c(.SD, sep = "_")), .SDcols = lag_cols]
+  dt_d
 }
 
 #' Refine matches using Coarsened Exact Matching (CEM).
@@ -151,49 +158,49 @@ prepare_data <- function(dt, L, t_col, h_col, uid, tid) {
 #' @return A list with:
 #'   \item{data}{data.table with subclass column assigned}
 #'   \item{matchit}{the raw matchit object for diagnostics}
-refine_matches <- function(dt_match, dt_full,
-                           covariates = c("BirthYear", "exn_all_cum"),
-                           cutpoints = list(BirthYear = 8, exn_all_cum = 8)) {
+gd_refine_matches <- function(dt_match, dt_full,
+                              covariates = c("BirthYear", "exn_all_cum"),
+                              cutpoints = list(BirthYear = 8, exn_all_cum = 8)) {
 
   ## transform matches to long format (one row per control, one row per treated)
-  dt_match_long <- rbind(
+  dt_long <- rbind(
     dt_match[, .(PeopleID = control_id, year, treat = 0,
                  set = paste0(treated_id, "_", year))],
-    dt_match[, head(.SD, 1), treated_id][, .(PeopleID = treated_id, year, treat = 1,
-                                              set = paste0(treated_id, "_", year))]
+    dt_match[, head(.SD, 1), treated_id
+    ][, .(PeopleID = treated_id, year, treat = 1,
+          set = paste0(treated_id, "_", year))]
   )
 
   ## merge covariates from full panel
-  dt_match_long <- merge(dt_match_long, dt_full, by = c("PeopleID", "year"))
+  dt_long <- merge(dt_long, dt_full, by = c("PeopleID", "year"))
 
   ## apply CEM via matchit
   formula <- as.formula(paste("treat ~ set +", paste(covariates, collapse = " + ")))
-  r_match <- matchit(formula, data = dt_match_long, method = "cem",
-                     cutpoints = cutpoints)
+  r_match <- matchit(formula, data = dt_long, method = "cem", cutpoints = cutpoints)
 
   ## assign subclasses
-  dt_match_long[, subclass := r_match$subclass]
-  list(data = dt_match_long, matchit = r_match)
+  dt_long[, subclass := r_match$subclass]
+  list(data = dt_long, matchit = r_match)
 }
 
 #' Run the full matching pipeline and return quality diagnostics.
 #'
 #' @description
-#' Convenience wrapper running match_treatment_history (matches-info mode)
-#' then refine_matches, then quality_report_matches. Use for parameter grid search.
+#' Convenience wrapper running gd_match_history (matches-info mode)
+#' then gd_refine_matches, then gd_quality_report. Use for parameter grid search.
 #'
 #' @param dt Panel data.table.
 #' @param params Named list. Expected fields:
-#'   L, treatment_col, history_col, unit_id, time_id (passed to match_treatment_history);
-#'   covariates, cutpoints (passed to refine_matches).
+#'   L, treatment_col, history_col, unit_id, time_id (passed to gd_match_history);
+#'   covariates, cutpoints (passed to gd_refine_matches).
 #' @param dt_full Full panel data for covariate merging in refinement.
 #' @param sample_n_treated Optional integer. If set and the number of unique
 #'   matched treated units exceeds this, a random sample is used for the CEM stage.
 #' @return A single-row data.table of quality indicators.
-run_matching_pipeline <- function(dt, params, dt_full = dt,
+gd_run_match_pipeline <- function(dt, params, dt_full = dt,
                                   sample_n_treated = NULL) {
 
-  dt_match <- match_treatment_history(
+  dt_match <- gd_match_history(
     dt,
     L             = params$L,
     treatment_col = params$treatment_col,
@@ -204,29 +211,29 @@ run_matching_pipeline <- function(dt, params, dt_full = dt,
   )
 
   if (nrow(dt_match) == 0) {
-    warning("run_matching_pipeline: no matches found, returning NA quality row.")
-    return(quality_report_matches(dt, dt_match, matchit_obj = NULL,
-                                  refined_data = NULL, params = params))
+    warning("gd_run_match_pipeline: no matches found, returning NA quality row.")
+    return(gd_quality_report(dt, dt_match, matchit_obj = NULL,
+                             refined_data = NULL, params = params))
   }
 
   ## subsample treated for CEM stage if requested
-  dt_match_for_cem <- dt_match
+  dt_cem <- dt_match
   if (!is.null(sample_n_treated)) {
     treated_all <- unique(dt_match$treated_id)
     if (length(treated_all) > sample_n_treated) {
       keep <- sample(treated_all, sample_n_treated)
-      dt_match_for_cem <- dt_match[treated_id %in% keep]
+      dt_cem <- dt_match[treated_id %in% keep]
     }
   }
 
-  refined <- refine_matches(dt_match_for_cem, dt_full,
-                            covariates = params$covariates,
-                            cutpoints  = params$cutpoints)
+  refined <- gd_refine_matches(dt_cem, dt_full,
+                               covariates = params$covariates,
+                               cutpoints  = params$cutpoints)
 
-  quality_report_matches(dt, dt_match,
-                         matchit_obj  = refined$matchit,
-                         refined_data = refined$data,
-                         params       = params)
+  gd_quality_report(dt, dt_match,
+                    matchit_obj  = refined$matchit,
+                    refined_data = refined$data,
+                    params       = params)
 }
 
 #' Compute a flat single-row quality report for one parameter combination.
@@ -244,33 +251,33 @@ run_matching_pipeline <- function(dt, params, dt_full = dt,
 #'   n_after_cem, cem_match_rate, L1_before, L1_after (multivariate L1),
 #'   and per-covariate SMD and variance ratio before/after.
 #'
-#' @param dt_prepared data.table after prepare_data() — used for n_treated denominator.
-#' @param dt_match data.table from match_treatment_history(matches-info).
-#' @param matchit_obj The matchit object from refine_matches()$matchit. NULL if no refinement.
-#' @param refined_data The data slot from refine_matches()$data.
+#' @param dt_prepared data.table after md_prep_match() — used for n_treated denominator.
+#' @param dt_match data.table from gd_match_history(matches-info).
+#' @param matchit_obj The matchit object from gd_refine_matches()$matchit. NULL if no refinement.
+#' @param refined_data The data slot from gd_refine_matches()$data.
 #' @param params Named list of parameters used for this run.
 #' @return Single-row data.table.
-quality_report_matches <- function(dt_prepared, dt_match, matchit_obj = NULL,
-                                   refined_data = NULL, params = list()) {
+gd_quality_report <- function(dt_prepared, dt_match, matchit_obj = NULL,
+                              refined_data = NULL, params = list()) {
   ## stage 1: exact matching coverage
-  s1 <- qrm_s1(dt_prepared, dt_match, params)
+  dt_s1 <- gd_quality_report_s1(dt_prepared, dt_match, params)
 
   ## stage 2: CEM balance diagnostics
-  s2 <- qrm_s2(matchit_obj, refined_data, params)
+  dt_s2 <- gd_quality_report_s2(matchit_obj, refined_data, params)
 
   ## combine with params as leading columns
-  params_dt <- if (length(params) > 0) {
+  dt_params <- if (length(params) > 0) {
     as.data.table(lapply(params, function(x) {
       if (length(x) > 1) paste(x, collapse = ",") else x
     }))
   } else data.table()
 
-  cbind(params_dt, s1, s2)
+  cbind(dt_params, dt_s1, dt_s2)
 }
 
-#' @rdname quality_report_matches
+#' @rdname gd_quality_report
 #' Stage-1 helper: exact matching coverage from dt_match
-qrm_s1 <- function(dt_prepared, dt_match, params) {
+gd_quality_report_s1 <- function(dt_prepared, dt_match, params) {
   ## count treated in the population
   n_treated <- if ("treat_bin" %in% names(dt_prepared)) {
     uniqueN(dt_prepared[treat_bin == 1, uid])
@@ -308,13 +315,13 @@ qrm_s1 <- function(dt_prepared, dt_match, params) {
              min_controls_per_treated = min(ctrl_counts$n_ctrl))
 }
 
-#' Build SMD/VR column block for one covariate (helper for qrm_s2).
+#' Build SMD/VR column block for one covariate (helper for gd_quality_report_s2).
 #'
 #' @param v Covariate name (string).
-#' @param smd_results data.table from fast_smd_vr with columns cov, smd_un, vr_un, smd_adj, vr_adj.
+#' @param dt_smd data.table from gd_smd_vr with columns cov, smd_un, vr_un, smd_adj, vr_adj.
 #' @return Single-row data.table with four columns: smd/vr before/after.
-bal_cols_one_cov <- function(v, smd_results) {
-  row <- smd_results[cov == v]
+gd_bal_cols_cov <- function(v, dt_smd) {
+  row <- dt_smd[cov == v]
   if (nrow(row) == 0) {
     setNames(data.table(NA_real_, NA_real_, NA_real_, NA_real_),
              c(paste0("smd_", v, "_before"), paste0("vr_", v, "_before"),
@@ -327,9 +334,9 @@ bal_cols_one_cov <- function(v, smd_results) {
   }
 }
 
-#' @rdname quality_report_matches
+#' @rdname gd_quality_report
 #' Stage-2 helper: CEM balance diagnostics from matchit object
-qrm_s2 <- function(matchit_obj, refined_data, params) {
+gd_quality_report_s2 <- function(matchit_obj, refined_data, params) {
   if (is.null(matchit_obj) || is.null(refined_data)) {
     return(data.table(n_after_cem = NA_integer_, cem_match_rate = NA_real_,
                       L1_before = NA_real_, L1_after = NA_real_))
@@ -355,23 +362,23 @@ qrm_s2 <- function(matchit_obj, refined_data, params) {
                       L1_before = NA_real_, L1_after = NA_real_))
   }
 
-  cov_df <- refined_data[, ..covs]
+  dt_cov <- refined_data[, ..covs]
 
   ## L1 imbalance
-  l1_results <- fast_l1_med_both(cov_df, treat_v, w_after,
-                                 l1.n = 51L, l1.max.bin = 7L)
+  l1_results <- gd_l1_med_both(dt_cov, treat_v, w_after,
+                               l1.n = 51L, l1.max.bin = 7L)
 
   ## per-covariate SMD + variance ratio
-  smd_results <- fast_smd_vr(cov_df, treat_v, w_after)
+  dt_smd <- gd_smd_vr(dt_cov, treat_v, w_after)
 
   ## build SMD/VR columns — one per covariate
-  bal_parts <- lapply(covs, bal_cols_one_cov, smd_results)
+  l_bal <- lapply(covs, gd_bal_cols_cov, dt_smd)
 
   data.table(n_after_cem = as.integer(n_after_cem),
              cem_match_rate = cem_match_rate,
              L1_before = round(l1_results$before, 4),
              L1_after  = round(l1_results$after, 4)) %>%
-    cbind(do.call(cbind, bal_parts))
+    cbind(do.call(cbind, l_bal))
 }
 
 #' Generate one random coarsening and compute its L1 statistic.
@@ -389,8 +396,8 @@ qrm_s2 <- function(matchit_obj, refined_data, params) {
 #' @param nu Integer vector of unique value counts per covariate.
 #' @param cut_cols Character vector of column names to store bin assignments.
 #' @return Named list with l1_u (numeric) and bin_df (data.table of binned columns).
-gen_one_coarsening <- function(dt_loc, cov_names, ranges, l1.min.bin, l1.max.bin,
-                               nu, cut_cols) {
+gd_gen_coarsening <- function(dt_loc, cov_names, ranges, l1.min.bin, l1.max.bin,
+                              nu, cut_cols) {
   nbins <- vapply(seq_along(cov_names), function(i) {
     rng <- seq(min(l1.min.bin, nu[i]), min(l1.max.bin, nu[i]))
     rng[sample.int(length(rng), 1L)]
@@ -409,10 +416,10 @@ gen_one_coarsening <- function(dt_loc, cov_names, ranges, l1.min.bin, l1.max.bin
   l1_u <- sum(abs(agg$wT - agg$wC)) / 2
 
   ## store binned integer columns for median coarsening reuse
-  bin_df <- copy(dt_loc[, ..cut_cols])
+  dt_bin <- copy(dt_loc[, ..cut_cols])
   dt_loc[, (cut_cols) := NULL]
 
-  list(l1_u = l1_u, bin_df = bin_df)
+  list(l1_u = l1_u, bin_df = dt_bin)
 }
 
 
@@ -432,20 +439,20 @@ gen_one_coarsening <- function(dt_loc, cov_names, ranges, l1.min.bin, l1.max.bin
 #' The all-numeric data.table-vectorized inner loop makes this ~5x faster than
 #' cobalt, scaling to >10M rows in a few seconds.
 #'
-#' @param cov_df data.frame or data.table of numeric covariates.
-#' @param treat 0/1 or logical vector, length == nrow(cov_df).
+#' @param dt_cov data.frame or data.table of numeric covariates.
+#' @param treat 0/1 or logical vector, length == nrow(dt_cov).
 #' @param weights_after Weight vector for the "after" (matched) state.
 #' @param l1.n Number of random coarsenings to generate (default 51).
 #' @param l1.min.bin Min number of bins per covariate per coarsening (default 2).
 #' @param l1.max.bin Max number of bins per covariate per coarsening (default 12).
 #' @param seed Optional RNG seed for reproducibility.
 #' @return Named list with `before` and `after` entries (each numeric in [0,1]).
-fast_l1_med_both <- function(cov_df, treat, weights_after,
-                             l1.n = 51L, l1.min.bin = 2L, l1.max.bin = 12L,
-                             seed = NULL) {
+gd_l1_med_both <- function(dt_cov, treat, weights_after,
+                           l1.n = 51L, l1.min.bin = 2L, l1.max.bin = 12L,
+                           seed = NULL) {
   if (!is.null(seed)) set.seed(seed)
 
-  dt_loc <- as.data.table(cov_df)
+  dt_loc <- as.data.table(dt_cov)
   cov_names <- copy(names(dt_loc))
   n <- length(treat)
   is_t <- as.logical(treat)
@@ -463,23 +470,24 @@ fast_l1_med_both <- function(cov_df, treat, weights_after,
 
   ## step 1-2: generate l1.n coarsenings
   l1_results <- lapply(seq_len(l1.n), function(k) {
-    gen_one_coarsening(dt_loc, cov_names, ranges, l1.min.bin, l1.max.bin, nu, cut_cols)
+    gd_gen_coarsening(dt_loc, cov_names, ranges, l1.min.bin, l1.max.bin, nu, cut_cols)
   })
 
   l1s_u <- vapply(l1_results, `[[`, numeric(1), "l1_u")
-  bin_ids <- lapply(l1_results, `[[`, "bin_df")
+  l_bin <- lapply(l1_results, `[[`, "bin_df")
 
   ## step 3: pick median coarsening
   median_idx <- which(l1s_u == sort(l1s_u, partial = ceiling(l1.n / 2))[ceiling(l1.n / 2)])[1]
-  fixed_cuts <- bin_ids[[median_idx]]
+  dt_fixed_cuts <- l_bin[[median_idx]]
 
   ## step 4: compute before (uniform) and after (weighted) on fixed coarsening
-  fixed_cuts[, bin_id := do.call(paste, c(.SD, sep = "_"))]
+  dt_fixed_cuts[, bin_id := do.call(paste, c(.SD, sep = "_"))]
   w_o <- weights_after
   w_o[is_t] <- w_o[is_t] / sum(w_o[is_t])
   w_o[!is_t] <- w_o[!is_t] / sum(w_o[!is_t])
 
-  dt_fixed <- data.table(bin = fixed_cuts$bin_id, .wu = w_u, .wo = w_o, .t = is_t)
+  dt_fixed <- data.table(bin = dt_fixed_cuts$bin_id,
+                         .wu = w_u, .wo = w_o, .t = is_t)
   agg_before <- dt_fixed[, .(wT = sum(.wu * .t), wC = sum(.wu * !.t)), by = bin]
   agg_after  <- dt_fixed[, .(wT = sum(.wo * .t), wC = sum(.wo * !.t)), by = bin]
 
@@ -490,16 +498,16 @@ fast_l1_med_both <- function(cov_df, treat, weights_after,
 
 #' Fast multivariate L1 imbalance — single-weight wrapper.
 #'
-#' Wrapper around fast_l1_med_both for backward compatibility.
+#' Wrapper around gd_l1_med_both for backward compatibility.
 #' Returns the entry matching the weight type (before/unweighted or after/weighted).
 #'
-#' @inheritParams fast_l1_med_both
+#' @inheritParams gd_l1_med_both
 #' @param weights non-negative weight vector. Use rep(1, n) for unmatched baseline.
 #' @return Numeric scalar in [0, 1].
-fast_l1_med <- function(cov_df, treat, weights,
-                        l1.n = 101L, l1.min.bin = 2L, l1.max.bin = 12L,
-                        seed = NULL) {
-  both <- fast_l1_med_both(cov_df, treat, weights, l1.n, l1.min.bin, l1.max.bin, seed)
+gd_l1_med <- function(dt_cov, treat, weights,
+                      l1.n = 101L, l1.min.bin = 2L, l1.max.bin = 12L,
+                      seed = NULL) {
+  both <- gd_l1_med_both(dt_cov, treat, weights, l1.n, l1.min.bin, l1.max.bin, seed)
   if (isTRUE(all(weights == 1))) both[["before"]] else both[["after"]]
 }
 
@@ -512,11 +520,11 @@ fast_l1_med <- function(cov_df, treat, weights,
 #' s.d.denom = "pooled" (unweighted pooled SD).
 #'
 #' @param cn Covariate name (string).
-#' @param d data.table with .treat (logical) and .w (weights) columns.
+#' @param dt_smd data.table with .treat (logical) and .w (weights) columns.
 #' @return Named list: cn, smd_un, vr_un, smd_adj, vr_adj.
-smd_vr_one_cov <- function(cn, d) {
-  vT <- d[.treat == TRUE,  get(cn)]
-  vC <- d[.treat == FALSE, get(cn)]
+gd_smd_vr_cov <- function(cn, dt_smd) {
+  vT <- dt_smd[.treat == TRUE,  get(cn)]
+  vC <- dt_smd[.treat == FALSE, get(cn)]
 
   ## unweighted (before)
   mT_u <- mean(vT)
@@ -527,8 +535,8 @@ smd_vr_one_cov <- function(cn, d) {
 
   ## weighted (after) per cobalt formula:
   ## weighted variance = sum(w_norm * (x - mean)^2) / (1 - sum(w_norm^2))
-  wT <- d[.treat == TRUE,  .w]
-  wC <- d[.treat == FALSE, .w]
+  wT <- dt_smd[.treat == TRUE,  .w]
+  wC <- dt_smd[.treat == FALSE, .w]
   wTn <- wT / sum(wT)
   wCn <- wC / sum(wC)
 
@@ -547,17 +555,17 @@ smd_vr_one_cov <- function(cn, d) {
 
 #' Fast per-covariate SMD + variance ratio (~17x faster than cobalt::bal.tab).
 #'
-#' @param cov_df data.frame or data.table of numeric covariates.
-#' @param treat 0/1 or logical vector, length == nrow(cov_df).
+#' @param dt_cov data.frame or data.table of numeric covariates.
+#' @param treat 0/1 or logical vector, length == nrow(dt_cov).
 #' @param weights non-negative weight vector (CEM weights).
 #' @return data.table with columns: cov, smd_un, vr_un, smd_adj, vr_adj.
-fast_smd_vr <- function(cov_df, treat, weights) {
-  d <- as.data.table(cov_df)
-  cov_names <- copy(names(d))
-  d[, `:=`(.treat = as.logical(treat), .w = weights)]
+gd_smd_vr <- function(dt_cov, treat, weights) {
+  dt_d <- as.data.table(dt_cov)
+  cov_names <- copy(names(dt_d))
+  dt_d[, `:=`(.treat = as.logical(treat), .w = weights)]
 
   ## compute SMD and VR for each covariate via named helper
-  out <- lapply(cov_names, smd_vr_one_cov, d)
+  out <- lapply(cov_names, gd_smd_vr_cov, dt_d)
 
   rbindlist(out) %>%
     setnames(c("cov", "smd_un", "vr_un", "smd_adj", "vr_adj"))
