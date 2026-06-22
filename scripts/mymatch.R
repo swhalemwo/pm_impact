@@ -169,42 +169,111 @@ md_prep_match <- function(dt, L, t_col, h_col, uid, tid) {
   dt_d
 }
 
-#' Refine matches using Coarsened Exact Matching (CEM).
+#' Refine matches using Coarsened Exact Matching (CEM) — data.table version.
+#'
+#' @description
+#' Pure data.table implementation matching the MatchIt::matchit(method = "cem")
+#' algorithm. Coarsens each covariate into bins, then exact-matches on
+#' (set × coarse bins). Cells with both treated and control units are kept;
+#' cells with only one type are discarded.
+#'
+#' For diagnostics, the `matchit` slot wraps the results (subclass + weights)
+#' in a backwards-compatible list mimicking a matchit object.
 #'
 #' @param dt_match Data.table of raw matches (control_id, treated_id, year).
 #'   Must contain match_tier column (from matches-info mode).
 #' @param dt_full The full panel data containing covariates.
 #' @param covariates Character vector. Covariates for refinement.
-#' @param cutpoints List. Cutpoints for CEM.
+#' @param cutpoints List. Cutpoints (number of bins) for each covariate.
 #' @return A list with:
-#'   \item{data}{data.table with subclass column assigned}
-#'   \item{matchit}{the raw matchit object for diagnostics}
+#'   \item{data}{data.table with subclass and weight columns}
+#'   \item{matchit}{a list with $weights and $subclass for back-compat}
 gd_refine_matches <- function(dt_match, dt_full,
                               covariates = c("BirthYear", "exn_all_cum"),
                               cutpoints = list(BirthYear = 8, exn_all_cum = 8)) {
 
   ## transform matches to long format (one row per control, one row per treated)
   dt_long <- rbind(
-    dt_match[, .(PeopleID = control_id, year, treat = 0, set = paste0(treated_id, "_", year))],
-    dt_match[, head(.SD, 1), treated_id][, .(PeopleID = treated_id, year, treat = 1,
-                                             set = paste0(treated_id, "_", year))])
+    dt_match[, .(PeopleID = control_id, year, treat = 0,
+                 set = paste0(treated_id, "_", year))],
+    dt_match[, head(.SD, 1), treated_id
+    ][, .(PeopleID = treated_id, year, treat = 1,
+          set = paste0(treated_id, "_", year))]
+  )
+
+  ## merge covariates from full panel
+  dt_long <- merge(dt_long, dt_full, by = c("PeopleID", "year"))
+
+  ## coarsen each covariate into bins (equal-width)
+  for (v in covariates) {
+    nbins <- cutpoints[[v]] %||% 8L
+    dt_long[, (paste0(".coarse_", v)) := coarse_bin(get(v), nbins)]
+  }
+
+  ## create cell key: set × coarsened covariates
+  cell_cols <- c("set", paste0(".coarse_", covariates))
+  dt_long[, .cell := do.call(paste, c(.SD, sep = "_")), .SDcols = cell_cols]
+
+  ## count treated and control per cell
+  dt_long[, `:=`(.n_treat = sum(treat == 1), .n_ctrl = sum(treat == 0)), by = .cell]
+
+  ## assign subclass and weights
+  ## subclass: only cells with both treated and control
+  dt_long[.n_treat > 0 & .n_ctrl > 0, subclass := .GRP, by = .cell]
+  ## weights: 1 for all matched units, 0 for unmatched (matches matchit CEM default)
+  dt_long[!is.na(subclass), weight := 1.0]
+  dt_long[is.na(subclass), weight := 0]
+
+  ## clean up temp columns
+  dt_long[, c(".n_treat", ".n_ctrl", ".cell", paste0(".coarse_", covariates)) := NULL]
+
+  ## wrap results in mock matchit object for back-compat
+  r_match <- list(weights = dt_long$weight, subclass = dt_long$subclass)
+  class(r_match) <- "matchit"
+
+  list(data = dt_long, matchit = r_match)
+}
+
+#' Coarsen a numeric vector into N equal-width bins.
+#'
+#' @param x Numeric vector.
+#' @param nbins Number of bins.
+#' @return Integer vector of bin assignments (1..nbins).
+coarse_bin <- function(x, nbins) {
+  rng <- range(x, na.rm = TRUE)
+  if (diff(rng) == 0 || nbins <= 1) return(rep(1L, length(x)))
+  as.integer(findInterval(x, seq(rng[1], rng[2], length.out = nbins + 1),
+                          rightmost.closed = TRUE))
+}
+
+#' Refine matches using Coarsened Exact Matching (CEM) — MatchIt version.
+#'
+#' @description
+#' Original implementation using MatchIt::matchit(method = "cem").
+#' Kept for cross-validation against the data.table version.
+#'
+#' @inheritParams gd_refine_matches
+#' @return A list with data and matchit slots (same structure as gd_refine_matches).
+gd_refine_matches_matchit <- function(dt_match, dt_full,
+                                      covariates = c("BirthYear", "exn_all_cum"),
+                                      cutpoints = list(BirthYear = 8, exn_all_cum = 8)) {
+
+  ## transform matches to long format
+  dt_long <- rbind(
+    dt_match[, .(PeopleID = control_id, year, treat = 0,
+                 set = paste0(treated_id, "_", year))],
+    dt_match[, head(.SD, 1), treated_id
+    ][, .(PeopleID = treated_id, year, treat = 1,
+          set = paste0(treated_id, "_", year))]
+  )
 
   ## merge covariates from full panel
   dt_long <- merge(dt_long, dt_full, by = c("PeopleID", "year"))
 
   ## apply CEM via matchit
   formula <- as.formula(paste("treat ~ set +", paste(covariates, collapse = " + ")))
-
-  ## t1 <- Sys.time()
   r_match <- matchit(formula, data = dt_long, method = "cem", cutpoints = cutpoints)
-  ## t2 <- Sys.time()
-  ## t2-t1
 
-  
-
-
-
-  ## assign subclasses
   dt_long[, subclass := r_match$subclass]
   list(data = dt_long, matchit = r_match)
 }

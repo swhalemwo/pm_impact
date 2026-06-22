@@ -273,6 +273,113 @@ expect_true(is.null(null_res), info = "ematch_yr returns NULL for empty year")
 timings <- rbind(timings, data.table(label = "17. ematch_yr NULL",
                                      time_s = round(as.numeric(Sys.time() - t0), 2)))
 
+# === 18. coarse_bin — edge cases ===
+t0 <- Sys.time()
+expect_equal(coarse_bin(c(1,2,3), 1), c(1L, 1L, 1L), info = "coarse_bin nbins=1 gives all 1")
+expect_equal(coarse_bin(rep(5, 10), 8), rep(1L, 10), info = "coarse_bin zero-range gives all 1")
+expect_true(all(coarse_bin(1:100, 4) %in% 1:4), info = "coarse_bin 100 values into 4 bins")
+expect_true(max(coarse_bin(rnorm(100), 10)) <= 10, info = "coarse_bin max bin ≤ nbins")
+expect_true(min(coarse_bin(rnorm(100), 10)) >= 1,  info = "coarse_bin min bin ≥ 1")
+timings <- rbind(timings, data.table(label = "18. coarse_bin edges",
+                                     time_s = round(as.numeric(Sys.time() - t0), 2)))
+
+# === 19. gd_refine_matches — subclass and weight invariants ===
+t0 <- Sys.time()
+## reuse `refined` from section 6
+n_s <- refined$data[!is.na(subclass), .N]
+n_u <- refined$data[is.na(subclass), .N]
+s_ids <- unique(na.omit(refined$data$subclass))
+
+## no duplicate subclass IDs
+expect_equal(length(s_ids), length(unique(s_ids)),
+             info = "all subclass IDs are unique")
+## every matched cell has both treated and control
+sub_comp <- refined$data[!is.na(subclass),
+                         .(n_treat = sum(treat == 1), n_ctrl = sum(treat == 0)),
+                         by = subclass]
+expect_true(all(sub_comp$n_treat >= 1),
+            info = "every subclass has ≥1 treated")
+expect_true(all(sub_comp$n_ctrl >= 1),
+            info = "every subclass has ≥1 control")
+## weights: 1 for matched, 0 for unmatched
+expect_equal(refined$data[!is.na(subclass), range(weight)], c(1, 1),
+             info = "all matched weights are 1")
+expect_equal(refined$data[is.na(subclass), range(weight)], c(0, 0),
+             info = "all unmatched weights are 0")
+## matchit weights match
+expect_equal(refined$matchit$weights, refined$data$weight,
+             info = "matchit$weights = data$weight")
+expect_equal(as.integer(refined$matchit$subclass),
+             as.integer(refined$data$subclass),
+             info = "matchit$subclass matches data$subclass")
+## class set
+expect_true(inherits(refined$matchit, "matchit"),
+            info = "matchit object has class matchit")
+timings <- rbind(timings, data.table(label = "19. refine invariants",
+                                     time_s = round(as.numeric(Sys.time() - t0), 2)))
+
+# === 20. gd_refine_matches — single covariate + single bin ===
+t0 <- Sys.time()
+r_1c <- gd_refine_matches(matches_info, dt,
+                           covariates = "BirthYear",
+                           cutpoints = list(BirthYear = 8))
+expect_true(is.list(r_1c) && all(c("data", "matchit") %in% names(r_1c)),
+            info = "single covariate: list structure ok")
+expect_true("subclass" %in% names(r_1c$data),
+            info = "single covariate: subclass column present")
+expect_true(nrow(r_1c$data) == nrow(refined$data),
+            info = "single covariate: same row count")
+
+r_1b <- gd_refine_matches(matches_info, dt,
+                           covariates = c("BirthYear", "exn_all_cum_ihs"),
+                           cutpoints = list(BirthYear = 1, exn_all_cum_ihs = 1))
+expect_true(nrow(r_1b$data) == nrow(refined$data),
+            info = "single bin: same row count")
+## with 1 bin each, coarse covariates collapse to one value;
+## subclasses then equal the number of distinct sets (= matched treated)
+expect_equal(uniqueN(na.omit(r_1b$data$subclass)),
+             uniqueN(r_1b$data[!is.na(subclass) & treat == 1, set]),
+             info = "single bin per covariate → one subclass per set")
+timings <- rbind(timings, data.table(label = "20. refine single cov/bin",
+                                     time_s = round(as.numeric(Sys.time() - t0), 2)))
+
+# === 21. gd_refine_matches_matchit — structure check ===
+t0 <- Sys.time()
+r_mi <- gd_refine_matches_matchit(matches_info, dt,
+                                   covariates = c("BirthYear", "exn_all_cum_ihs"),
+                                   cutpoints = list(BirthYear = 8, exn_all_cum_ihs = 8))
+expect_true(is.list(r_mi), info = "matchit version returns a list")
+expect_true(all(c("data", "matchit") %in% names(r_mi)),
+            info = "matchit version has data and matchit slots")
+expect_true(inherits(r_mi$matchit, "matchit"),
+            info = "matchit version matchit is a matchit object")
+expect_equal(nrow(r_mi$data), nrow(refined$data),
+             info = "matchit version same row count as DT version")
+timings <- rbind(timings, data.table(label = "21. refine_matchit struct",
+                                     time_s = round(as.numeric(Sys.time() - t0), 2)))
+
+# === 22. DT vs matchit CEM — compare row counts within each version [SLOW: ~0.8s] ===
+if (run_slow) {
+t0 <- Sys.time()
+r_dt <- gd_refine_matches(matches_info, dt,
+                           covariates = c("BirthYear", "exn_all_cum_ihs"),
+                           cutpoints = list(BirthYear = 8, exn_all_cum_ihs = 8))
+r_mi <- gd_refine_matches_matchit(matches_info, dt,
+                                   covariates = c("BirthYear", "exn_all_cum_ihs"),
+                                   cutpoints = list(BirthYear = 8, exn_all_cum_ihs = 8))
+## both should produce the same number of total and matched rows
+expect_equal(nrow(r_dt$data), nrow(r_mi$data),
+             info = "DT/MI CEM: same total row count")
+expect_equal(sum(!is.na(r_dt$data$subclass)),
+             sum(!is.na(r_mi$matchit$subclass)),
+             info = "DT/MI CEM: same number of matched rows")
+expect_equal(uniqueN(na.omit(r_dt$data$subclass)),
+             uniqueN(na.omit(r_mi$matchit$subclass)),
+             info = "DT/MI CEM: same number of subclasses")
+timings <- rbind(timings, data.table(label = "22. DT vs matchit CEM",
+                                     time_s = round(as.numeric(Sys.time() - t0), 2)))
+}  # end if (run_slow)
+
 # --- Timing report ---
 cat("\n========================================\n")
 cat("          Timing Summary\n")
