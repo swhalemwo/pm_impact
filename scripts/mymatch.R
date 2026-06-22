@@ -61,30 +61,47 @@ gd_match_history <- function(dt, L, treatment_col = "exn_pm",
 #' @param tier Integer tier number (1 or 2).
 #' @return data.table of matched pairs, or NULL if no matches exist.
 gd_ematch_yr <- function(yr, dt_units, controls_pool, key_col, return_type, tier) {
-  ## extract treated and control pools for this year
+  ## extract treated and control pools for this year via binary search
 
-  ## browser()
-  
-  dt_ctrls <- if (is.null(controls_pool)) {
-                dt_units[tid == yr & treat_bin == 0]
-              } else controls_pool[tid == yr]
-  
-  dt_trtd <- dt_units[tid == yr & treat_bin == 1]
+   
+  dt_trtd <- dt_units[.(yr, 1L), on = c("tid", "treat_bin"), nomatch = NULL]
+
+  ## dt_ctrls <- if (is.null(controls_pool)) {
+  ##   dt_units[.(yr, 0L), on = c("tid", "treat_bin"), nomatch = NULL]
+  ## } else {
+  ##   controls_pool[.(yr), on = "tid", nomatch = NULL]
+  ## }
+
+  dt_ctrls <- switch(2-is.null(controls_pool), 
+         dt_units[.(yr, 0L), on = c("tid", "treat_bin"), nomatch = NULL],
+         controls_pool[.(yr), on = "tid", nomatch = NULL])
 
   if (nrow(dt_trtd) == 0 || nrow(dt_ctrls) == 0) return(NULL)
 
-  if (return_type == "summary") {
-    dt_ctrls[dt_trtd, .(uid = i.uid, N = .N), on = key_col,
-             nomatch = NULL, by = .EACHI] %>%
-      .[N > 0]
-  } else if (return_type == "matches-info") {
-    dt_ctrls[dt_trtd, .(control_id = uid, treated_id = i.uid, year = yr,
-                         match_key = get(key_col), match_tier = tier),
-             on = key_col, nomatch = NULL, allow.cartesian = TRUE]
-  } else {
-    dt_ctrls[dt_trtd, .(control_id = uid, treated_id = i.uid, year = yr),
-             on = key_col, nomatch = NULL, allow.cartesian = TRUE]
-  }
+  ## if (return_type == "summary") {
+  ##   dt_ctrls[dt_trtd, .(uid = i.uid, N = .N), on = key_col,
+  ##            nomatch = NULL, by = .EACHI] %>%
+  ##     .[N > 0]
+  ## } else if (return_type == "matches-info") {
+  ##   dt_ctrls[dt_trtd, .(control_id = uid, treated_id = i.uid, year = yr,
+  ##                        match_key = get(key_col), match_tier = tier),
+  ##            on = key_col, nomatch = NULL, allow.cartesian = TRUE]
+  ## } else { # matches
+  ##   dt_ctrls[dt_trtd, .(control_id = uid, treated_id = i.uid, year = yr),
+  ##            on = key_col, nomatch = NULL, allow.cartesian = TRUE]
+  ## }
+
+  switch(return_type,
+         summary = dt_ctrls[dt_trtd, .(uid = i.uid, N = .N), on = key_col, nomatch = NULL, by = .EACHI][N > 0],
+         matches_info = dt_ctrls[dt_trtd, .(control_id = uid, treated_id = i.uid, year = yr,
+                                            match_key = get(key_col), match_tier = tier),
+                                 on = key_col, nomatch = NULL, allow.cartesian = TRUE],
+         matches = dt_ctrls[dt_trtd, .(control_id = uid, treated_id = i.uid, year = yr),
+             on = key_col, nomatch = NULL, allow.cartesian = TRUE])
+         
+
+
+  
 }
 
 #' Execute tier matching by applying year-by-year joins.
@@ -101,7 +118,12 @@ gd_ematch_yr <- function(yr, dt_units, controls_pool, key_col, return_type, tier
 #' @return data.table of matched pairs across all years.
 gd_tier_match <- function(dt_units, key_col, controls_pool = NULL,
                           return_type = "summary", tier = 1) {
+
   ## browser()
+  ## key on (tid, treat_bin) for O(log n) year subsetting instead of O(n) scan
+  setkeyv(dt_units, c("tid", "treat_bin"))
+  if (!is.null(controls_pool)) setkeyv(controls_pool, "tid")
+
   years <- sort(unique(dt_units$tid))
 
   ## gd_ematch_yr(2010, dt_units, controls_pool, key_col, return_type, tier)
@@ -109,6 +131,7 @@ gd_tier_match <- function(dt_units, key_col, controls_pool = NULL,
   rbindlist(lapply(years, function(yr) {
     gd_ematch_yr(yr, dt_units, controls_pool, key_col, return_type, tier)
   }), fill = TRUE)
+
 }
 
 #' Calculate summary statistics from matched pairs.
