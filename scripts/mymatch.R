@@ -258,7 +258,8 @@ gd_refine_matches <- function(dt_match, dt_full,
 #' @return Integer vector of bin assignments (1..nbins).
 coarse_bin <- function(x, nbins = NULL, breaks = NULL) {
   if (!is.null(breaks)) {
-    as.integer(cut(x, breaks = breaks, include.lowest = TRUE))
+    ## match matchit::cem_matchit behavior: wrap with -Inf/Inf, use findInterval
+    findInterval(x, c(-Inf, sort(unique(breaks)), Inf))
   } else {
     rng <- range(x, na.rm = TRUE)
     if (diff(rng) == 0 || nbins <= 1) return(rep(1L, length(x)))
@@ -328,10 +329,12 @@ gd_refine_matches_matchit <- function(dt_match, dt_full,
   ## merge covariates from full panel
   dt_long <- merge(dt_long, dt_full, by = c("PeopleID", "year"))
 
-  ## use integer cutpoints (matchit handles equal-width binning internally)
+  ## pass cutpoints through; matchit handles them internally:
+  ##   integer → equal-width bins
+  ##   vector  → findInterval(c(-Inf, sort(unique(breaks)), Inf))
   formula <- as.formula(paste("treat ~ set +", paste(covariates, collapse = " + ")))
   r_match <- matchit(formula, data = dt_long, method = "cem",
-                     cutpoints = lapply(cutpoints, function(x) if (is.numeric(x) && length(x) > 1) length(x) else x))
+                     cutpoints = cutpoints)
 
   dt_long[, subclass := r_match$subclass]
   list(data = dt_long, matchit = r_match)
