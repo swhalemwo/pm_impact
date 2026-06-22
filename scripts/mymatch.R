@@ -62,19 +62,12 @@ gd_match_history <- function(dt, L, treatment_col = "exn_pm",
 #' @return data.table of matched pairs, or NULL if no matches exist.
 gd_ematch_yr <- function(yr, dt_units, controls_pool, key_col, return_type, tier) {
   ## extract treated and control pools for this year via binary search
-
-   
   dt_trtd <- dt_units[.(yr, 1L), on = c("tid", "treat_bin"), nomatch = NULL]
-
-  ## dt_ctrls <- if (is.null(controls_pool)) {
-  ##   dt_units[.(yr, 0L), on = c("tid", "treat_bin"), nomatch = NULL]
-  ## } else {
-  ##   controls_pool[.(yr), on = "tid", nomatch = NULL]
-  ## }
-
-  dt_ctrls <- switch(2-is.null(controls_pool), 
-         dt_units[.(yr, 0L), on = c("tid", "treat_bin"), nomatch = NULL],
-         controls_pool[.(yr), on = "tid", nomatch = NULL])
+  dt_ctrls <- if (is.null(controls_pool)) {
+    dt_units[.(yr, 0L), on = c("tid", "treat_bin"), nomatch = NULL]
+  } else {
+    controls_pool[.(yr), on = "tid", nomatch = NULL]
+  }
 
   if (nrow(dt_trtd) == 0 || nrow(dt_ctrls) == 0) return(NULL)
 
