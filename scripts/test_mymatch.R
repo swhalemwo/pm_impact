@@ -405,6 +405,82 @@ timings <- rbind(timings, data.table(label = "22. DT vs matchit CEM",
                                      time_s = round(as.numeric(Sys.time() - t0), 2)))
 }  # end if (run_slow)
 
+# === 23. gd_coarse_breaks — structure and edge cases ===
+t0 <- Sys.time()
+br8 <- gd_coarse_breaks(dt, c("BirthYear", "exn_all_cum_ihs"),
+                         list(BirthYear = 8, exn_all_cum_ihs = 8))
+expect_true(is.list(br8), info = "coarse_breaks returns a list")
+expect_equal(names(br8), c("BirthYear", "exn_all_cum_ihs"),
+             info = "coarse_breaks: names match covariates")
+expect_equal(length(br8$BirthYear), 9,
+             info = "coarse_breaks: 8 bins → 9 breakpoints")
+expect_equal(length(br8$exn_all_cum_ihs), 9,
+             info = "coarse_breaks: 8 bins → 9 breakpoints")
+expect_true(br8$BirthYear[1] <= min(dt$BirthYear),
+            info = "coarse_breaks: first break ≤ min")
+expect_true(br8$BirthYear[9] >= max(dt$BirthYear),
+            info = "coarse_breaks: last break ≥ max")
+expect_true(all(diff(br8$BirthYear) > 0),
+            info = "coarse_breaks: strictly increasing")
+
+## edge: 1 bin
+br1 <- gd_coarse_breaks(dt, "BirthYear", list(BirthYear = 1))
+expect_equal(length(br1$BirthYear), 2,
+             info = "coarse_breaks: 1 bin → 2 breakpoints (min, max)")
+
+## edge: fewer unique values than bins
+dt_small <- dt[1:10]
+br_uniq <- gd_coarse_breaks(dt_small, "BirthYear", list(BirthYear = 20))
+expect_true(length(br_uniq$BirthYear) <= 10,
+            info = "coarse_breaks: ≤ n unique when fewer than nbins")
+timings <- rbind(timings, data.table(label = "23. coarse_breaks structure",
+                                     time_s = round(as.numeric(Sys.time() - t0), 2)))
+
+# === 24. gd_refine_matches with quantile breaks — internal consistency ===
+t0 <- Sys.time()
+l_breaks <- gd_coarse_breaks(dt, c("BirthYear", "exn_all_cum_ihs"),
+                              list(BirthYear = 8, exn_all_cum_ihs = 8))
+r_q <- gd_refine_matches(matches_info, dt,
+                          covariates = c("BirthYear", "exn_all_cum_ihs"),
+                          cutpoints = l_breaks)
+expect_true(is.list(r_q), info = "quantile refine: returns a list")
+expect_true("subclass" %in% names(r_q$data),
+            info = "quantile refine: subclass column present")
+expect_true(inherits(r_q$matchit, "matchit"),
+            info = "quantile refine: matchit object class")
+## check each matched cell has ≥1 treated and ≥1 control
+sub_comp_q <- r_q$data[!is.na(subclass),
+                        .(n_treat = sum(treat == 1), n_ctrl = sum(treat == 0)),
+                        by = subclass]
+expect_true(all(sub_comp_q$n_treat >= 1),
+            info = "quantile refine: every subclass has ≥1 treated")
+expect_true(all(sub_comp_q$n_ctrl >= 1),
+            info = "quantile refine: every subclass has ≥1 control")
+## weights correct
+expect_true(all(r_q$data[!is.na(subclass), weight == 1]),
+            info = "quantile refine: all matched have weight 1")
+expect_true(all(r_q$data[is.na(subclass), weight == 0]),
+            info = "quantile refine: all unmatched have weight 0")
+timings <- rbind(timings, data.table(label = "24. refine quantile breaks",
+                                     time_s = round(as.numeric(Sys.time() - t0), 2)))
+
+# === 25. gd_coarse_breaks + refine — fingerprint reproducibility ===
+t0 <- Sys.time()
+## Running twice with same breaks reproduces identical subclasses
+l_breaks2 <- gd_coarse_breaks(dt, c("BirthYear", "exn_all_cum_ihs"),
+                               list(BirthYear = 8, exn_all_cum_ihs = 8))
+r_q2 <- gd_refine_matches(matches_info, dt,
+                           covariates = c("BirthYear", "exn_all_cum_ihs"),
+                           cutpoints = l_breaks2)
+fp1 <- r_q$data[!is.na(subclass), .(PeopleID, year, treat, s = subclass)][order(PeopleID, year, treat)]
+fp2 <- r_q2$data[!is.na(subclass), .(PeopleID, year, treat, s = subclass)][order(PeopleID, year, treat)]
+expect_equal(nrow(fp1), nrow(fp2),
+             info = "quantile refine: same number of matched rows on re-run")
+expect_true(all(fp1$s == fp2$s),
+            info = "quantile refine: subclass assignment reproducible")
+timings <- rbind(timings, data.table(label = "25. refine quantile reproducible",
+                                     time_s = round(as.numeric(Sys.time() - t0), 2)))
+
 # --- Timing report ---
 cat("\n========================================\n")
 cat("          Timing Summary\n")

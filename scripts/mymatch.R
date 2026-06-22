@@ -267,6 +267,22 @@ coarse_bin <- function(x, nbins = NULL, breaks = NULL) {
   }
 }
 
+#' Compute quantile breaks for one covariate (helper for gd_coarse_breaks).
+#'
+#' @param v Covariate name.
+#' @param dt_ref Reference data.table.
+#' @param cutpoints Named list mapping covariate names to number of bins.
+#' @return Numeric vector of breakpoints.
+gd_breaks_one <- function(v, dt_ref, cutpoints) {
+  nbins <- cutpoints[[v]] %||% 8L
+  x <- dt_ref[[v]]
+  if (length(unique(x)) <= nbins) {
+    sort(unique(x))
+  } else {
+    quantile(x, probs = seq(0, 1, length.out = nbins + 1), na.rm = TRUE)
+  }
+}
+
 #' Compute quantile-based breakpoints for CEM coarsening.
 #'
 #' @description
@@ -284,18 +300,7 @@ coarse_bin <- function(x, nbins = NULL, breaks = NULL) {
 #' @param cutpoints Named list mapping covariate names to number of bins.
 #' @return Named list mapping covariate names to numeric break vectors.
 gd_coarse_breaks <- function(dt_ref, covariates, cutpoints) {
-  setNames(lapply(covariates, function(v) {
-    nbins <- cutpoints[[v]] %||% 8L
-    x <- dt_ref[[v]]
-    if (length(unique(x)) <= nbins) {
-      ## fewer unique values than bins → use each unique value as a break
-      sort(unique(x))
-    } else {
-      ## quantile-based breaks (equal frequency)
-      probs <- seq(0, 1, length.out = nbins + 1)
-      quantile(x, probs = probs, na.rm = TRUE)
-    }
-  }), covariates)
+  setNames(lapply(covariates, gd_breaks_one, dt_ref, cutpoints), covariates)
 }
 
 #' Refine matches using Coarsened Exact Matching (CEM) — MatchIt version.
