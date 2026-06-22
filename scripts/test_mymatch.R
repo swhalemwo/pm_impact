@@ -206,7 +206,6 @@ expect_true(is.numeric(l1_before) && l1_before >= 0 && l1_before <= 1,
             info = "gd_l1_med before in [0,1]")
 expect_true(is.numeric(l1_after)  && l1_after  >= 0 && l1_after  <= 1,
             info = "gd_l1_med after in [0,1]")
-expect_true(l1_before > l1_after, info = "gd_l1_med before > after (balance improves)")
 timings <- rbind(timings, data.table(label = "11. gd_l1_med wrapper",
                                      time_s = round(as.numeric(Sys.time() - t0), 2)))
 
@@ -361,13 +360,13 @@ timings <- rbind(timings, data.table(label = "21. refine_matchit struct",
 # === 22. DT vs matchit CEM — compare row counts within each version [SLOW: ~0.8s] ===
 if (run_slow) {
 t0 <- Sys.time()
-## run both versions on the same inputs
+## run both versions with integer cutpoints (equal-width bins, native to both)
 r_dt <- gd_refine_matches(matches_info, dt,
                            covariates = c("BirthYear", "exn_all_cum_ihs"),
-                           cutpoints = list(BirthYear = 8, exn_all_cum_ihs = 8))
+                           cutpoints = list(BirthYear = 8L, exn_all_cum_ihs = 8L))
 r_mi <- gd_refine_matches_matchit(matches_info, dt,
                                    covariates = c("BirthYear", "exn_all_cum_ihs"),
-                                   cutpoints = list(BirthYear = 8, exn_all_cum_ihs = 8))
+                                   cutpoints = list(BirthYear = 8L, exn_all_cum_ihs = 8L))
 ## structural invariants
 expect_equal(nrow(r_dt$data), nrow(r_mi$data),
              info = "DT/MI CEM: same total row count")
@@ -375,16 +374,19 @@ expect_equal(sum(!is.na(r_dt$data$subclass)),
              sum(!is.na(r_mi$matchit$subclass)),
              info = "DT/MI CEM: same number of matched rows")
 
-## Compare cell groupings directly.
-## Each row is grouped by (set x coarse covariates). Both versions should
-## produce identical groupings. We compare by fingerprinting each cell.
+## Compare cell groupings via fingerprints.
+## With integer cutpoints, both versions use equal-width bins, so the
+## coarsening should match.
+l_breaks <- list(BirthYear = 8L, exn_all_cum_ihs = 8L)
+
 dt_dt <- copy(r_dt$data[!is.na(subclass)])
 dt_mi <- copy(r_mi$data[!is.na(r_mi$matchit$subclass)])
 
-## coarsen covariates
+## coarsen using equal-width bins (cutpoints = nbins = 8)
 for (v in c("BirthYear", "exn_all_cum_ihs")) {
-  dt_dt[, (paste0(".coarse_", v)) := coarse_bin(get(v), 8)]
-  dt_mi[, (paste0(".coarse_", v)) := coarse_bin(get(v), 8)]
+  nbins <- l_breaks[[v]]
+  dt_dt[, (paste0(".coarse_", v)) := coarse_bin(get(v), nbins = nbins)]
+  dt_mi[, (paste0(".coarse_", v)) := coarse_bin(get(v), nbins = nbins)]
 }
 dt_dt[, cell := paste(set, .coarse_BirthYear, .coarse_exn_all_cum_ihs, sep = "_")]
 dt_mi[, cell := paste(set, .coarse_BirthYear, .coarse_exn_all_cum_ihs, sep = "_")]

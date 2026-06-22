@@ -177,6 +177,10 @@ md_prep_match <- function(dt, L, t_col, h_col, uid, tid) {
 #' (set × coarse bins). Cells with both treated and control units are kept;
 #' cells with only one type are discarded.
 #'
+#' The cutpoints argument controls binning:
+#'   - integer value (e.g., 8L): equal-width bins on the long data (matching matchit CEM)
+#'   - numeric vector: explicit breakpoints (e.g., from gd_coarse_breaks)
+#'
 #' For diagnostics, the `matchit` slot wraps the results (subclass + weights)
 #' in a backwards-compatible list mimicking a matchit object.
 #'
@@ -184,7 +188,8 @@ md_prep_match <- function(dt, L, t_col, h_col, uid, tid) {
 #'   Must contain match_tier column (from matches-info mode).
 #' @param dt_full The full panel data containing covariates.
 #' @param covariates Character vector. Covariates for refinement.
-#' @param cutpoints List. Cutpoints (number of bins) for each covariate.
+#' @param cutpoints List. For each covariate: integer (number of equal-width bins)
+#'   or numeric vector of explicit breakpoints.
 #' @return A list with:
 #'   \item{data}{data.table with subclass and weight columns}
 #'   \item{matchit}{a list with $weights and $subclass for back-compat}
@@ -193,54 +198,35 @@ gd_refine_matches <- function(dt_match, dt_full,
                               cutpoints = list(BirthYear = 8, exn_all_cum = 8)) {
 
   ## transform matches to long format (one row per control, one row per treated)
-  dt_long <- rbind(dt_match[, .(PeopleID = control_id, year, treat = 0, set = paste0(treated_id, "_", year))],
-                   dt_match[, head(.SD, 1), treated_id][, .(PeopleID = treated_id, year, treat = 1,
-                                                            set = paste0(treated_id, "_", year))])
-  
+  dt_long <- rbind(
+    dt_match[, .(PeopleID = control_id, year, treat = 0,
+                 set = paste0(treated_id, "_", year))],
+    dt_match[, head(.SD, 1), treated_id
+    ][, .(PeopleID = treated_id, year, treat = 1,
+          set = paste0(treated_id, "_", year))]
+  )
 
   ## merge covariates from full panel
   dt_long <- merge(dt_long, dt_full, by = c("PeopleID", "year"))
 
-  ## coarsen each covariate into bins (equal-width)
+  ## coarsen each covariate:
+  ##   integer cutpoint → equal-width bins on the long data
+  ##   vector cutpoint  → explicit breakpoints (e.g. from gd_coarse_breaks)
   for (v in covariates) {
-    nbins <- cutpoints[[v]] %||% 8L
-    dt_long[, (paste0(".coarse_", v)) := coarse_bin(get(v), nbins)]
+    cp <- cutpoints[[v]] %||% 8L
+    if (is.numeric(cp) && length(cp) == 1) {
+      dt_long[, (paste0(".coarse_", v)) := coarse_bin(get(v), nbins = cp)]
+    } else {
+      dt_long[, (paste0(".coarse_", v)) := coarse_bin(get(v), breaks = cp)]
+    }
   }
 
   ## create cell key: set × coarsened covariates
   cell_cols <- c("set", paste0(".coarse_", covariates))
-
-  ## t1 <- Sys.time()
-  ## dt_long[, .cell := do.call(paste, c(.SD, sep = "_")), .SDcols = cell_cols]
-
-  ## str_sprintf <- paste0(rep("%s", len(cell_cols)), collapse = "_")
-
-  ## dt_long[, .cell2 := sprintf("%s_%s_%s", unlist(get(cell_cols)))]
-
-  ## dt_long[, .cell3 := paste(.SD, sep = "_"), .SDcols = cell_cols]
-  ## t2 <- Sys.time()
-
   dt_long[, .cell := .GRP, by = cell_cols]
-  
+
   ## count treated and control per cell
-  ## dt_long[, `:=`(.n_treat = sum(treat == 1), .n_ctrl = sum(treat == 0)), by = .cell]
-  dt_long[, `:=`(.n_treat = sum(treat), N = .N), by = .cell][, .n_ctrl := N-.n_treat]
-
-  ## t3 <- Sys.time()
-  ## t3-t2
-  ## t2-t1
-
-  ## t1 <- Sys.time()
-  ## yy <- dt_long[, `:=`(.n_treat = sum(treat == 1), .n_ctrl = sum(treat == 0)), by = .cell]
-  ## t2 <- Sys.time()
-  ## oo <- dt_long[, `:=`(.n_treat = sum(treat), .n_ctrl = .N - sum(treat)), by = .cell]
-  ## t3 <- Sys.time()
-  ## uu <- dt_long[, `:=`(.n_treat = sum(treat), N = .N), by = .cell][, .n_ctrl := N-.n_treat]
-  ## t4 <- Sys.time()
-  ## t2-t1
-  ## t3-t2
-  ## t4-t3
-
+  dt_long[, `:=`(.n_treat = sum(treat), N = .N), by = .cell][, .n_ctrl := N - .n_treat]
 
   ## assign subclass and weights
   ## subclass: only cells with both treated and control
@@ -259,16 +245,57 @@ gd_refine_matches <- function(dt_match, dt_full,
   list(data = dt_long, matchit = r_match)
 }
 
-#' Coarsen a numeric vector into N equal-width bins.
+#' Coarsen a numeric vector into bins.
+#'
+#' @description
+#' If `breaks` is provided, uses those breakpoints directly.
+#' Otherwise computes N equal-width bins from the range of `x`.
+#' Uses `cut(include.lowest = TRUE)` semantics to match MatchIt CEM.
 #'
 #' @param x Numeric vector.
-#' @param nbins Number of bins.
+#' @param nbins Number of bins (ignored if breaks is provided).
+#' @param breaks Optional numeric vector of breakpoints.
 #' @return Integer vector of bin assignments (1..nbins).
-coarse_bin <- function(x, nbins) {
-  rng <- range(x, na.rm = TRUE)
-  if (diff(rng) == 0 || nbins <= 1) return(rep(1L, length(x)))
-  as.integer(findInterval(x, seq(rng[1], rng[2], length.out = nbins + 1),
-                          rightmost.closed = TRUE))
+coarse_bin <- function(x, nbins = NULL, breaks = NULL) {
+  if (!is.null(breaks)) {
+    as.integer(cut(x, breaks = breaks, include.lowest = TRUE))
+  } else {
+    rng <- range(x, na.rm = TRUE)
+    if (diff(rng) == 0 || nbins <= 1) return(rep(1L, length(x)))
+    as.integer(cut(x, breaks = seq(rng[1], rng[2], length.out = nbins + 1),
+                   include.lowest = TRUE))
+  }
+}
+
+#' Compute quantile-based breakpoints for CEM coarsening.
+#'
+#' @description
+#' Computes breakpoints from a reference dataset such that each bin
+#' contains roughly the same number of observations. This avoids the
+#' problem of equal-width bins where skewed variables (like exhibition
+#' counts) concentrate most observations in a single bin.
+#'
+#' The breaks are computed from the reference dataset (typically the
+#' full panel), not from the matched long data, so that each observation
+#' contributes exactly once to the bin boundaries.
+#'
+#' @param dt_ref A data.table containing the reference covariates.
+#' @param covariates Character vector of covariate names.
+#' @param cutpoints Named list mapping covariate names to number of bins.
+#' @return Named list mapping covariate names to numeric break vectors.
+gd_coarse_breaks <- function(dt_ref, covariates, cutpoints) {
+  setNames(lapply(covariates, function(v) {
+    nbins <- cutpoints[[v]] %||% 8L
+    x <- dt_ref[[v]]
+    if (length(unique(x)) <= nbins) {
+      ## fewer unique values than bins → use each unique value as a break
+      sort(unique(x))
+    } else {
+      ## quantile-based breaks (equal frequency)
+      probs <- seq(0, 1, length.out = nbins + 1)
+      quantile(x, probs = probs, na.rm = TRUE)
+    }
+  }), covariates)
 }
 
 #' Refine matches using Coarsened Exact Matching (CEM) — MatchIt version.
@@ -276,6 +303,7 @@ coarse_bin <- function(x, nbins) {
 #' @description
 #' Original implementation using MatchIt::matchit(method = "cem").
 #' Kept for cross-validation against the data.table version.
+#' Uses integer cutpoints (equal-width bins) to match matchit's native behavior.
 #'
 #' @inheritParams gd_refine_matches
 #' @return A list with data and matchit slots (same structure as gd_refine_matches).
@@ -295,9 +323,10 @@ gd_refine_matches_matchit <- function(dt_match, dt_full,
   ## merge covariates from full panel
   dt_long <- merge(dt_long, dt_full, by = c("PeopleID", "year"))
 
-  ## apply CEM via matchit
+  ## use integer cutpoints (matchit handles equal-width binning internally)
   formula <- as.formula(paste("treat ~ set +", paste(covariates, collapse = " + ")))
-  r_match <- matchit(formula, data = dt_long, method = "cem", cutpoints = cutpoints)
+  r_match <- matchit(formula, data = dt_long, method = "cem",
+                     cutpoints = lapply(cutpoints, function(x) if (is.numeric(x) && length(x) > 1) length(x) else x))
 
   dt_long[, subclass := r_match$subclass]
   list(data = dt_long, matchit = r_match)
