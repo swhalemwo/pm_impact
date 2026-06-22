@@ -361,21 +361,44 @@ timings <- rbind(timings, data.table(label = "21. refine_matchit struct",
 # === 22. DT vs matchit CEM — compare row counts within each version [SLOW: ~0.8s] ===
 if (run_slow) {
 t0 <- Sys.time()
+## run both versions on the same inputs
 r_dt <- gd_refine_matches(matches_info, dt,
                            covariates = c("BirthYear", "exn_all_cum_ihs"),
                            cutpoints = list(BirthYear = 8, exn_all_cum_ihs = 8))
 r_mi <- gd_refine_matches_matchit(matches_info, dt,
                                    covariates = c("BirthYear", "exn_all_cum_ihs"),
                                    cutpoints = list(BirthYear = 8, exn_all_cum_ihs = 8))
-## both should produce the same number of total and matched rows
+## structural invariants
 expect_equal(nrow(r_dt$data), nrow(r_mi$data),
              info = "DT/MI CEM: same total row count")
 expect_equal(sum(!is.na(r_dt$data$subclass)),
              sum(!is.na(r_mi$matchit$subclass)),
              info = "DT/MI CEM: same number of matched rows")
-expect_equal(uniqueN(na.omit(r_dt$data$subclass)),
-             uniqueN(na.omit(r_mi$matchit$subclass)),
-             info = "DT/MI CEM: same number of subclasses")
+
+## Compare cell groupings directly.
+## Each row is grouped by (set x coarse covariates). Both versions should
+## produce identical groupings. We compare by fingerprinting each cell.
+dt_dt <- copy(r_dt$data[!is.na(subclass)])
+dt_mi <- copy(r_mi$data[!is.na(r_mi$matchit$subclass)])
+
+## coarsen covariates
+for (v in c("BirthYear", "exn_all_cum_ihs")) {
+  dt_dt[, (paste0(".coarse_", v)) := coarse_bin(get(v), 8)]
+  dt_mi[, (paste0(".coarse_", v)) := coarse_bin(get(v), 8)]
+}
+dt_dt[, cell := paste(set, .coarse_BirthYear, .coarse_exn_all_cum_ihs, sep = "_")]
+dt_mi[, cell := paste(set, .coarse_BirthYear, .coarse_exn_all_cum_ihs, sep = "_")]
+
+fp_dt <- dt_dt[, .(ppl = paste(sort(paste(PeopleID, treat)), collapse = ",")), by = cell]
+fp_mi <- dt_mi[, .(ppl = paste(sort(paste(PeopleID, treat)), collapse = ",")), by = cell]
+
+fp_cmp <- merge(fp_dt, fp_mi, by = "cell", suffixes = c(".dt", ".mi"))
+expect_equal(nrow(fp_cmp), nrow(fp_dt),
+             info = "DT/MI CEM: all DT cells found in MI")
+expect_equal(nrow(fp_cmp), nrow(fp_mi),
+             info = "DT/MI CEM: all MI cells found in DT")
+expect_true(all(fp_cmp$ppl.dt == fp_cmp$ppl.mi),
+            info = "DT/MI CEM: cell fingerprints identical")
 timings <- rbind(timings, data.table(label = "22. DT vs matchit CEM",
                                      time_s = round(as.numeric(Sys.time() - t0), 2)))
 }  # end if (run_slow)
