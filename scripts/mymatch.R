@@ -62,9 +62,13 @@ gd_match_history <- function(dt, L, treatment_col = "exn_pm",
 #' @return data.table of matched pairs, or NULL if no matches exist.
 gd_ematch_yr <- function(yr, dt_units, controls_pool, key_col, return_type, tier) {
   ## extract treated and control pools for this year
+
+  ## browser()
+  
   dt_ctrls <- if (is.null(controls_pool)) {
-    dt_units[tid == yr & treat_bin == 0]
-  } else controls_pool[tid == yr]
+                dt_units[tid == yr & treat_bin == 0]
+              } else controls_pool[tid == yr]
+  
   dt_trtd <- dt_units[tid == yr & treat_bin == 1]
 
   if (nrow(dt_trtd) == 0 || nrow(dt_ctrls) == 0) return(NULL)
@@ -97,7 +101,10 @@ gd_ematch_yr <- function(yr, dt_units, controls_pool, key_col, return_type, tier
 #' @return data.table of matched pairs across all years.
 gd_tier_match <- function(dt_units, key_col, controls_pool = NULL,
                           return_type = "summary", tier = 1) {
+  ## browser()
   years <- sort(unique(dt_units$tid))
+
+  ## gd_ematch_yr(2010, dt_units, controls_pool, key_col, return_type, tier)
 
   rbindlist(lapply(years, function(yr) {
     gd_ematch_yr(yr, dt_units, controls_pool, key_col, return_type, tier)
