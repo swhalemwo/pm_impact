@@ -481,9 +481,60 @@ expect_true(all(fp1$s == fp2$s),
 timings <- rbind(timings, data.table(label = "25. refine quantile reproducible",
                                      time_s = round(as.numeric(Sys.time() - t0), 2)))
 
+# === 26. quantile breaks: DT vs matchit CEM fingerprint [SLOW] ===
+if (run_slow) {
+t0 <- Sys.time()
+l_breaks2 <- gd_coarse_breaks(dt, c("BirthYear", "exn_all_cum_ihs"),
+                              list(BirthYear = 8, exn_all_cum_ihs = 8))
+
+t1 <- Sys.time()
+r_dt2 <- gd_refine_matches(matches_info, dt,
+                            covariates = c("BirthYear", "exn_all_cum_ihs"),
+                           cutpoints = l_breaks2)
+t2 <- Sys.time()
+r_mi2 <- gd_refine_matches_matchit(matches_info, dt,
+                                    covariates = c("BirthYear", "exn_all_cum_ihs"),
+                                   cutpoints = l_breaks2)
+t3 <- Sys.time()
+t2-t1
+t3-t2
+
+
+expect_equal(nrow(r_dt2$data), nrow(r_mi2$data),
+             info = "quantile breaks: same total row count")
+expect_equal(sum(!is.na(r_dt2$data$subclass)),
+             sum(!is.na(r_mi2$matchit$subclass)),
+             info = "quantile breaks: same number of matched rows")
+
+## Fingerprint identity
+dt_dt <- r_dt2$data[!is.na(subclass), .(PeopleID, year, treat, set, BirthYear, exn_all_cum_ihs)]
+dt_mi <- r_mi2$data[!is.na(r_mi2$matchit$subclass), .(PeopleID, year, treat, set, BirthYear, exn_all_cum_ihs)]
+
+for (v in c("BirthYear", "exn_all_cum_ihs")) {
+  dt_dt[, (paste0(".coarse_", v)) := coarse_bin(get(v), breaks = l_breaks2[[v]])]
+  dt_mi[, (paste0(".coarse_", v)) := coarse_bin(get(v), breaks = l_breaks2[[v]])]
+}
+dt_dt[, cell := paste(set, .coarse_BirthYear, .coarse_exn_all_cum_ihs, sep = "_")]
+dt_mi[, cell := paste(set, .coarse_BirthYear, .coarse_exn_all_cum_ihs, sep = "_")]
+
+fp_dt <- dt_dt[, .(fp = paste(sort(paste(PeopleID, treat)), collapse = ",")), by = cell]
+fp_mi <- dt_mi[, .(fp = paste(sort(paste(PeopleID, treat)), collapse = ",")), by = cell]
+fp_cmp <- merge(fp_dt, fp_mi, by = "cell", suffixes = c(".dt", ".mi"))
+expect_equal(nrow(fp_cmp), nrow(fp_dt),
+             info = "quantile breaks: all DT cells found in MI")
+expect_true(all(fp_cmp$fp.dt == fp_cmp$fp.mi),
+            info = "quantile breaks: cell fingerprints identical")
+timings <- rbind(timings, data.table(label = "26. quantile DT vs MI",
+                                     time_s = round(as.numeric(Sys.time() - t0), 2)))
+}  # end if (run_slow)
+
 # --- Timing report ---
 cat("\n========================================\n")
 cat("          Timing Summary\n")
 cat("========================================\n")
 print(timings)
 cat(sprintf("\nTotal: %.2fs\n", sum(timings$time_s)))
+
+
+
+
