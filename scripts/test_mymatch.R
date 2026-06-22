@@ -357,51 +357,20 @@ expect_equal(nrow(r_mi$data), nrow(refined$data),
 timings <- rbind(timings, data.table(label = "21. refine_matchit struct",
                                      time_s = round(as.numeric(Sys.time() - t0), 2)))
 
-# === 22. DT vs matchit CEM — compare row counts within each version [SLOW: ~0.8s] ===
+# === 22. DT vs matchit CEM — equal-width bins [SLOW] ===
 if (run_slow) {
 t0 <- Sys.time()
-## run both versions with integer cutpoints (equal-width bins, native to both)
 r_dt <- gd_refine_matches(matches_info, dt,
                            covariates = c("BirthYear", "exn_all_cum_ihs"),
                            cutpoints = list(BirthYear = 8L, exn_all_cum_ihs = 8L))
 r_mi <- gd_refine_matches_matchit(matches_info, dt,
                                    covariates = c("BirthYear", "exn_all_cum_ihs"),
                                    cutpoints = list(BirthYear = 8L, exn_all_cum_ihs = 8L))
-## structural invariants
-expect_equal(nrow(r_dt$data), nrow(r_mi$data),
-             info = "DT/MI CEM: same total row count")
-expect_equal(sum(!is.na(r_dt$data$subclass)),
-             sum(!is.na(r_mi$matchit$subclass)),
-             info = "DT/MI CEM: same number of matched rows")
-
-## Compare cell groupings via fingerprints.
-## With integer cutpoints, both versions use equal-width bins, so the
-## coarsening should match.
-l_breaks <- list(BirthYear = 8L, exn_all_cum_ihs = 8L)
-
-dt_dt <- copy(r_dt$data[!is.na(subclass)])
-dt_mi <- copy(r_mi$data[!is.na(r_mi$matchit$subclass)])
-
-## coarsen using equal-width bins (cutpoints = nbins = 8)
-for (v in c("BirthYear", "exn_all_cum_ihs")) {
-  nbins <- l_breaks[[v]]
-  dt_dt[, (paste0(".coarse_", v)) := coarse_bin(get(v), nbins = nbins)]
-  dt_mi[, (paste0(".coarse_", v)) := coarse_bin(get(v), nbins = nbins)]
-}
-dt_dt[, cell := paste(set, .coarse_BirthYear, .coarse_exn_all_cum_ihs, sep = "_")]
-dt_mi[, cell := paste(set, .coarse_BirthYear, .coarse_exn_all_cum_ihs, sep = "_")]
-
-fp_dt <- dt_dt[, .(ppl = paste(sort(paste(PeopleID, treat)), collapse = ",")), by = cell]
-fp_mi <- dt_mi[, .(ppl = paste(sort(paste(PeopleID, treat)), collapse = ",")), by = cell]
-
-fp_cmp <- merge(fp_dt, fp_mi, by = "cell", suffixes = c(".dt", ".mi"))
-expect_equal(nrow(fp_cmp), nrow(fp_dt),
-             info = "DT/MI CEM: all DT cells found in MI")
-expect_equal(nrow(fp_cmp), nrow(fp_mi),
-             info = "DT/MI CEM: all MI cells found in DT")
-expect_true(all(fp_cmp$ppl.dt == fp_cmp$ppl.mi),
-            info = "DT/MI CEM: cell fingerprints identical")
-timings <- rbind(timings, data.table(label = "22. DT vs matchit CEM",
+expect_true(gd_match_equivalent(r_dt, r_mi, dt,
+                                 c("BirthYear", "exn_all_cum_ihs"),
+                                 list(BirthYear = 8L, exn_all_cum_ihs = 8L)),
+            info = "equal-width bins: DT and matchit produce equivalent results")
+timings <- rbind(timings, data.table(label = "22. DT vs matchit equal-width",
                                      time_s = round(as.numeric(Sys.time() - t0), 2)))
 }  # end if (run_slow)
 
@@ -481,49 +450,20 @@ expect_true(all(fp1$s == fp2$s),
 timings <- rbind(timings, data.table(label = "25. refine quantile reproducible",
                                      time_s = round(as.numeric(Sys.time() - t0), 2)))
 
-# === 26. quantile breaks: DT vs matchit CEM fingerprint [SLOW] ===
+# === 26. quantile breaks: DT vs matchit CEM [SLOW] ===
 if (run_slow) {
 t0 <- Sys.time()
 l_breaks2 <- gd_coarse_breaks(dt, c("BirthYear", "exn_all_cum_ihs"),
-                              list(BirthYear = 8, exn_all_cum_ihs = 8))
-
-t1 <- Sys.time()
+                               list(BirthYear = 8, exn_all_cum_ihs = 8))
 r_dt2 <- gd_refine_matches(matches_info, dt,
                             covariates = c("BirthYear", "exn_all_cum_ihs"),
-                           cutpoints = l_breaks2)
-t2 <- Sys.time()
+                            cutpoints = l_breaks2)
 r_mi2 <- gd_refine_matches_matchit(matches_info, dt,
                                     covariates = c("BirthYear", "exn_all_cum_ihs"),
-                                   cutpoints = l_breaks2)
-t3 <- Sys.time()
-t2-t1
-t3-t2
-
-
-expect_equal(nrow(r_dt2$data), nrow(r_mi2$data),
-             info = "quantile breaks: same total row count")
-expect_equal(sum(!is.na(r_dt2$data$subclass)),
-             sum(!is.na(r_mi2$matchit$subclass)),
-             info = "quantile breaks: same number of matched rows")
-
-## Fingerprint identity
-dt_dt <- r_dt2$data[!is.na(subclass), .(PeopleID, year, treat, set, BirthYear, exn_all_cum_ihs)]
-dt_mi <- r_mi2$data[!is.na(r_mi2$matchit$subclass), .(PeopleID, year, treat, set, BirthYear, exn_all_cum_ihs)]
-
-for (v in c("BirthYear", "exn_all_cum_ihs")) {
-  dt_dt[, (paste0(".coarse_", v)) := coarse_bin(get(v), breaks = l_breaks2[[v]])]
-  dt_mi[, (paste0(".coarse_", v)) := coarse_bin(get(v), breaks = l_breaks2[[v]])]
-}
-dt_dt[, cell := paste(set, .coarse_BirthYear, .coarse_exn_all_cum_ihs, sep = "_")]
-dt_mi[, cell := paste(set, .coarse_BirthYear, .coarse_exn_all_cum_ihs, sep = "_")]
-
-fp_dt <- dt_dt[, .(fp = paste(sort(paste(PeopleID, treat)), collapse = ",")), by = cell]
-fp_mi <- dt_mi[, .(fp = paste(sort(paste(PeopleID, treat)), collapse = ",")), by = cell]
-fp_cmp <- merge(fp_dt, fp_mi, by = "cell", suffixes = c(".dt", ".mi"))
-expect_equal(nrow(fp_cmp), nrow(fp_dt),
-             info = "quantile breaks: all DT cells found in MI")
-expect_true(all(fp_cmp$fp.dt == fp_cmp$fp.mi),
-            info = "quantile breaks: cell fingerprints identical")
+                                    cutpoints = l_breaks2)
+expect_true(gd_match_equivalent(r_dt2, r_mi2, dt,
+                                 c("BirthYear", "exn_all_cum_ihs"), l_breaks2),
+            info = "quantile breaks: DT and matchit produce equivalent results")
 timings <- rbind(timings, data.table(label = "26. quantile DT vs MI",
                                      time_s = round(as.numeric(Sys.time() - t0), 2)))
 }  # end if (run_slow)
@@ -534,7 +474,3 @@ cat("          Timing Summary\n")
 cat("========================================\n")
 print(timings)
 cat(sprintf("\nTotal: %.2fs\n", sum(timings$time_s)))
-
-
-
-

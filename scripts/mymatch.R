@@ -71,30 +71,14 @@ gd_ematch_yr <- function(yr, dt_units, controls_pool, key_col, return_type, tier
 
   if (nrow(dt_trtd) == 0 || nrow(dt_ctrls) == 0) return(NULL)
 
-  ## if (return_type == "summary") {
-  ##   dt_ctrls[dt_trtd, .(uid = i.uid, N = .N), on = key_col,
-  ##            nomatch = NULL, by = .EACHI] %>%
-  ##     .[N > 0]
-  ## } else if (return_type == "matches-info") {
-  ##   dt_ctrls[dt_trtd, .(control_id = uid, treated_id = i.uid, year = yr,
-  ##                        match_key = get(key_col), match_tier = tier),
-  ##            on = key_col, nomatch = NULL, allow.cartesian = TRUE]
-  ## } else { # matches
-  ##   dt_ctrls[dt_trtd, .(control_id = uid, treated_id = i.uid, year = yr),
-  ##            on = key_col, nomatch = NULL, allow.cartesian = TRUE]
-  ## }
-
   switch(return_type,
-         summary = dt_ctrls[dt_trtd, .(uid = i.uid, N = .N), on = key_col, nomatch = NULL, by = .EACHI][N > 0],
-         "matches-info" = dt_ctrls[dt_trtd, .(control_id = uid, treated_id = i.uid, year = yr,
-                                            match_key = get(key_col), match_tier = tier),
-                                 on = key_col, nomatch = NULL, allow.cartesian = TRUE],
+         summary = dt_ctrls[dt_trtd, .(uid = i.uid, N = .N), on = key_col,
+                            nomatch = NULL, by = .EACHI][N > 0],
+         `matches-info` = dt_ctrls[dt_trtd, .(control_id = uid, treated_id = i.uid, year = yr,
+                                               match_key = get(key_col), match_tier = tier),
+                                    on = key_col, nomatch = NULL, allow.cartesian = TRUE],
          matches = dt_ctrls[dt_trtd, .(control_id = uid, treated_id = i.uid, year = yr),
-             on = key_col, nomatch = NULL, allow.cartesian = TRUE])
-         
-
-
-  
+                            on = key_col, nomatch = NULL, allow.cartesian = TRUE])
 }
 
 #' Execute tier matching by applying year-by-year joins.
@@ -338,6 +322,76 @@ gd_refine_matches_matchit <- function(dt_match, dt_full,
 
   dt_long[, subclass := r_match$subclass]
   list(data = dt_long, matchit = r_match)
+}
+
+#' Check whether two CEM match results are equivalent.
+#'
+#' @description
+#' Compares two match result objects (e.g. from gd_refine_matches and
+#' gd_refine_matches_matchit) by checking that they produce the same
+#' matched observations grouped into the same cells.
+#'
+#' Checks performed:
+#' 1. Same total number of rows
+#' 2. Same number of matched (non-NA subclass) rows
+#' 3. Same number of unique subclasses
+#' 4. Cell fingerprints are identical: for each (set × coarse covariate)
+#'    combination, the set of (PeopleID, treat) observations is identical.
+#'
+#' @param r1,r2 Match result objects (each a list with $data and $matchit).
+#' @param dt_full The full panel (used for covariates in fingerprinting).
+#' @param covariates Character vector of covariate names used in matching.
+#' @param cutpoints Cutpoints list used (to reconstruct coarse bins).
+#' @return TRUE if the two match results are equivalent, FALSE otherwise.
+gd_match_equivalent <- function(r1, r2, dt_full, covariates, cutpoints) {
+  ## 1. total row count
+  if (nrow(r1$data) != nrow(r2$data)) return(FALSE)
+
+  ## extract matched rows
+  sc1 <- if (is.factor(r1$matchit$subclass)) as.integer(r1$matchit$subclass) else r1$matchit$subclass
+  sc2 <- if (is.factor(r2$matchit$subclass)) as.integer(r2$matchit$subclass) else r2$matchit$subclass
+
+  m1 <- !is.na(sc1)
+  m2 <- !is.na(sc2)
+
+  ## 2. same number of matched rows
+  if (sum(m1) != sum(m2)) return(FALSE)
+
+  ## 3. same number of subclasses
+  if (uniqueN(na.omit(sc1)) != uniqueN(na.omit(sc2))) return(FALSE)
+
+  if (sum(m1) == 0) return(TRUE)
+
+  ## 4. fingerprint identity: for each (set × coarse) cell, the set of
+  ##    (PeopleID, treat) observations must be identical
+  dt1 <- copy(r1$data[m1])
+  dt2 <- copy(r2$data[m2])
+
+  for (v in covariates) {
+    cp <- cutpoints[[v]] %||% 8L
+    .x1 <- dt1[[v]]; .x2 <- dt2[[v]]
+    if (is.numeric(cp) && length(cp) == 1) {
+      dt1[, (paste0(".coarse_", v)) := coarse_bin(.x1, nbins = cp)]
+      dt2[, (paste0(".coarse_", v)) := coarse_bin(.x2, nbins = cp)]
+    } else {
+      dt1[, (paste0(".coarse_", v)) := coarse_bin(.x1, breaks = cp)]
+      dt2[, (paste0(".coarse_", v)) := coarse_bin(.x2, breaks = cp)]
+    }
+  }
+
+  cell_cols <- c("set", paste0(".coarse_", covariates))
+  dt1[, cell := do.call(paste, c(.SD, sep = "_")), .SDcols = cell_cols]
+  dt2[, cell := do.call(paste, c(.SD, sep = "_")), .SDcols = cell_cols]
+
+  fp1 <- dt1[, .(fp = paste(sort(paste(PeopleID, treat)), collapse = ",")), by = cell]
+  fp2 <- dt2[, .(fp = paste(sort(paste(PeopleID, treat)), collapse = ",")), by = cell]
+
+  fp_cmp <- merge(fp1, fp2, by = "cell", suffixes = c(".1", ".2"))
+  if (nrow(fp_cmp) != nrow(fp1)) return(FALSE)
+  if (nrow(fp_cmp) != nrow(fp2)) return(FALSE)
+  if (!all(fp_cmp$fp.1 == fp_cmp$fp.2)) return(FALSE)
+
+  TRUE
 }
 
 #' Run the full matching pipeline and return quality diagnostics.
