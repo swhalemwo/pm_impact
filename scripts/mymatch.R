@@ -215,9 +215,13 @@ gd_refine_matches <- function(dt_match, dt_full,
   ## assign subclass and weights
   ## subclass: only cells with both treated and control
   dt_long[.n_treat > 0 & .n_ctrl > 0, subclass := .GRP, by = .cell]
-  ## weights: 1 for all matched units, 0 for unmatched (matches matchit CEM default)
-  dt_long[!is.na(subclass), weight := 1.0]
+  ## base ATT weights: treated=1, control=n_treat/n_ctrl (within subclass)
+  dt_long[treat == 1 & !is.na(subclass), weight := 1.0]
+  dt_long[treat == 0 & !is.na(subclass), weight := .n_treat / .n_ctrl]
   dt_long[is.na(subclass), weight := 0]
+  ## rescale so weights sum to group count within each treatment arm
+  ## (matches matchit:::.make_sum_to_n)
+  dt_long[!is.na(subclass), weight := .N * weight / sum(weight), by = .(treat)]
 
   ## clean up temp columns
   dt_long[, c(".n_treat", ".n_ctrl", ".cell", "N", paste0(".coarse_", covariates)) := NULL]
@@ -390,6 +394,17 @@ gd_match_equivalent <- function(r1, r2, dt_full, covariates, cutpoints) {
   if (nrow(fp_cmp) != nrow(fp1)) return(FALSE)
   if (nrow(fp_cmp) != nrow(fp2)) return(FALSE)
   if (!all(fp_cmp$fp.1 == fp_cmp$fp.2)) return(FALSE)
+
+  ## 5. weights match: align by (PeopleID, year, treat, set) — a natural key in dt_long
+  dt_w <- data.table(PeopleID = r1$data$PeopleID, year = r1$data$year,
+                      treat = r1$data$treat, set = r1$data$set,
+                      w1 = as.numeric(r1$matchit$weights))
+  dt_w2 <- data.table(PeopleID = r2$data$PeopleID, year = r2$data$year,
+                       treat = r2$data$treat, set = r2$data$set,
+                       w2 = as.numeric(r2$matchit$weights))
+  dt_w <- merge(dt_w, dt_w2, by = c("PeopleID", "year", "treat", "set"))
+  if (nrow(dt_w) != nrow(dt_w2)) return(FALSE)
+  if (!all(abs(dt_w$w1 - dt_w$w2) < 1e-10, na.rm = TRUE)) return(FALSE)
 
   TRUE
 }

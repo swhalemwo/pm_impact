@@ -300,12 +300,14 @@ expect_true(all(sub_comp$n_treat >= 1),
             info = "every subclass has ≥1 treated")
 expect_true(all(sub_comp$n_ctrl >= 1),
             info = "every subclass has ≥1 control")
-## weights: 1 for matched, 0 for unmatched
-expect_equal(refined$data[!is.na(subclass), range(weight)], c(1, 1),
-             info = "all matched weights are 1")
+## weights: treated = 1, control > 0, unmatched = 0
+expect_true(all(refined$data[!is.na(subclass) & treat == 1, weight == 1]),
+            info = "all matched treated have weight 1")
+expect_true(all(refined$data[!is.na(subclass) & treat == 0, weight > 0]),
+            info = "all matched controls have positive weight")
 expect_equal(refined$data[is.na(subclass), range(weight)], c(0, 0),
              info = "all unmatched weights are 0")
-## matchit weights match
+## matchit slot weights match data weights
 expect_equal(refined$matchit$weights, refined$data$weight,
              info = "matchit$weights = data$weight")
 expect_equal(as.integer(refined$matchit$subclass),
@@ -425,9 +427,11 @@ expect_true(all(sub_comp_q$n_treat >= 1),
             info = "quantile refine: every subclass has ≥1 treated")
 expect_true(all(sub_comp_q$n_ctrl >= 1),
             info = "quantile refine: every subclass has ≥1 control")
-## weights correct
-expect_true(all(r_q$data[!is.na(subclass), weight == 1]),
-            info = "quantile refine: all matched have weight 1")
+## weights: treated = 1, control > 0, unmatched = 0
+expect_true(all(r_q$data[!is.na(subclass) & treat == 1, weight == 1]),
+            info = "quantile refine: all matched treated have weight 1")
+expect_true(all(r_q$data[!is.na(subclass) & treat == 0, weight > 0]),
+            info = "quantile refine: all matched controls have positive weight")
 expect_true(all(r_q$data[is.na(subclass), weight == 0]),
             info = "quantile refine: all unmatched have weight 0")
 timings <- rbind(timings, data.table(label = "24. refine quantile breaks",
