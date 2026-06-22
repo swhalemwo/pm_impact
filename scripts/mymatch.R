@@ -86,7 +86,7 @@ gd_ematch_yr <- function(yr, dt_units, controls_pool, key_col, return_type, tier
 
   switch(return_type,
          summary = dt_ctrls[dt_trtd, .(uid = i.uid, N = .N), on = key_col, nomatch = NULL, by = .EACHI][N > 0],
-         matches_info = dt_ctrls[dt_trtd, .(control_id = uid, treated_id = i.uid, year = yr,
+         "matches-info" = dt_ctrls[dt_trtd, .(control_id = uid, treated_id = i.uid, year = yr,
                                             match_key = get(key_col), match_tier = tier),
                                  on = key_col, nomatch = NULL, allow.cartesian = TRUE],
          matches = dt_ctrls[dt_trtd, .(control_id = uid, treated_id = i.uid, year = yr),
@@ -111,20 +111,15 @@ gd_ematch_yr <- function(yr, dt_units, controls_pool, key_col, return_type, tier
 #' @return data.table of matched pairs across all years.
 gd_tier_match <- function(dt_units, key_col, controls_pool = NULL,
                           return_type = "summary", tier = 1) {
-
-  ## browser()
   ## key on (tid, treat_bin) for O(log n) year subsetting instead of O(n) scan
   setkeyv(dt_units, c("tid", "treat_bin"))
   if (!is.null(controls_pool)) setkeyv(controls_pool, "tid")
 
   years <- sort(unique(dt_units$tid))
 
-  ## gd_ematch_yr(2010, dt_units, controls_pool, key_col, return_type, tier)
-
   rbindlist(lapply(years, function(yr) {
     gd_ematch_yr(yr, dt_units, controls_pool, key_col, return_type, tier)
   }), fill = TRUE)
-
 }
 
 #' Calculate summary statistics from matched pairs.

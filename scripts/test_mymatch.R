@@ -51,6 +51,7 @@ timings <- rbind(timings, data.table(label = "3. Consistency check", time_s = ro
 # === 4. Matches-info mode ===
 t0 <- Sys.time()
 matches_info <- gd_match_history(dt, L = 3, return_type = "matches-info")
+expect_true(nrow(matches_info) > 0, info = "matches-info should be non-empty")
 expect_true(all(c("match_key", "match_tier") %in% names(matches_info)),
             info = "matches-info contains match_key and match_tier")
 timings <- rbind(timings, data.table(label = "4. Matches-info mode", time_s = round(as.numeric(Sys.time() - t0), 2)))
