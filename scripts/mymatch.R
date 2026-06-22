@@ -193,13 +193,10 @@ gd_refine_matches <- function(dt_match, dt_full,
                               cutpoints = list(BirthYear = 8, exn_all_cum = 8)) {
 
   ## transform matches to long format (one row per control, one row per treated)
-  dt_long <- rbind(
-    dt_match[, .(PeopleID = control_id, year, treat = 0,
-                 set = paste0(treated_id, "_", year))],
-    dt_match[, head(.SD, 1), treated_id
-    ][, .(PeopleID = treated_id, year, treat = 1,
-          set = paste0(treated_id, "_", year))]
-  )
+  dt_long <- rbind(dt_match[, .(PeopleID = control_id, year, treat = 0, set = paste0(treated_id, "_", year))],
+                   dt_match[, head(.SD, 1), treated_id][, .(PeopleID = treated_id, year, treat = 1,
+                                                            set = paste0(treated_id, "_", year))])
+  
 
   ## merge covariates from full panel
   dt_long <- merge(dt_long, dt_full, by = c("PeopleID", "year"))
@@ -212,10 +209,38 @@ gd_refine_matches <- function(dt_match, dt_full,
 
   ## create cell key: set × coarsened covariates
   cell_cols <- c("set", paste0(".coarse_", covariates))
-  dt_long[, .cell := do.call(paste, c(.SD, sep = "_")), .SDcols = cell_cols]
 
+  ## t1 <- Sys.time()
+  ## dt_long[, .cell := do.call(paste, c(.SD, sep = "_")), .SDcols = cell_cols]
+
+  ## str_sprintf <- paste0(rep("%s", len(cell_cols)), collapse = "_")
+
+  ## dt_long[, .cell2 := sprintf("%s_%s_%s", unlist(get(cell_cols)))]
+
+  ## dt_long[, .cell3 := paste(.SD, sep = "_"), .SDcols = cell_cols]
+  ## t2 <- Sys.time()
+
+  dt_long[, .cell := .GRP, by = cell_cols]
+  
   ## count treated and control per cell
-  dt_long[, `:=`(.n_treat = sum(treat == 1), .n_ctrl = sum(treat == 0)), by = .cell]
+  ## dt_long[, `:=`(.n_treat = sum(treat == 1), .n_ctrl = sum(treat == 0)), by = .cell]
+  dt_long[, `:=`(.n_treat = sum(treat), N = .N), by = .cell][, .n_ctrl := N-.n_treat]
+
+  ## t3 <- Sys.time()
+  ## t3-t2
+  ## t2-t1
+
+  ## t1 <- Sys.time()
+  ## yy <- dt_long[, `:=`(.n_treat = sum(treat == 1), .n_ctrl = sum(treat == 0)), by = .cell]
+  ## t2 <- Sys.time()
+  ## oo <- dt_long[, `:=`(.n_treat = sum(treat), .n_ctrl = .N - sum(treat)), by = .cell]
+  ## t3 <- Sys.time()
+  ## uu <- dt_long[, `:=`(.n_treat = sum(treat), N = .N), by = .cell][, .n_ctrl := N-.n_treat]
+  ## t4 <- Sys.time()
+  ## t2-t1
+  ## t3-t2
+  ## t4-t3
+
 
   ## assign subclass and weights
   ## subclass: only cells with both treated and control
@@ -225,7 +250,7 @@ gd_refine_matches <- function(dt_match, dt_full,
   dt_long[is.na(subclass), weight := 0]
 
   ## clean up temp columns
-  dt_long[, c(".n_treat", ".n_ctrl", ".cell", paste0(".coarse_", covariates)) := NULL]
+  dt_long[, c(".n_treat", ".n_ctrl", ".cell", "N", paste0(".coarse_", covariates)) := NULL]
 
   ## wrap results in mock matchit object for back-compat
   r_match <- list(weights = dt_long$weight, subclass = dt_long$subclass)
