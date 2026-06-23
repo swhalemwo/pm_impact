@@ -354,6 +354,29 @@ dt_test_smol <- dt_test[PeopleID %in% c(sample(l_at_wpm, 1500), sample(l_at_wopm
 
 fwrite(dt_test_smol, "dt_test_smol.csv")
 
+## add medium sized test
+dt_test_med <- dt_test[PeopleID %in% c(sample(l_at_wpm, 3000), sample(l_at_wopm, 3000))]
+fwrite(dt_test_med, "dt_test_med.csv")
+
+dt_test_big <- dt_test[PeopleID %in% c(sample(l_at_wpm, 6000), sample(l_at_wopm, 6000))]
+fwrite(dt_test_big, "dt_test_big.csv")
+
+dt_med <- fread("~/Dropbox/phd/papers/foster/dt_test_med.csv")
+dt_big <- fread("~/Dropbox/phd/papers/foster/dt_test_big.csv")
+
+list(dt = dt_med, L = 5L, treatment_col = "exn_pm", history_col = "exn_pm_cum",
+       uid = "PeopleID", tid = "year",
+       covariates = c("BirthYear", "exn_all_cum_ihs"),
+       cutpoints = list(BirthYear = 8, exn_all_cum_ihs = 8),
+     slow = TRUE, label = "med_L5")
+
+list(dt = dt_big, L = 5L, treatment_col = "exn_pm", history_col = "exn_pm_cum",
+       uid = "PeopleID", tid = "year",
+       covariates = c("BirthYear", "exn_all_cum_ihs"),
+       cutpoints = list(BirthYear = 8, exn_all_cum_ihs = 8),
+       slow = FALSE, label = "big_L5")
+
+
 
 
 dt_match <- gd_match_history(dt_test[year >= 2000], L=5, return_type = "matches-info")
