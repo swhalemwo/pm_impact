@@ -259,7 +259,7 @@ gd_test_pipeline <- function(cfg, mi, refined, qr) {
                                          time_s = round(as.numeric(Sys.time() - t0), 2)))
 }
 
-gd_test_helpers <- function(cfg) {
+gd_test_helpers <- function(cfg, refined) {
   ## sections 14-18: edge cases (quality report, coarse_bin, ematch_yr)
   t0 <- Sys.time()
   params <- list(L = cfg$L, treatment_col = cfg$treatment_col, uid = cfg$uid,
@@ -276,7 +276,10 @@ gd_test_helpers <- function(cfg) {
   s2 <- gd_quality_report_s2(NULL, NULL, params)
   expect_true(is.data.table(s2), info = "s2_null data.table")
   expect_true(all(is.na(s2$n_after_cem)), info = "s2_null n_after_cem NA")
-  s2_nc <- gd_quality_report_s2(NULL, NULL, list(covariates = "nonexistent"))
+
+  ## s2_nocov: no covariates intersect (matchit_obj not NULL, real data)
+  s2_nc <- gd_quality_report_s2(refined$matchit, refined$data,
+                                 list(covariates = "nonexistent"))
   expect_true(is.data.table(s2_nc), info = "s2_nocov data.table")
   expect_true(all(is.na(s2_nc$L1_before)), info = "s2_nocov L1 NA")
 
@@ -318,6 +321,8 @@ gd_test_invariants <- function(cfg, mi) {
               info = sprintf("[%s] unmatched weight=0", cfg$label))
   expect_equal(r$matchit$weights, r$data$weight,
                info = sprintf("[%s] matchit weights match", cfg$label))
+  expect_equal(as.integer(r$matchit$subclass), as.integer(r$data$subclass),
+               info = sprintf("[%s] matchit subclass matches", cfg$label))
   expect_true(inherits(r$matchit, "matchit"),
               info = sprintf("[%s] matchit class", cfg$label))
 
@@ -434,13 +439,18 @@ gd_test_quantile_refine <- function(cfg, mi) {
   expect_true(all(r_q$data[is.na(subclass), weight == 0]),
               info = sprintf("[%s] quantile unmatched weight=0", cfg$label))
 
-  ## reproducibility
+  ## reproducibility: same quantile breaks → identical subclass assignments
   l_breaks2 <- gd_coarse_breaks(cfg$dt, cfg$covariates, cfg$cutpoints)
   r_q2 <- gd_refine_matches(mi, cfg$dt, uid = cfg$uid, tid = cfg$tid,
                              covariates = cfg$covariates, cutpoints = l_breaks2)
-  n1 <- r_q$data[!is.na(subclass), .N]
-  n2 <- r_q2$data[!is.na(subclass), .N]
-  expect_equal(n1, n2, info = sprintf("[%s] quantile reproducible", cfg$label))
+  fp1 <- r_q$data[!is.na(subclass),
+                   .(uid = get(cfg$uid), tid = get(cfg$tid), treat, s = subclass)][order(uid, tid, treat)]
+  fp2 <- r_q2$data[!is.na(subclass),
+                    .(uid = get(cfg$uid), tid = get(cfg$tid), treat, s = subclass)][order(uid, tid, treat)]
+  expect_equal(nrow(fp1), nrow(fp2),
+               info = sprintf("[%s] quantile reproducible row count", cfg$label))
+  expect_true(all(fp1$s == fp2$s),
+              info = sprintf("[%s] quantile reproducible assignments", cfg$label))
 
   timings <<- rbind(timings, data.table(label = sprintf("%s quantile", cfg$label),
                                          time_s = round(as.numeric(Sys.time() - t0), 2)))
@@ -454,7 +464,7 @@ test_config <- function(cfg) {
   gd_test_smd_vr(cfg, ref)
   gd_test_l1_crossval(cfg, mi)
   gd_test_pipeline(cfg, mi, ref, qr)
-  gd_test_helpers(cfg)
+  gd_test_helpers(cfg, ref)
   gd_test_invariants(cfg, mi)
   gd_test_matchit_structure(cfg, mi)
   gd_test_matchit_equiv(cfg, mi)
