@@ -174,8 +174,11 @@ gd_test_l1_crossval <- function(cfg, mi) {
   l1_results <- list()
   l1_params <- list(
     list(cov = cfg$covariates,                     cp = 8),
+    list(cov = cfg$covariates,                     cp = 6),
     list(cov = cfg$covariates,                     cp = 4),
-    list(cov = cfg$covariates[1],                   cp = 8)
+    list(cov = cfg$covariates,                     cp = 2),
+    list(cov = cfg$covariates[1],                   cp = 8),
+    list(cov = cfg$covariates[1],                   cp = 4)
   )
   for (p in l1_params) {
     cp <- setNames(rep(list(p$cp), length(p$cov)), p$cov)
