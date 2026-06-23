@@ -17,7 +17,10 @@ run_slow <- Sys.getenv("FOSTER_TEST_SLOW", "true") != "false"
 
 # === 1. Summary mode ===
 t0 <- Sys.time()
-summary_res <- gd_match_history(dt, L = 3, return_type = "summary")
+summary_res <- gd_match_history(dt, L = 3,
+                                 treatment_col = "exn_pm", history_col = "exn_pm_cum",
+                                 unit_id = "PeopleID", time_id = "year",
+                                 return_type = "summary")
 expect_true(is.data.frame(summary_res), info = "summary should be a data.frame")
 expect_true(all(c("total_treated", "treated_matched", "total_matches") %in% names(summary_res)),
             info = "summary has expected columns")
@@ -26,7 +29,10 @@ timings <- rbind(timings, data.table(label = "1. Summary mode", time_s = round(a
 
 # === 2. Full match mode ===
 t0 <- Sys.time()
-full_matches <- gd_match_history(dt, L = 3, return_type = "matches")
+full_matches <- gd_match_history(dt, L = 3,
+                                  treatment_col = "exn_pm", history_col = "exn_pm_cum",
+                                  unit_id = "PeopleID", time_id = "year",
+                                  return_type = "matches")
 expect_true(nrow(full_matches) > 0, info = "matches should be non-empty")
 expect_true(all(c("control_id", "treated_id", "year") %in% names(full_matches)),
             info = "matches has base columns")
@@ -50,7 +56,10 @@ timings <- rbind(timings, data.table(label = "3. Consistency check", time_s = ro
 
 # === 4. Matches-info mode ===
 t0 <- Sys.time()
-matches_info <- gd_match_history(dt, L = 3, return_type = "matches-info")
+matches_info <- gd_match_history(dt, L = 3,
+                                  treatment_col = "exn_pm", history_col = "exn_pm_cum",
+                                  unit_id = "PeopleID", time_id = "year",
+                                  return_type = "matches-info")
 expect_true(nrow(matches_info) > 0, info = "matches-info should be non-empty")
 expect_true(all(c("match_key", "match_tier") %in% names(matches_info)),
             info = "matches-info contains match_key and match_tier")
@@ -82,7 +91,7 @@ qr <- gd_quality_report(
   dt_match     = matches_info,
   matchit_obj  = refined$matchit,
   refined_data = refined$data,
-  params       = list(L = 3, treatment_col = "exn_pm",
+  params       = list(L = 3, treatment_col = "exn_pm", unit_id = "PeopleID",
                       covariates = c("BirthYear", "exn_all_cum_ihs")))
 expect_true(is.data.table(qr), info = "qr is a data.table")
 expect_equal(nrow(qr), 1L, info = "qr has exactly one row")

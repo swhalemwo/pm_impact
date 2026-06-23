@@ -19,10 +19,8 @@ library(cobalt)
 #' @param time_id String. The column name of the time identifier.
 #' @param return_type Option: "summary", "matches", "matches-info".
 #' @return A data.table containing either summary statistics or all matched pairs.
-gd_match_history <- function(dt, L, treatment_col = "exn_pm",
-                             history_col = "exn_pm_cum",
-                             unit_id = "PeopleID", time_id = "year",
-                             return_type = "summary") {
+gd_match_history <- function(dt, L, treatment_col, history_col,
+                             unit_id, time_id, return_type = "summary") {
 
   dt_d <- md_prep_match(dt, L, treatment_col, history_col, unit_id, time_id)
 
@@ -178,8 +176,7 @@ md_prep_match <- function(dt, L, t_col, h_col, uid, tid) {
 #'   \item{data}{data.table with subclass and weight columns}
 #'   \item{matchit}{a list with $weights and $subclass for back-compat}
 gd_refine_matches <- function(dt_match, dt_full,
-                              covariates = c("BirthYear", "exn_all_cum"),
-                              cutpoints = list(BirthYear = 8, exn_all_cum = 8)) {
+                              covariates, cutpoints) {
 
   ## transform matches to long format (one row per control, one row per treated)
   dt_long <- rbind(dt_match[, .(PeopleID = control_id, year, treat = 0,
@@ -197,7 +194,8 @@ gd_refine_matches <- function(dt_match, dt_full,
 
   ## t1 <- Sys.time()
   for (v in covariates) {
-    cp <- cutpoints[[v]] %||% 8L
+    cp <- cutpoints[[v]]
+    if (is.null(cp)) stop("gd_refine_matches: cutpoints must specify a value for each covariate, missing: ", v)
     if (is.numeric(cp) && length(cp) == 1) {
       ## integer: bin boundaries from the matched unique person-years
       ## (same range as matchit's binning on dt_long)
@@ -275,7 +273,8 @@ coarse_bin <- function(x, nbins = NULL, breaks = NULL) {
 #' @param cutpoints Named list mapping covariate names to number of bins.
 #' @return Numeric vector of breakpoints.
 gd_breaks_one <- function(v, dt_ref, cutpoints) {
-  nbins <- cutpoints[[v]] %||% 8L
+  nbins <- cutpoints[[v]]
+  if (is.null(nbins)) stop("gd_breaks_one: cutpoints must specify a value for ", v)
   x <- dt_ref[[v]]
   if (length(unique(x)) <= nbins) {
     sort(unique(x))
@@ -314,8 +313,7 @@ gd_coarse_breaks <- function(dt_ref, covariates, cutpoints) {
 #' @inheritParams gd_refine_matches
 #' @return A list with data and matchit slots (same structure as gd_refine_matches).
 gd_refine_matches_matchit <- function(dt_match, dt_full,
-                                      covariates = c("BirthYear", "exn_all_cum"),
-                                      cutpoints = list(BirthYear = 8, exn_all_cum = 8)) {
+                                      covariates, cutpoints) {
 
   ## transform matches to long format
   dt_long <- rbind(
@@ -487,9 +485,9 @@ gd_quality_report_s1 <- function(dt_prepared, dt_match, params) {
   n_treated <- if ("treat_bin" %in% names(dt_prepared)) {
     uniqueN(dt_prepared[treat_bin == 1, uid])
   } else {
-    t_col <- params$treatment_col %||% "exn_pm"
-    uid_col <- params$unit_id %||% "PeopleID"
-    uniqueN(dt_prepared[get(t_col) > 0, get(uid_col)])
+    if (is.null(params$treatment_col)) stop("gd_quality_report_s1: params$treatment_col required")
+    if (is.null(params$unit_id)) stop("gd_quality_report_s1: params$unit_id required")
+    uniqueN(dt_prepared[get(params$treatment_col) > 0, get(params$unit_id)])
   }
 
   if (nrow(dt_match) == 0) {
@@ -558,8 +556,7 @@ gd_quality_report_s2 <- function(matchit_obj, refined_data, params) {
   } else NA_real_
 
   ## identify real covariates (not the set dummies from matchit)
-  covs <- intersect(params$covariates %||% c("BirthYear", "exn_all_cum"),
-                    names(refined_data))
+  covs <- intersect(params$covariates, names(refined_data))
 
   if (length(covs) == 0) {
     return(data.table(n_after_cem = as.integer(n_after_cem),
