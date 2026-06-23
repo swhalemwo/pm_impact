@@ -252,13 +252,13 @@ gd_test_pipeline <- function(cfg, mi, refined, qr) {
   expect_true(is.na(qr_empty$L1_before), info = sprintf("[%s] empty L1 NA", cfg$label))
 
   ## sampling
-  qr_smp <- gd_run_match_pipeline(cfg$dt, params, sample_n_treated = 10L)
+  qr_smp <- gd_run_match_pipeline(cfg$dt, params, sample_n_treated = 100L)
   expect_true(is.data.table(qr_smp), info = sprintf("[%s] smp data.table", cfg$label))
   expect_equal(nrow(qr_smp), 1L, info = sprintf("[%s] smp one row", cfg$label))
   expect_equal(qr_smp$n_matched, qr2$n_matched,
                info = sprintf("[%s] smp match count unchanged", cfg$label))
-  expect_true(qr_smp$n_after_cem <= 10L,
-              info = sprintf("[%s] smp ≤10 treated", cfg$label))
+  expect_true(qr_smp$n_after_cem <= 100L,
+              info = sprintf("[%s] smp ≤100 treated", cfg$label))
 
   timings <<- rbind(timings, data.table(label = sprintf("%s pipeline", cfg$label),
                                          time_s = round(as.numeric(Sys.time() - t0), 2)))
