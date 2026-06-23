@@ -15,7 +15,12 @@ configs <- list(
        uid = "PeopleID", tid = "year",
        covariates = c("BirthYear", "exn_all_cum_ihs"),
        cutpoints = list(BirthYear = 8, exn_all_cum_ihs = 8),
-       slow = FALSE, label = "smol")
+       slow = TRUE, label = "smol_L3"),
+  list(dt = dt, L = 5L, treatment_col = "exn_pm", history_col = "exn_pm_cum",
+       uid = "PeopleID", tid = "year",
+       covariates = c("BirthYear", "exn_all_cum_ihs"),
+       cutpoints = list(BirthYear = 8, exn_all_cum_ihs = 8),
+       slow = TRUE, label = "smol_L5")
 )
 
 # ==== Test functions ====
@@ -163,7 +168,7 @@ gd_test_smd_vr <- function(cfg, refined) {
 
 gd_test_l1_crossval <- function(cfg, mi) {
   ## section 9: L1 cross-validation against cobalt [SLOW]
-  if (!run_slow) return()
+  if (!run_slow || !cfg$slow) return()
   t0 <- Sys.time()
   set.seed(42)
   l1_results <- list()
@@ -365,7 +370,7 @@ gd_test_matchit_structure <- function(cfg, mi) {
 
 gd_test_matchit_equiv <- function(cfg, mi) {
   ## sections 22, 26: DT vs matchit equivalence
-  if (!run_slow) return()
+  if (!run_slow || !cfg$slow) return()
   t0 <- Sys.time()
 
   ## equal-width bins (integer cutpoints)
@@ -476,7 +481,6 @@ test_config <- function(cfg) {
 run_slow <- Sys.getenv("FOSTER_TEST_SLOW", "true") != "false"
 
 for (cfg in configs) {
-  if (!run_slow && cfg$slow) next
   test_config(cfg)
 }
 
