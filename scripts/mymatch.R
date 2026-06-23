@@ -182,24 +182,40 @@ gd_refine_matches <- function(dt_match, dt_full,
                               cutpoints = list(BirthYear = 8, exn_all_cum = 8)) {
 
   ## transform matches to long format (one row per control, one row per treated)
-  dt_long <- rbind(dt_match[, .(PeopleID = control_id, year, treat = 0, set = paste0(treated_id, "_", year))],
-                   dt_match[, head(.SD, 1), treated_id] %>% 
-                   .[, .(PeopleID = treated_id, year, treat = 1, set = paste0(treated_id, "_", year))])
+  dt_long <- rbind(dt_match[, .(PeopleID = control_id, year, treat = 0,
+                                set = paste0(treated_id, "_", year))],
+                   dt_match[, head(.SD, 1), treated_id] %>%
+                   .[, .(PeopleID = treated_id, year, treat = 1,
+                         set = paste0(treated_id, "_", year))])
 
-  ## merge covariates from full panel
-  dt_long <- merge(dt_long, dt_full, by = c("PeopleID", "year"))
+  ## get unique person-years from the matched set — determines bin boundaries
+  ## for integer cutpoints (matching matchit's range on dt_long), and determines
+  ## which covariate values to coarsen (each person-year once, not per duplicate)
+  dt_uid <- unique(dt_long[, .(PeopleID, year)])
+  dt_coarse <- merge(dt_uid, dt_full[, c("PeopleID", "year", covariates), with = FALSE],
+                     by = c("PeopleID", "year"))
 
-  ## coarsen each covariate:
-  ##   integer cutpoint → equal-width bins on the long data
-  ##   vector cutpoint  → explicit breakpoints (e.g. from gd_coarse_breaks)
+  ## t1 <- Sys.time()
   for (v in covariates) {
     cp <- cutpoints[[v]] %||% 8L
     if (is.numeric(cp) && length(cp) == 1) {
-      dt_long[, (paste0(".coarse_", v)) := coarse_bin(get(v), nbins = cp)]
+      ## integer: bin boundaries from the matched unique person-years
+      ## (same range as matchit's binning on dt_long)
+      rng <- range(dt_coarse[[v]], na.rm = TRUE)
+      breaks <- seq(rng[1], rng[2], length.out = cp + 1)
+      dt_coarse[, (paste0(".coarse_", v)) := coarse_bin(get(v), breaks = breaks)]
     } else {
-      dt_long[, (paste0(".coarse_", v)) := coarse_bin(get(v), breaks = cp)]
+      ## break vector: use as-is
+      dt_coarse[, (paste0(".coarse_", v)) := coarse_bin(get(v), breaks = cp)]
     }
   }
+  ## t2 <- Sys.time()
+  ## t2-t1
+
+  ## merge coarse columns to the full dt_long
+  dt_long <- merge(dt_long, dt_coarse[, c("PeopleID", "year", covariates,
+                                           paste0(".coarse_", covariates)), with = FALSE],
+                   by = c("PeopleID", "year"))
 
   ## create cell key: set × coarsened covariates
   cell_cols <- c("set", paste0(".coarse_", covariates))
@@ -328,78 +344,45 @@ gd_refine_matches_matchit <- function(dt_match, dt_full,
 #'
 #' @description
 #' Compares two match result objects (e.g. from gd_refine_matches and
-#' gd_refine_matches_matchit) by checking that they produce the same
-#' matched observations grouped into the same cells.
+#' gd_refine_matches_matchit) by checking that they retain the same set
+#' of matched observations with the same weights.
 #'
 #' Checks performed:
 #' 1. Same total number of rows
 #' 2. Same number of matched (non-NA subclass) rows
-#' 3. Same number of unique subclasses
-#' 4. Cell fingerprints are identical: for each (set × coarse covariate)
-#'    combination, the set of (PeopleID, treat) observations is identical.
+#' 3. Matched (PeopleID, year, treat, set) tuples are identical (order-agnostic)
+#' 4. Weights are identical (aligned by key)
 #'
 #' @param r1,r2 Match result objects (each a list with $data and $matchit).
-#' @param dt_full The full panel (used for covariates in fingerprinting).
-#' @param covariates Character vector of covariate names used in matching.
-#' @param cutpoints Cutpoints list used (to reconstruct coarse bins).
+#' @param ... Ignored (for backward compatibility).
 #' @return TRUE if the two match results are equivalent, FALSE otherwise.
-gd_match_equivalent <- function(r1, r2, dt_full, covariates, cutpoints) {
+gd_match_equivalent <- function(r1, r2, ...) {
   ## 1. total row count
   if (nrow(r1$data) != nrow(r2$data)) return(FALSE)
 
-  ## extract matched rows
+  ## extract matched indicators
   sc1 <- if (is.factor(r1$matchit$subclass)) as.integer(r1$matchit$subclass) else r1$matchit$subclass
   sc2 <- if (is.factor(r2$matchit$subclass)) as.integer(r2$matchit$subclass) else r2$matchit$subclass
 
   m1 <- !is.na(sc1)
   m2 <- !is.na(sc2)
 
-  ## 2. same number of matched rows
-  if (sum(m1) != sum(m2)) return(FALSE)
-
-  ## 3. same number of subclasses
+  ## unique number of subclasses
   if (uniqueN(na.omit(sc1)) != uniqueN(na.omit(sc2))) return(FALSE)
 
+  ## 2. same number of matched rows
+  if (sum(m1) != sum(m2)) return(FALSE)
   if (sum(m1) == 0) return(TRUE)
 
-  ## 4. fingerprint identity: for each (set × coarse) cell, the set of
-  ##    (PeopleID, treat) observations must be identical
-  dt1 <- copy(r1$data[m1])
-  dt2 <- copy(r2$data[m2])
+  ## 3. matched (PeopleID, year, treat, set) tuples are identical
+  if (!fsetequal(r1$data[m1, .(PeopleID, year, treat, set)],
+                 r2$data[m2, .(PeopleID, year, treat, set)])) return(FALSE)
 
-  for (v in covariates) {
-    cp <- cutpoints[[v]] %||% 8L
-    .x1 <- dt1[[v]]; .x2 <- dt2[[v]]
-    if (is.numeric(cp) && length(cp) == 1) {
-      dt1[, (paste0(".coarse_", v)) := coarse_bin(.x1, nbins = cp)]
-      dt2[, (paste0(".coarse_", v)) := coarse_bin(.x2, nbins = cp)]
-    } else {
-      dt1[, (paste0(".coarse_", v)) := coarse_bin(.x1, breaks = cp)]
-      dt2[, (paste0(".coarse_", v)) := coarse_bin(.x2, breaks = cp)]
-    }
-  }
-
-  cell_cols <- c("set", paste0(".coarse_", covariates))
-  dt1[, cell := do.call(paste, c(.SD, sep = "_")), .SDcols = cell_cols]
-  dt2[, cell := do.call(paste, c(.SD, sep = "_")), .SDcols = cell_cols]
-
-  fp1 <- dt1[, .(fp = paste(sort(paste(PeopleID, treat)), collapse = ",")), by = cell]
-  fp2 <- dt2[, .(fp = paste(sort(paste(PeopleID, treat)), collapse = ",")), by = cell]
-
-  fp_cmp <- merge(fp1, fp2, by = "cell", suffixes = c(".1", ".2"))
-  if (nrow(fp_cmp) != nrow(fp1)) return(FALSE)
-  if (nrow(fp_cmp) != nrow(fp2)) return(FALSE)
-  if (!all(fp_cmp$fp.1 == fp_cmp$fp.2)) return(FALSE)
-
-  ## 5. weights match: align by (PeopleID, year, treat, set) — a natural key in dt_long
-  dt_w <- data.table(PeopleID = r1$data$PeopleID, year = r1$data$year,
-                      treat = r1$data$treat, set = r1$data$set,
-                      w1 = as.numeric(r1$matchit$weights))
-  dt_w2 <- data.table(PeopleID = r2$data$PeopleID, year = r2$data$year,
-                       treat = r2$data$treat, set = r2$data$set,
-                       w2 = as.numeric(r2$matchit$weights))
-  dt_w <- merge(dt_w, dt_w2, by = c("PeopleID", "year", "treat", "set"))
-  if (nrow(dt_w) != nrow(dt_w2)) return(FALSE)
+  ## 4. weights match (aligned by key)
+  dt_w <- merge(r1$data[m1, .(PeopleID, year, treat, set, w1 = as.numeric(r1$matchit$weights[m1]))],
+                r2$data[m2, .(PeopleID, year, treat, set, w2 = as.numeric(r2$matchit$weights[m2]))],
+                by = c("PeopleID", "year", "treat", "set"))
+  if (nrow(dt_w) != sum(m1)) return(FALSE)
   if (!all(abs(dt_w$w1 - dt_w$w2) < 1e-10, na.rm = TRUE)) return(FALSE)
 
   TRUE

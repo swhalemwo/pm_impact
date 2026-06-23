@@ -360,6 +360,8 @@ timings <- rbind(timings, data.table(label = "21. refine_matchit struct",
                                      time_s = round(as.numeric(Sys.time() - t0), 2)))
 
 # === 22. DT vs matchit CEM — equal-width bins [SLOW] ===
+## Both versions now compute integer cutpoint bin boundaries from unique
+## matched person-years, so results should be identical.
 if (run_slow) {
 t0 <- Sys.time()
 r_dt <- gd_refine_matches(matches_info, dt,
@@ -368,9 +370,7 @@ r_dt <- gd_refine_matches(matches_info, dt,
 r_mi <- gd_refine_matches_matchit(matches_info, dt,
                                    covariates = c("BirthYear", "exn_all_cum_ihs"),
                                    cutpoints = list(BirthYear = 8L, exn_all_cum_ihs = 8L))
-expect_true(gd_match_equivalent(r_dt, r_mi, dt,
-                                 c("BirthYear", "exn_all_cum_ihs"),
-                                 list(BirthYear = 8L, exn_all_cum_ihs = 8L)),
+expect_true(gd_match_equivalent(r_dt, r_mi),
             info = "equal-width bins: DT and matchit produce equivalent results")
 timings <- rbind(timings, data.table(label = "22. DT vs matchit equal-width",
                                      time_s = round(as.numeric(Sys.time() - t0), 2)))
@@ -465,8 +465,7 @@ r_dt2 <- gd_refine_matches(matches_info, dt,
 r_mi2 <- gd_refine_matches_matchit(matches_info, dt,
                                     covariates = c("BirthYear", "exn_all_cum_ihs"),
                                     cutpoints = l_breaks2)
-expect_true(gd_match_equivalent(r_dt2, r_mi2, dt,
-                                 c("BirthYear", "exn_all_cum_ihs"), l_breaks2),
+expect_true(gd_match_equivalent(r_dt2, r_mi2),
             info = "quantile breaks: DT and matchit produce equivalent results")
 timings <- rbind(timings, data.table(label = "26. quantile DT vs MI",
                                      time_s = round(as.numeric(Sys.time() - t0), 2)))
