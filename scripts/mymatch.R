@@ -15,14 +15,14 @@ library(cobalt)
 #' @param L Integer. The number of lags of treatment history to match on.
 #' @param treatment_col String. The column name of the treatment variable.
 #' @param history_col String. The column name for the cumulative history variable.
-#' @param unit_id String. The column name of the unit identifier.
-#' @param time_id String. The column name of the time identifier.
+#' @param uid String. The column name of the unit identifier.
+#' @param tid String. The column name of the time identifier.
 #' @param return_type Option: "summary", "matches", "matches-info".
 #' @return A data.table containing either summary statistics or all matched pairs.
 gd_match_history <- function(dt, L, treatment_col, history_col,
-                             unit_id, time_id, return_type = "summary") {
+                             uid, tid, return_type = "summary") {
 
-  dt_d <- md_prep_match(dt, L, treatment_col, history_col, unit_id, time_id)
+  dt_d <- md_prep_match(dt, L, treatment_col, history_col, uid, tid)
 
   ## Tier 1: exact match on history + Nationality + Gender
   dt_d[, tier1_key := paste(hist_str, Nationality, Gender, sep = "_")]
@@ -172,25 +172,27 @@ md_prep_match <- function(dt, L, t_col, h_col, uid, tid) {
 #' @param covariates Character vector. Covariates for refinement.
 #' @param cutpoints List. For each covariate: integer (number of equal-width bins)
 #'   or numeric vector of explicit breakpoints.
+#' @param uid String. Column name for the unit identifier in dt_full.
+#'   Must also match the id used in dt_match (via control_id/treated_id).
+#' @param tid String. Column name for the time identifier in dt_full and dt_match.
 #' @return A list with:
 #'   \item{data}{data.table with subclass and weight columns}
 #'   \item{matchit}{a list with $weights and $subclass for back-compat}
 gd_refine_matches <- function(dt_match, dt_full,
-                              covariates, cutpoints) {
+                              covariates, cutpoints,
+                              uid, tid) {
 
   ## transform matches to long format (one row per control, one row per treated)
-  dt_long <- rbind(dt_match[, .(PeopleID = control_id, year, treat = 0,
-                                set = paste0(treated_id, "_", year))],
+  dt_long <- rbind(dt_match[, .(uid = control_id, tid = get(tid), treat = 0,
+                                set = paste0(treated_id, "_", get(tid)))],
                    dt_match[, head(.SD, 1), treated_id] %>%
-                   .[, .(PeopleID = treated_id, year, treat = 1,
-                         set = paste0(treated_id, "_", year))])
+                   .[, .(uid = treated_id, tid = get(tid), treat = 1,
+                         set = paste0(treated_id, "_", get(tid)))])
 
-  ## get unique person-years from the matched set — determines bin boundaries
-  ## for integer cutpoints (matching matchit's range on dt_long), and determines
-  ## which covariate values to coarsen (each person-year once, not per duplicate)
-  dt_uid <- unique(dt_long[, .(PeopleID, year)])
-  dt_coarse <- merge(dt_uid, dt_full[, c("PeopleID", "year", covariates), with = FALSE],
-                     by = c("PeopleID", "year"))
+  ## get unique person-years from the matched set
+  dt_uq <- unique(dt_long[, .(uid, tid)])
+  dt_coarse <- merge(dt_uq, dt_full[, c(uid, tid, covariates), with = FALSE],
+                     by.x = c("uid", "tid"), by.y = c(uid, tid))
 
   ## t1 <- Sys.time()
   for (v in covariates) {
@@ -211,9 +213,9 @@ gd_refine_matches <- function(dt_match, dt_full,
   ## t2-t1
 
   ## merge coarse columns to the full dt_long
-  dt_long <- merge(dt_long, dt_coarse[, c("PeopleID", "year", covariates,
-                                           paste0(".coarse_", covariates)), with = FALSE],
-                   by = c("PeopleID", "year"))
+  coarse_cols <- c("uid", "tid", covariates, paste0(".coarse_", covariates))
+  dt_long <- merge(dt_long, dt_coarse[, ..coarse_cols],
+                   by = c("uid", "tid"))
 
   ## create cell key: set × coarsened covariates
   cell_cols <- c("set", paste0(".coarse_", covariates))
@@ -235,6 +237,9 @@ gd_refine_matches <- function(dt_match, dt_full,
 
   ## clean up temp columns
   dt_long[, c(".n_treat", ".n_ctrl", ".cell", "N", paste0(".coarse_", covariates)) := NULL]
+
+  ## rename internal uid/tid to caller's column names
+  setnames(dt_long, c("uid", "tid"), c(uid, tid))
 
   ## wrap results in mock matchit object for back-compat
   r_match <- list(weights = dt_long$weight, subclass = dt_long$subclass)
@@ -313,19 +318,21 @@ gd_coarse_breaks <- function(dt_ref, covariates, cutpoints) {
 #' @inheritParams gd_refine_matches
 #' @return A list with data and matchit slots (same structure as gd_refine_matches).
 gd_refine_matches_matchit <- function(dt_match, dt_full,
-                                      covariates, cutpoints) {
+                                      covariates, cutpoints,
+                                      uid, tid) {
 
   ## transform matches to long format
   dt_long <- rbind(
-    dt_match[, .(PeopleID = control_id, year, treat = 0,
-                 set = paste0(treated_id, "_", year))],
+    dt_match[, .(uid = control_id, tid = get(tid), treat = 0,
+                 set = paste0(treated_id, "_", get(tid)))],
     dt_match[, head(.SD, 1), treated_id
-    ][, .(PeopleID = treated_id, year, treat = 1,
-          set = paste0(treated_id, "_", year))]
+    ][, .(uid = treated_id, tid = get(tid), treat = 1,
+          set = paste0(treated_id, "_", get(tid)))]
   )
 
   ## merge covariates from full panel
-  dt_long <- merge(dt_long, dt_full, by = c("PeopleID", "year"))
+  setnames(dt_long, c("uid", "tid"), c(uid, tid))
+  dt_long <- merge(dt_long, dt_full, by = c(uid, tid))
 
   ## pass cutpoints through; matchit handles them internally:
   ##   integer → equal-width bins
@@ -348,13 +355,14 @@ gd_refine_matches_matchit <- function(dt_match, dt_full,
 #' Checks performed:
 #' 1. Same total number of rows
 #' 2. Same number of matched (non-NA subclass) rows
-#' 3. Matched (PeopleID, year, treat, set) tuples are identical (order-agnostic)
+#' 3. Matched (uid, tid, treat, set) tuples are identical (order-agnostic)
 #' 4. Weights are identical (aligned by key)
 #'
 #' @param r1,r2 Match result objects (each a list with $data and $matchit).
-#' @param ... Ignored (for backward compatibility).
+#' @param uid String. Column name for the unit identifier.
+#' @param tid String. Column name for the time identifier.
 #' @return TRUE if the two match results are equivalent, FALSE otherwise.
-gd_match_equivalent <- function(r1, r2, ...) {
+gd_match_equivalent <- function(r1, r2, uid, tid) {
   ## 1. total row count
   if (nrow(r1$data) != nrow(r2$data)) return(FALSE)
 
@@ -372,14 +380,15 @@ gd_match_equivalent <- function(r1, r2, ...) {
   if (sum(m1) != sum(m2)) return(FALSE)
   if (sum(m1) == 0) return(TRUE)
 
-  ## 3. matched (PeopleID, year, treat, set) tuples are identical
-  if (!fsetequal(r1$data[m1, .(PeopleID, year, treat, set)],
-                 r2$data[m2, .(PeopleID, year, treat, set)])) return(FALSE)
+  ## 3. matched (uid, tid, treat, set) tuples are identical
+  key_cols <- c(uid, tid, "treat", "set")
+  if (!fsetequal(r1$data[m1, ..key_cols],
+                 r2$data[m2, ..key_cols])) return(FALSE)
 
   ## 4. weights match (aligned by key)
-  dt_w <- merge(r1$data[m1, .(PeopleID, year, treat, set, w1 = as.numeric(r1$matchit$weights[m1]))],
-                r2$data[m2, .(PeopleID, year, treat, set, w2 = as.numeric(r2$matchit$weights[m2]))],
-                by = c("PeopleID", "year", "treat", "set"))
+  dt_w1 <- r1$data[m1, ..key_cols][, w1 := as.numeric(r1$matchit$weights[m1])]
+  dt_w2 <- r2$data[m2, ..key_cols][, w2 := as.numeric(r2$matchit$weights[m2])]
+  dt_w <- merge(dt_w1, dt_w2, by = key_cols)
   if (nrow(dt_w) != sum(m1)) return(FALSE)
   if (!all(abs(dt_w$w1 - dt_w$w2) < 1e-10, na.rm = TRUE)) return(FALSE)
 
@@ -394,7 +403,7 @@ gd_match_equivalent <- function(r1, r2, ...) {
 #'
 #' @param dt Panel data.table.
 #' @param params Named list. Expected fields:
-#'   L, treatment_col, history_col, unit_id, time_id (passed to gd_match_history);
+#'   L, treatment_col, history_col, uid, tid (passed to gd_match_history);
 #'   covariates, cutpoints (passed to gd_refine_matches).
 #' @param dt_full Full panel data for covariate merging in refinement.
 #' @param sample_n_treated Optional integer. If set and the number of unique
@@ -408,8 +417,8 @@ gd_run_match_pipeline <- function(dt, params, dt_full = dt,
     L             = params$L,
     treatment_col = params$treatment_col,
     history_col   = params$history_col,
-    unit_id       = params$unit_id,
-    time_id       = params$time_id,
+    uid       = params$uid,
+    tid       = params$tid,
     return_type   = "matches-info"
   )
 
@@ -431,7 +440,9 @@ gd_run_match_pipeline <- function(dt, params, dt_full = dt,
 
   refined <- gd_refine_matches(dt_cem, dt_full,
                                covariates = params$covariates,
-                               cutpoints  = params$cutpoints)
+                               cutpoints  = params$cutpoints,
+                               uid    = params$uid,
+                               tid = params$tid)
 
   gd_quality_report(dt, dt_match,
                     matchit_obj  = refined$matchit,
@@ -486,8 +497,8 @@ gd_quality_report_s1 <- function(dt_prepared, dt_match, params) {
     uniqueN(dt_prepared[treat_bin == 1, uid])
   } else {
     if (is.null(params$treatment_col)) stop("gd_quality_report_s1: params$treatment_col required")
-    if (is.null(params$unit_id)) stop("gd_quality_report_s1: params$unit_id required")
-    uniqueN(dt_prepared[get(params$treatment_col) > 0, get(params$unit_id)])
+    if (is.null(params$uid)) stop("gd_quality_report_s1: params$uid required")
+    uniqueN(dt_prepared[get(params$treatment_col) > 0, get(params$uid)])
   }
 
   if (nrow(dt_match) == 0) {

@@ -19,7 +19,7 @@ run_slow <- Sys.getenv("FOSTER_TEST_SLOW", "true") != "false"
 t0 <- Sys.time()
 summary_res <- gd_match_history(dt, L = 3,
                                  treatment_col = "exn_pm", history_col = "exn_pm_cum",
-                                 unit_id = "PeopleID", time_id = "year",
+                                 uid = "PeopleID", tid = "year",
                                  return_type = "summary")
 expect_true(is.data.frame(summary_res), info = "summary should be a data.frame")
 expect_true(all(c("total_treated", "treated_matched", "total_matches") %in% names(summary_res)),
@@ -31,7 +31,7 @@ timings <- rbind(timings, data.table(label = "1. Summary mode", time_s = round(a
 t0 <- Sys.time()
 full_matches <- gd_match_history(dt, L = 3,
                                   treatment_col = "exn_pm", history_col = "exn_pm_cum",
-                                  unit_id = "PeopleID", time_id = "year",
+                                  uid = "PeopleID", tid = "year",
                                   return_type = "matches")
 expect_true(nrow(full_matches) > 0, info = "matches should be non-empty")
 expect_true(all(c("control_id", "treated_id", "year") %in% names(full_matches)),
@@ -58,7 +58,7 @@ timings <- rbind(timings, data.table(label = "3. Consistency check", time_s = ro
 t0 <- Sys.time()
 matches_info <- gd_match_history(dt, L = 3,
                                   treatment_col = "exn_pm", history_col = "exn_pm_cum",
-                                  unit_id = "PeopleID", time_id = "year",
+                                  uid = "PeopleID", tid = "year",
                                   return_type = "matches-info")
 expect_true(nrow(matches_info) > 0, info = "matches-info should be non-empty")
 expect_true(all(c("match_key", "match_tier") %in% names(matches_info)),
@@ -73,7 +73,7 @@ timings <- rbind(timings, data.table(label = "5. Tier exclusivity", time_s = rou
 
 # === 6. CEM refinement ===
 t0 <- Sys.time()
-refined <- gd_refine_matches(matches_info, dt,
+refined <- gd_refine_matches(matches_info, dt, uid = "PeopleID", tid = "year",
                              covariates = c("BirthYear", "exn_all_cum_ihs"),
                              cutpoints = list(BirthYear = 8, exn_all_cum_ihs = 8))
 expect_true(is.list(refined), info = "refine_matches returns a list")
@@ -91,7 +91,7 @@ qr <- gd_quality_report(
   dt_match     = matches_info,
   matchit_obj  = refined$matchit,
   refined_data = refined$data,
-  params       = list(L = 3, treatment_col = "exn_pm", unit_id = "PeopleID",
+  params       = list(L = 3, treatment_col = "exn_pm", uid = "PeopleID",
                       covariates = c("BirthYear", "exn_all_cum_ihs")))
 expect_true(is.data.table(qr), info = "qr is a data.table")
 expect_equal(nrow(qr), 1L, info = "qr has exactly one row")
@@ -139,7 +139,7 @@ l1_params <- list(
 )
 for (p in l1_params) {
   cp <- setNames(rep(list(p$cp), length(p$cov)), p$cov)
-  r <- gd_refine_matches(matches_info, dt, covariates = p$cov, cutpoints = cp)
+  r <- gd_refine_matches(matches_info, dt, uid = "PeopleID", tid = "year", covariates = p$cov, cutpoints = cp)
   covs <- p$cov
   cdf <- r$data[, ..covs]
   tv  <- r$data$treat
@@ -192,7 +192,7 @@ timings <- rbind(timings, data.table(label = "9. L1 vs cobalt bal.compute", time
 # === 10. gd_run_match_pipeline end-to-end ===
 t0 <- Sys.time()
 params <- list(L = 3, treatment_col = "exn_pm", history_col = "exn_pm_cum",
-               unit_id = "PeopleID", time_id = "year",
+               uid = "PeopleID", tid = "year",
                covariates = c("BirthYear", "exn_all_cum_ihs"),
                cutpoints = list(BirthYear = 8, exn_all_cum_ihs = 8))
 qr2 <- gd_run_match_pipeline(dt, params)
@@ -330,7 +330,7 @@ timings <- rbind(timings, data.table(label = "19. refine invariants",
 
 # === 20. gd_refine_matches — single covariate + single bin ===
 t0 <- Sys.time()
-r_1c <- gd_refine_matches(matches_info, dt,
+r_1c <- gd_refine_matches(matches_info, dt, uid = "PeopleID", tid = "year",
                            covariates = "BirthYear",
                            cutpoints = list(BirthYear = 8))
 expect_true(is.list(r_1c) && all(c("data", "matchit") %in% names(r_1c)),
@@ -340,7 +340,7 @@ expect_true("subclass" %in% names(r_1c$data),
 expect_true(nrow(r_1c$data) == nrow(refined$data),
             info = "single covariate: same row count")
 
-r_1b <- gd_refine_matches(matches_info, dt,
+r_1b <- gd_refine_matches(matches_info, dt, uid = "PeopleID", tid = "year",
                            covariates = c("BirthYear", "exn_all_cum_ihs"),
                            cutpoints = list(BirthYear = 1, exn_all_cum_ihs = 1))
 expect_true(nrow(r_1b$data) == nrow(refined$data),
@@ -355,7 +355,7 @@ timings <- rbind(timings, data.table(label = "20. refine single cov/bin",
 
 # === 21. gd_refine_matches_matchit — structure check ===
 t0 <- Sys.time()
-r_mi <- gd_refine_matches_matchit(matches_info, dt,
+r_mi <- gd_refine_matches_matchit(matches_info, dt, uid = "PeopleID", tid = "year",
                                    covariates = c("BirthYear", "exn_all_cum_ihs"),
                                    cutpoints = list(BirthYear = 8, exn_all_cum_ihs = 8))
 expect_true(is.list(r_mi), info = "matchit version returns a list")
@@ -373,13 +373,13 @@ timings <- rbind(timings, data.table(label = "21. refine_matchit struct",
 ## matched person-years, so results should be identical.
 if (run_slow) {
 t0 <- Sys.time()
-r_dt <- gd_refine_matches(matches_info, dt,
+r_dt <- gd_refine_matches(matches_info, dt, uid = "PeopleID", tid = "year",
                            covariates = c("BirthYear", "exn_all_cum_ihs"),
                            cutpoints = list(BirthYear = 8L, exn_all_cum_ihs = 8L))
-r_mi <- gd_refine_matches_matchit(matches_info, dt,
+r_mi <- gd_refine_matches_matchit(matches_info, dt, uid = "PeopleID", tid = "year",
                                    covariates = c("BirthYear", "exn_all_cum_ihs"),
                                    cutpoints = list(BirthYear = 8L, exn_all_cum_ihs = 8L))
-expect_true(gd_match_equivalent(r_dt, r_mi),
+expect_true(gd_match_equivalent(r_dt, r_mi, uid = "PeopleID", tid = "year"),
             info = "equal-width bins: DT and matchit produce equivalent results")
 timings <- rbind(timings, data.table(label = "22. DT vs matchit equal-width",
                                      time_s = round(as.numeric(Sys.time() - t0), 2)))
@@ -420,7 +420,7 @@ timings <- rbind(timings, data.table(label = "23. coarse_breaks structure",
 t0 <- Sys.time()
 l_breaks <- gd_coarse_breaks(dt, c("BirthYear", "exn_all_cum_ihs"),
                               list(BirthYear = 8, exn_all_cum_ihs = 8))
-r_q <- gd_refine_matches(matches_info, dt,
+r_q <- gd_refine_matches(matches_info, dt, uid = "PeopleID", tid = "year",
                           covariates = c("BirthYear", "exn_all_cum_ihs"),
                           cutpoints = l_breaks)
 expect_true(is.list(r_q), info = "quantile refine: returns a list")
@@ -451,7 +451,7 @@ t0 <- Sys.time()
 ## Running twice with same breaks reproduces identical subclasses
 l_breaks2 <- gd_coarse_breaks(dt, c("BirthYear", "exn_all_cum_ihs"),
                                list(BirthYear = 8, exn_all_cum_ihs = 8))
-r_q2 <- gd_refine_matches(matches_info, dt,
+r_q2 <- gd_refine_matches(matches_info, dt, uid = "PeopleID", tid = "year",
                            covariates = c("BirthYear", "exn_all_cum_ihs"),
                            cutpoints = l_breaks2)
 fp1 <- r_q$data[!is.na(subclass), .(PeopleID, year, treat, s = subclass)][order(PeopleID, year, treat)]
@@ -468,13 +468,13 @@ if (run_slow) {
 t0 <- Sys.time()
 l_breaks2 <- gd_coarse_breaks(dt, c("BirthYear", "exn_all_cum_ihs"),
                                list(BirthYear = 8, exn_all_cum_ihs = 8))
-r_dt2 <- gd_refine_matches(matches_info, dt,
+r_dt2 <- gd_refine_matches(matches_info, dt, uid = "PeopleID", tid = "year",
                             covariates = c("BirthYear", "exn_all_cum_ihs"),
                             cutpoints = l_breaks2)
-r_mi2 <- gd_refine_matches_matchit(matches_info, dt,
+r_mi2 <- gd_refine_matches_matchit(matches_info, dt, uid = "PeopleID", tid = "year",
                                     covariates = c("BirthYear", "exn_all_cum_ihs"),
                                     cutpoints = l_breaks2)
-expect_true(gd_match_equivalent(r_dt2, r_mi2),
+expect_true(gd_match_equivalent(r_dt2, r_mi2, uid = "PeopleID", tid = "year"),
             info = "quantile breaks: DT and matchit produce equivalent results")
 timings <- rbind(timings, data.table(label = "26. quantile DT vs MI",
                                      time_s = round(as.numeric(Sys.time() - t0), 2)))
