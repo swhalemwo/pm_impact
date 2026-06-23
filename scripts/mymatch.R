@@ -182,13 +182,9 @@ gd_refine_matches <- function(dt_match, dt_full,
                               cutpoints = list(BirthYear = 8, exn_all_cum = 8)) {
 
   ## transform matches to long format (one row per control, one row per treated)
-  dt_long <- rbind(
-    dt_match[, .(PeopleID = control_id, year, treat = 0,
-                 set = paste0(treated_id, "_", year))],
-    dt_match[, head(.SD, 1), treated_id
-    ][, .(PeopleID = treated_id, year, treat = 1,
-          set = paste0(treated_id, "_", year))]
-  )
+  dt_long <- rbind(dt_match[, .(PeopleID = control_id, year, treat = 0, set = paste0(treated_id, "_", year))],
+                   dt_match[, head(.SD, 1), treated_id] %>% 
+                   .[, .(PeopleID = treated_id, year, treat = 1, set = paste0(treated_id, "_", year))])
 
   ## merge covariates from full panel
   dt_long <- merge(dt_long, dt_full, by = c("PeopleID", "year"))
