@@ -19,7 +19,7 @@ configs <- list(
        uid = "PeopleID", tid = "year",
        covariates = c("BirthYear", "exn_all_cum_ihs"),
        cutpoints = list(BirthYear = 8, exn_all_cum_ihs = 8),
-       slow = TRUE, label = "smol_L3"),
+       slow = TRUE, label = "smol_L3")
   ## list(dt = dt, L = 5L, treatment_col = "exn_pm", history_col = "exn_pm_cum",
   ##      uid = "PeopleID", tid = "year",
   ##      covariates = c("BirthYear", "exn_all_cum_ihs"),
@@ -30,11 +30,11 @@ configs <- list(
   ##      covariates = c("BirthYear", "exn_all_cum_ihs"),
   ##      cutpoints = list(BirthYear = 8, exn_all_cum_ihs = 8),
   ##      slow = FALSE, label = "med_L5"),
-  list(dt = dt_big, L = 5L, treatment_col = "exn_pm", history_col = "exn_pm_cum",
-       uid = "PeopleID", tid = "year",
-       covariates = c("BirthYear", "exn_all_cum_ihs"),
-       cutpoints = list(BirthYear = 8, exn_all_cum_ihs = 8),
-       slow = FALSE, label = "big_L5")
+  ## list(dt = dt_big, L = 5L, treatment_col = "exn_pm", history_col = "exn_pm_cum",
+  ##      uid = "PeopleID", tid = "year",
+  ##      covariates = c("BirthYear", "exn_all_cum_ihs"),
+  ##      cutpoints = list(BirthYear = 8, exn_all_cum_ihs = 8),
+  ##      slow = FALSE, label = "big_L5")
 )
 
 # ==== Test functions ====
