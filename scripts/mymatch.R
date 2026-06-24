@@ -1,6 +1,7 @@
 library(data.table)
 library(MatchIt)
 library(cobalt)
+library(collapse, include.only = c("join", "funique"))
 
 `%||%` <- function(x, y) if (is.null(x)) y else x
 
@@ -230,9 +231,8 @@ gd_refine_matches <- function(dt_match, dt_full,
 
   ## merge coarse columns to the full dt_long
   coarse_cols <- c("uid", "tid", covariates, paste0(".coarse_", covariates))
-  dt_long <- merge(dt_long, dt_coarse[, ..coarse_cols],
-                   by = c("uid", "tid"))
-
+  dt_long <- join(dt_long, dt_coarse[, ..coarse_cols],
+                  on = c("uid", "tid"), verbose = FALSE)
   ## create cell key: set × coarsened covariates
   cell_cols <- c("set", paste0(".coarse_", covariates))
   dt_long[, .cell := .GRP, by = cell_cols]
@@ -342,7 +342,7 @@ gd_refine_matches_matchit <- function(dt_match, dt_full,
 
   ## merge covariates from full panel
   setnames(dt_long, c("uid", "tid"), c(uid, tid))
-  dt_long <- merge(dt_long, dt_full, by = c(uid, tid))
+  dt_long <- join(dt_long, dt_full, on = c(uid, tid), verbose = FALSE)
 
   ## pass cutpoints through; matchit handles them internally:
   ##   integer → equal-width bins
@@ -398,7 +398,7 @@ gd_match_equivalent <- function(r1, r2, uid, tid) {
   ## 4. weights match (aligned by key)
   dt_w1 <- r1$data[m1, ..key_cols][, w1 := as.numeric(r1$matchit$weights[m1])]
   dt_w2 <- r2$data[m2, ..key_cols][, w2 := as.numeric(r2$matchit$weights[m2])]
-  dt_w <- merge(dt_w1, dt_w2, by = key_cols)
+  dt_w <- join(dt_w1, dt_w2, on = key_cols, verbose = FALSE)
   if (nrow(dt_w) != sum(m1)) return(FALSE)
   if (!all(abs(dt_w$w1 - dt_w$w2) < 1e-10, na.rm = TRUE)) return(FALSE)
 
