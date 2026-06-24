@@ -25,8 +25,16 @@ gd_match_history <- function(dt, L, treatment_col, history_col,
 
   dt_d <- md_prep_match(dt, L, treatment_col, history_col, uid, tid)
 
+  ## compare against git-timemachine version, looks good
+  ##   dt_d_old <- md_prep_match(dt, L, treatment_col, history_col, uid, tid)
+  ## dt_d_new2 <- dt_d_new %>% copy %>% .[, hist_str := as.character(hist_str)]
+  ## fsetequal(dt_d_new2, dt_d_old)
+
   ## Tier 1: exact match on history + Nationality + Gender
-  dt_d[, tier1_key := paste(hist_str, Nationality, Gender, sep = "_")]
+  ## dt_d[, tier1_key := paste(hist_str, Nationality, Gender, sep = "_")]
+  dt_d[, tier1_key := collapse::finteraction(hist_str, Nationality, Gender, sep = "_")]
+
+  
   dt_matches_t1 <- gd_tier_match(dt_d, "tier1_key", return_type = return_type, tier = 1)
 
   ## Tier 2: exact match on history only (for orphans from Tier 1)
@@ -61,6 +69,7 @@ gd_match_history <- function(dt, L, treatment_col, history_col,
 #' @return data.table of matched pairs, or NULL if no matches exist.
 gd_ematch_yr <- function(yr, dt_units, controls_pool, key_col, return_type, tier) {
   ## extract treated and control pools for this year via binary search
+  ## browser()
   dt_trtd <- dt_units[.(yr, 1L), on = c("tid", "treat_bin"), nomatch = NULL]
   dt_ctrls <- if (is.null(controls_pool)) {
     dt_units[.(yr, 0L), on = c("tid", "treat_bin"), nomatch = NULL]
@@ -70,14 +79,38 @@ gd_ematch_yr <- function(yr, dt_units, controls_pool, key_col, return_type, tier
 
   if (nrow(dt_trtd) == 0 || nrow(dt_ctrls) == 0) return(NULL)
 
+  ## xx <- dt_ctrls[dt_trtd, .(control_id = uid, treated_id = i.uid, year = yr,
+  ##                                              match_key = get(key_col), match_tier = tier),
+  ##                                   on = key_col, nomatch = NULL, allow.cartesian = TRUE]
+
+  ## yy <- join(dt_ctrls[, .(control_id = uid, year = yr, match_key = get(key_col), match_tier = tier)],
+  ##            dt_trtd[, .(treated_id = uid, match_key = get(key_col))],
+  ##            on = "match_key", how = "right", multiple = T)
+
+  ## yy[!xx, on = "match_key"]
+
+
+  ## yy[!xx[, .(match_key = funique(match_key))], on = "match_key"]
+
+  
+
+  ## zz <- join(dt_ctrls[, .(control_id = uid, year = yr, match_key = get(key_col), match_tier = tier)],
+  ##            dt_trtd[, .(treated_id = uid, match_key = get(key_col))],             
+  ##            on = "match_key", how = "inner", multiple = T)
+
+
   switch(return_type,
          summary = dt_ctrls[dt_trtd, .(uid = i.uid, N = .N), on = key_col,
                             nomatch = NULL, by = .EACHI][N > 0],
-         `matches-info` = dt_ctrls[dt_trtd, .(control_id = uid, treated_id = i.uid, year = yr,
-                                               match_key = get(key_col), match_tier = tier),
-                                    on = key_col, nomatch = NULL, allow.cartesian = TRUE],
+         ## `matches-info` = dt_ctrls[dt_trtd, .(control_id = uid, treated_id = i.uid, year = yr,
+         ##                                       match_key = get(key_col), match_tier = tier),
+         ##                            on = key_col, nomatch = NULL, allow.cartesian = TRUE],
+         `matches-info` = join(dt_ctrls[, .(control_id = uid, year = yr, match_key = get(key_col), match_tier = tier)],
+                               dt_trtd[, .(treated_id = uid, match_key = get(key_col))],             
+                               on = "match_key", how = "inner", multiple = T),
          matches = dt_ctrls[dt_trtd, .(control_id = uid, treated_id = i.uid, year = yr),
                             on = key_col, nomatch = NULL, allow.cartesian = TRUE])
+
 }
 
 #' Execute tier matching by applying year-by-year joins.
@@ -94,15 +127,17 @@ gd_ematch_yr <- function(yr, dt_units, controls_pool, key_col, return_type, tier
 #' @return data.table of matched pairs across all years.
 gd_tier_match <- function(dt_units, key_col, controls_pool = NULL,
                           return_type = "summary", tier = 1) {
+  ## browser()
   ## key on (tid, treat_bin) for O(log n) year subsetting instead of O(n) scan
   setkeyv(dt_units, c("tid", "treat_bin"))
   if (!is.null(controls_pool)) setkeyv(controls_pool, "tid")
 
-  years <- sort(unique(dt_units$tid))
+  years <- sort(funique(dt_units$tid))
 
   rbindlist(lapply(years, function(yr) {
     gd_ematch_yr(yr, dt_units, controls_pool, key_col, return_type, tier)
   }), fill = TRUE)
+
 }
 
 #' Calculate summary statistics from matched pairs.
@@ -136,8 +171,10 @@ gd_match_summary <- function(dt_d, dt_matches) {
 #' @param tid Time ID column name.
 #' @return Modified copy of dt with uid, tid, treat_bin, lag_* and hist_str columns.
 md_prep_match <- function(dt, L, t_col, h_col, uid, tid) {
+  ## browser()
   dt_d <- copy(dt)
   setnames(dt_d, c(uid, tid), c("uid", "tid"))
+  dt_d <- dt_d[order(uid, tid)]
 
   dt_d[, treat_bin := as.integer(get(t_col) > 0)]
 
@@ -145,11 +182,25 @@ md_prep_match <- function(dt, L, t_col, h_col, uid, tid) {
   ## state at start of year t (e.g. cumulative counts), so lag₀ is current.
   lag_offsets <- 0:(L - 1)
   lag_cols <- paste0("lag_", lag_offsets)
-  dt_d[, (lag_cols) := shift(get(h_col), lag_offsets), by = uid]
-  dt_d <- dt_d[complete.cases(dt_d[, ..lag_cols])]
+  ## dt_d[, (lag_cols) := shift(get(h_col), lag_offsets), by = uid]
 
-  dt_d[, hist_str := do.call(paste, c(.SD, sep = "_")), .SDcols = lag_cols]
-  dt_d
+  dt_lag <- collapse::L(dt_d, by = ~uid, n=lag_offsets, cols = h_col) %>% copy %>% 
+    .[, paste0("L0.", h_col) := get(h_col)] %>% 
+    setnames(old = paste0("L", lag_offsets, ".", h_col), new = paste0(lag_cols))
+
+  dt_d2 <- cbind(dt_d, dt_lag[, ..lag_cols])
+
+  ## dt_d2[Xlag_1 != lag_1 | Xlag_2 != lag_2 | Xlag_0 != lag_0 ]
+
+  
+  ## dt_d3 <- dt_d2[complete.cases(dt_d2[, ..lag_cols])]
+
+  dt_d3 <- collapse::na_omit(dt_d2, cols = lag_cols)
+
+  ## dt_d3[, hist_str := do.call(paste, c(.SD, sep = "_")), .SDcols = lag_cols]
+  dt_d3[, hist_str := collapse::finteraction(.SD, sep = "_"), .SDcols = lag_cols]
+  ## dt_d3[hist_str != hist_intr]
+  return(dt_d3)
 }
 
 #' @description
