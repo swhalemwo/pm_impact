@@ -151,6 +151,30 @@ md_prep_match <- function(dt, L, t_col, h_col, uid, tid) {
   dt_d
 }
 
+#' @description
+#' Constructs the long-format table used by CEM refinement. Each row is
+#' one observation in a matched set: control rows (one per control × set)
+#' and treated rows (one per unique treated × year). The `set` column
+#' identifies which treated unit and year the row belongs to.
+#'
+#' @param dt_match Data.table from gd_match_history(matches-info).
+#' @param uid String. Column name for the unit identifier (used in output).
+#' @param tid String. Column name for the time identifier.
+#' @return data.table with columns: uid, tid, treat, set, treated_id.
+gd_build_dt_long <- function(dt_match, uid, tid) {
+  ## first construct sets: each treated only once per TID
+  ## each treated unit once per time period (saves ~1.2s over head(.SD,1) per treated_id)
+  dt_set <- dt_match[, funique(.SD), .SDcols = c("treated_id", tid)] %>%
+    setnames(old = tid, new = "tid") %>%
+    .[, set := paste0(treated_id, "_", tid)]
+
+  ## join controls to sets, then add treated themselves
+  join(dt_match[, .(uid = control_id, tid = get(tid), treat = 0, treated_id)],
+       dt_set, on = c("treated_id", "tid")) %>%
+    rbind(dt_set[, .(uid = treated_id, treated_id, tid, set, treat = 1)])  ## add treated themselves
+}
+
+
 #' Refine matches using Coarsened Exact Matching (CEM) — data.table version.
 #'
 #' @description
@@ -182,36 +206,13 @@ gd_refine_matches <- function(dt_match, dt_full,
                               covariates, cutpoints,
                               uid, tid) {
 
-  ## transform matches to long format (one row per control, one row per treated)
-  
-  ## first construct sets: each treated only once per TID %>% can use unique (saves around 1.2 secs compared to calculating sets for entire dt_long)
-  dt_set <- dt_match[, funique(.SD), .SDcols = c("treated_id", tid)] %>%
-    setnames(old = tid, new = "tid") %>% 
-    .[, set := paste0(treated_id, "_", tid)]
-
-  ## then get long data: one person per row
-  ## dt_long_prep <- rbind(dt_match[, .(uid = control_id, tid = get(tid), treat = 0, treated_id)],
-  ##                       dt_match[, head(.SD, 1), treated_id] %>%
-  ##                  .[, .(uid = treated_id, tid = get(tid), treat = 1, treated_id)])
-  ## then merge sets
-  ## dt_long <- merge(dt_long_prep, dt_set, by = c("treated_id", "tid"))
-  ## dt_long2 <- join(dt_long_prep, dt_set, on = c("treated_id", "tid"), keep.col.order = F, verbose = 0)
-
-
-  ## first join set on treated_id and tid
-  dt_long <- join(dt_match[, .(uid = control_id, tid = get(tid), treat = 0, treated_id)],
-                  dt_set, on = c("treated_id", "tid"), verbose = F) %>%
-    rbind(dt_set[, .(uid = treated_id, treated_id, tid, set, treat = 1)]) # then add treated themselves
-
-
+  ## build long-format match table
+  dt_long <- gd_build_dt_long(dt_match, uid, tid)
 
   ## get unique person-years from the matched set
   dt_uq <- funique(dt_long[, .(uid, tid)])
-  ## dt_coarse <- merge(dt_uq, dt_full[, c(uid, tid, covariates), with = FALSE],
-  ##                    by.x = c("uid", "tid"), by.y = c(uid, tid))
-
   dt_coarse <- join(dt_uq, dt_full[, c(uid, tid, covariates), with = FALSE],
-                     on = c("uid" = uid, "tid" = tid), verbose = F)
+                     on = c("uid" = uid, "tid" = tid))
 
 
   ## compute breaks for each covariate
@@ -336,14 +337,8 @@ gd_refine_matches_matchit <- function(dt_match, dt_full,
                                       covariates, cutpoints,
                                       uid, tid) {
 
-  ## transform matches to long format
-  dt_long <- rbind(
-    dt_match[, .(uid = control_id, tid = get(tid), treat = 0,
-                 set = paste0(treated_id, "_", get(tid)))],
-    dt_match[, head(.SD, 1), treated_id
-    ][, .(uid = treated_id, tid = get(tid), treat = 1,
-          set = paste0(treated_id, "_", get(tid)))]
-  )
+  ## build long-format match table (same as DT version)
+  dt_long <- gd_build_dt_long(dt_match, uid, tid)
 
   ## merge covariates from full panel
   setnames(dt_long, c("uid", "tid"), c(uid, tid))
