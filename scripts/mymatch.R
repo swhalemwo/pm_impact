@@ -194,18 +194,18 @@ gd_refine_matches <- function(dt_match, dt_full,
   dt_coarse <- merge(dt_uq, dt_full[, c(uid, tid, covariates), with = FALSE],
                      by.x = c("uid", "tid"), by.y = c(uid, tid))
 
-  ## coarsen each covariate
-  invisible(lapply(covariates, function(v) {
+  ## compute breaks for each covariate
+  l_breaks <- setNames(lapply(covariates, function(v) {
     cp <- cutpoints[[v]]
-    if (is.null(cp)) stop("gd_refine_matches: cutpoints must specify a value for each covariate, missing: ", v)
+    if (is.null(cp)) stop("gd_refine_matches: cutpoints must specify a value for ", v)
     if (is.numeric(cp) && length(cp) == 1) {
-      rng <- range(dt_coarse[[v]], na.rm = TRUE)
-      breaks <- seq(rng[1], rng[2], length.out = cp + 1)
-      dt_coarse[, (paste0(".coarse_", v)) := coarse_bin(get(v), breaks = breaks)]
-    } else {
-      dt_coarse[, (paste0(".coarse_", v)) := coarse_bin(get(v), breaks = cp)]
-    }
-  }))
+      seq(range(dt_coarse[[v]], na.rm = TRUE)[1], range(dt_coarse[[v]], na.rm = TRUE)[2], length.out = cp + 1)
+    } else cp
+  }), covariates)
+
+  ## coarsen all covariates in one shot
+  l_coarse_cols <- paste0(".coarse_", covariates)
+  dt_coarse[, (l_coarse_cols) := lapply(covariates, function(v) coarse_bin(get(v), breaks = l_breaks[[v]]))]
 
   ## merge coarse columns to the full dt_long
   coarse_cols <- c("uid", "tid", covariates, paste0(".coarse_", covariates))
