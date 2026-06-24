@@ -1,9 +1,8 @@
 library(data.table)
 library(tinytest)
-library(collapse, include.only = c("join", "funique", "set_collapse"))
-set_collapse(verbose = 0)
 source("~/Dropbox/phd/papers/foster/scripts/mymatch.R")
 library(cobalt)
+set_collapse(verbose = 0)
 
 # --- Timing collector ---
 timings <- data.table(label = character(), time_s = numeric())

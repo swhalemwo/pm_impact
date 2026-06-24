@@ -1,7 +1,7 @@
 library(data.table)
 library(MatchIt)
 library(cobalt)
-library(collapse, include.only = c("join", "funique"))
+library(collapse, include.only = c("join", "funique", "set_collapse"))
 
 `%||%` <- function(x, y) if (is.null(x)) y else x
 
@@ -182,7 +182,12 @@ md_prep_match <- function(dt, L, t_col, h_col, uid, tid) {
   ## state at start of year t (e.g. cumulative counts), so lag₀ is current.
   lag_offsets <- 0:(L - 1)
   lag_cols <- paste0("lag_", lag_offsets)
-  ## dt_d[, (lag_cols) := shift(get(h_col), lag_offsets), by = uid]
+
+  if (nrow(dt_d) == 0) {
+    dt_d[, (lag_cols) := shift(get(h_col), lag_offsets), by = uid]
+    dt_d[, hist_str := collapse::finteraction(.SD, sep = "_"), .SDcols = lag_cols]
+    return(dt_d)
+  }
 
   dt_lag <- collapse::L(dt_d, by = ~uid, n=lag_offsets, cols = h_col) %>% copy %>% 
     .[, paste0("L0.", h_col) := get(h_col)] %>% 
