@@ -194,23 +194,18 @@ gd_refine_matches <- function(dt_match, dt_full,
   dt_coarse <- merge(dt_uq, dt_full[, c(uid, tid, covariates), with = FALSE],
                      by.x = c("uid", "tid"), by.y = c(uid, tid))
 
-  ## t1 <- Sys.time()
-  for (v in covariates) {
+  ## coarsen each covariate
+  invisible(lapply(covariates, function(v) {
     cp <- cutpoints[[v]]
     if (is.null(cp)) stop("gd_refine_matches: cutpoints must specify a value for each covariate, missing: ", v)
     if (is.numeric(cp) && length(cp) == 1) {
-      ## integer: bin boundaries from the matched unique person-years
-      ## (same range as matchit's binning on dt_long)
       rng <- range(dt_coarse[[v]], na.rm = TRUE)
       breaks <- seq(rng[1], rng[2], length.out = cp + 1)
       dt_coarse[, (paste0(".coarse_", v)) := coarse_bin(get(v), breaks = breaks)]
     } else {
-      ## break vector: use as-is
       dt_coarse[, (paste0(".coarse_", v)) := coarse_bin(get(v), breaks = cp)]
     }
-  }
-  ## t2 <- Sys.time()
-  ## t2-t1
+  }))
 
   ## merge coarse columns to the full dt_long
   coarse_cols <- c("uid", "tid", covariates, paste0(".coarse_", covariates))

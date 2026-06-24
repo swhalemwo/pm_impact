@@ -105,79 +105,78 @@ gd_test_quality_report <- function(cfg, mi, refined) {
   t0 <- Sys.time()
   params <- list(L = cfg$L, treatment_col = cfg$treatment_col, uid = cfg$uid,
                  covariates = cfg$covariates)
-  qr <- gd_quality_report(
+  dt_qr <- gd_quality_report(
     dt_prepared  = cfg$dt,
     dt_match     = mi,
     matchit_obj  = refined$matchit,
     refined_data = refined$data,
     params       = params)
 
-  expect_true(is.data.table(qr), info = sprintf("[%s] qr is data.table", cfg$label))
-  expect_equal(nrow(qr), 1L, info = sprintf("[%s] qr one row", cfg$label))
+  expect_true(is.data.table(dt_qr), info = sprintf("[%s] qr is data.table", cfg$label))
+  expect_equal(nrow(dt_qr), 1L, info = sprintf("[%s] qr one row", cfg$label))
   s1_cols <- c("n_treated", "n_matched", "match_rate", "pct_tier1", "pct_tier2",
                "avg_controls_per_treated", "min_controls_per_treated")
-  expect_true(all(s1_cols %in% names(qr)), info = sprintf("[%s] stage-1 cols", cfg$label))
+  expect_true(all(s1_cols %in% names(dt_qr)), info = sprintf("[%s] stage-1 cols", cfg$label))
   s2_cols <- c("n_after_cem", "cem_match_rate", "L1_before", "L1_after")
-  expect_true(all(s2_cols %in% names(qr)), info = sprintf("[%s] stage-2 cols", cfg$label))
-  for (v in cfg$covariates) {
-    expect_true(paste0("smd_", v, "_before") %in% names(qr),
+  expect_true(all(s2_cols %in% names(dt_qr)), info = sprintf("[%s] stage-2 cols", cfg$label))
+  invisible(lapply(cfg$covariates, function(v) {
+    expect_true(paste0("smd_", v, "_before") %in% names(dt_qr),
                 info = sprintf("[%s] SMD %s before", cfg$label, v))
-    expect_true(paste0("smd_", v, "_after") %in% names(qr),
+    expect_true(paste0("smd_", v, "_after") %in% names(dt_qr),
                 info = sprintf("[%s] SMD %s after", cfg$label, v))
-  }
-  expect_true(qr$match_rate >= 0 && qr$match_rate <= 1,
+  }))
+  expect_true(dt_qr$match_rate >= 0 && dt_qr$match_rate <= 1,
               info = sprintf("[%s] match_rate in [0,1]", cfg$label))
-  expect_true(abs((qr$pct_tier1 + qr$pct_tier2) - 1) < 1e-6,
+  expect_true(abs((dt_qr$pct_tier1 + dt_qr$pct_tier2) - 1) < 1e-6,
               info = sprintf("[%s] tier pcts sum to 1", cfg$label))
-  expect_equal(qr$n_matched, uniqueN(mi$treated_id),
+  expect_equal(dt_qr$n_matched, uniqueN(mi$treated_id),
                info = sprintf("[%s] n_matched correct", cfg$label))
 
   timings <<- rbind(timings, data.table(label = sprintf("%s quality report", cfg$label),
                                          time_s = round(as.numeric(Sys.time() - t0), 2)))
-  qr
+  dt_qr
 }
 
 gd_test_smd_vr <- function(cfg, refined) {
-  ## section 8: gd_smd_vr matches bal.tab
   t0 <- Sys.time()
-  cdf <- refined$data[, cfg$covariates, with = FALSE]
+  ## SMD/VR comparison
+  dt_cdf <- refined$data[, cfg$covariates, with = FALSE]
   tv  <- refined$data$treat
   w   <- refined$matchit$weights
 
-  bt <- bal.tab(cdf, treat = tv, weights = w, un = TRUE,
+  dt_bt <- bal.tab(dt_cdf, treat = tv, weights = w, un = TRUE,
                 stats = c("mean.diffs", "variance.ratios"),
                 binary = "std", continuous = "std")
-  fs <- gd_smd_vr(cdf, tv, w)
-  for (i in seq_len(nrow(fs))) {
-    cn <- fs$cov[i]
-    expect_equal(fs$smd_un[i],  bt$Balance[cn, "Diff.Un"],    tolerance = 1e-6,
+  dt_smd <- gd_smd_vr(dt_cdf, tv, w)
+  invisible(lapply(seq_len(nrow(dt_smd)), function(i) {
+    cn <- dt_smd$cov[i]
+    expect_equal(dt_smd$smd_un[i],  dt_bt$Balance[cn, "Diff.Un"],    tolerance = 1e-6,
                  info = sprintf("[%s] %s smd_un", cfg$label, cn))
-    expect_equal(fs$smd_adj[i], bt$Balance[cn, "Diff.Adj"],    tolerance = 1e-6,
+    expect_equal(dt_smd$smd_adj[i], dt_bt$Balance[cn, "Diff.Adj"],    tolerance = 1e-6,
                  info = sprintf("[%s] %s smd_adj", cfg$label, cn))
-    expect_equal(fs$vr_un[i],   bt$Balance[cn, "V.Ratio.Un"],  tolerance = 1e-6,
+    expect_equal(dt_smd$vr_un[i],   dt_bt$Balance[cn, "V.Ratio.Un"],  tolerance = 1e-6,
                  info = sprintf("[%s] %s vr_un", cfg$label, cn))
-    expect_equal(fs$vr_adj[i],  bt$Balance[cn, "V.Ratio.Adj"], tolerance = 1e-6,
+    expect_equal(dt_smd$vr_adj[i],  dt_bt$Balance[cn, "V.Ratio.Adj"], tolerance = 1e-6,
                  info = sprintf("[%s] %s vr_adj", cfg$label, cn))
-  }
+  }))
 
   ## gd_l1_med wrapper
-  l1_before <- gd_l1_med(cdf, tv, rep(1, length(tv)), l1.n = 51)
-  l1_after  <- gd_l1_med(cdf, tv, w, l1.n = 51)
+  l1_before <- gd_l1_med(dt_cdf, tv, rep(1, length(tv)), l1.n = 51)
+  l1_after  <- gd_l1_med(dt_cdf, tv, w, l1.n = 51)
   expect_true(is.numeric(l1_before) && l1_before >= 0 && l1_before <= 1,
               info = sprintf("[%s] l1_med before in [0,1]", cfg$label))
   expect_true(is.numeric(l1_after)  && l1_after  >= 0 && l1_after  <= 1,
               info = sprintf("[%s] l1_med after in [0,1]", cfg$label))
 
   ## gd_bal_cols_cov edge case
-  dt_smd <- gd_smd_vr(cdf, tv, w)
-  bc <- gd_bal_cols_cov("nonexistent", dt_smd)
-  expect_true(is.data.table(bc), info = sprintf("[%s] bc data.table", cfg$label))
-  expect_equal(nrow(bc), 1L, info = sprintf("[%s] bc one row", cfg$label))
-  expect_true(all(is.na(unlist(bc))), info = sprintf("[%s] bc all NA", cfg$label))
+  dt_bc <- gd_bal_cols_cov("nonexistent", dt_smd)
+  expect_true(is.data.table(dt_bc), info = sprintf("[%s] bc data.table", cfg$label))
+  expect_equal(nrow(dt_bc), 1L, info = sprintf("[%s] bc one row", cfg$label))
+  expect_true(all(is.na(unlist(dt_bc))), info = sprintf("[%s] bc all NA", cfg$label))
 
   timings <<- rbind(timings, data.table(label = sprintf("%s smd_vr", cfg$label),
                                          time_s = round(as.numeric(Sys.time() - t0), 2)))
-  list(cdf = cdf, tv = tv, w = w)
+  list(cdf = dt_cdf, tv = tv, w = w)
 }
 
 gd_test_l1_crossval <- function(cfg, mi) {
@@ -185,8 +184,7 @@ gd_test_l1_crossval <- function(cfg, mi) {
   if (!run_slow || !cfg$slow) return()
   t0 <- Sys.time()
   set.seed(42)
-  l1_results <- list()
-  l1_params <- list(
+  l_params <- list(
     list(cov = cfg$covariates,                     cp = 8),
     list(cov = cfg$covariates,                     cp = 6),
     list(cov = cfg$covariates,                     cp = 4),
@@ -194,46 +192,44 @@ gd_test_l1_crossval <- function(cfg, mi) {
     list(cov = cfg$covariates[1],                   cp = 8),
     list(cov = cfg$covariates[1],                   cp = 4)
   )
-  for (p in l1_params) {
+  dt_l1 <- rbindlist(lapply(l_params, function(p) {
     cp <- setNames(rep(list(p$cp), length(p$cov)), p$cov)
-    if (length(cp) == 0) next
+    if (length(cp) == 0) return(NULL)
     r <- gd_refine_matches(mi, cfg$dt, uid = cfg$uid, tid = cfg$tid,
                             covariates = p$cov, cutpoints = cp)
     covs <- p$cov
-    cdf <- r$data[, covs, with = FALSE]
+    dt_cov <- r$data[, covs, with = FALSE]
     tv  <- r$data$treat
     w   <- r$matchit$weights
 
-    init <- bal.init(cdf, treat = tv, stat = "l1.med")
+    init <- bal.init(dt_cov, treat = tv, stat = "l1.med")
     co_before <- bal.compute(init, weights = rep(1, length(tv)))
     co_after  <- bal.compute(init, weights = w)
-    my <- gd_l1_med_both(cdf, tv, w, l1.n = 101, seed = 42)
+    my <- gd_l1_med_both(dt_cov, tv, w, l1.n = 101, seed = 42)
 
-    l1_results[[length(l1_results) + 1]] <- data.table(
-      combo = paste(p$cov, collapse = "+"),
-      co_before, co_after, my_before = my$before, my_after = my$after)
-  }
-  l1_tab <- rbindlist(l1_results)
-  l1_tab[, `:=`(diff_before = abs(co_before - my_before),
+    data.table(combo = paste(p$cov, collapse = "+"),
+               co_before, co_after, my_before = my$before, my_after = my$after)
+  }))
+  dt_l1[, `:=`(diff_before = abs(co_before - my_before),
                 diff_after  = abs(co_after - my_after),
                 sign_agree_before = sign(co_before) == sign(my_before),
                 sign_agree_after  = sign(co_after) == sign(my_after))]
 
-  expect_true(all(l1_tab$sign_agree_before),
+  expect_true(all(dt_l1$sign_agree_before),
               info = sprintf("[%s] L1 before sign agrees", cfg$label))
-  expect_true(all(l1_tab$sign_agree_after),
+  expect_true(all(dt_l1$sign_agree_after),
               info = sprintf("[%s] L1 after sign agrees", cfg$label))
-  l1_tab[, `:=`(co_reduction = co_before - co_after,
+  dt_l1[, `:=`(co_reduction = co_before - co_after,
                 my_reduction = my_before - my_after)]
-  expect_true(all(l1_tab$co_reduction > 0),
+  expect_true(all(dt_l1$co_reduction > 0),
               info = sprintf("[%s] cobalt L1 decreases", cfg$label))
-  expect_true(all(l1_tab$my_reduction > 0),
+  expect_true(all(dt_l1$my_reduction > 0),
               info = sprintf("[%s] our L1 decreases", cfg$label))
-  mad_before <- mean(l1_tab$diff_before)
+  mad_before <- mean(dt_l1$diff_before)
   expect_true(mad_before < 0.005,
               info = sprintf("[%s] L1 before MAE < 0.005: %.4f", cfg$label, mad_before))
-  if (nrow(l1_tab) >= 3) {
-    r_after <- cor(l1_tab$co_after, l1_tab$my_after, method = "spearman")
+  if (nrow(dt_l1) >= 3) {
+    r_after <- cor(dt_l1$co_after, dt_l1$my_after, method = "spearman")
     expect_true(r_after > 0.8,
                 info = sprintf("[%s] L1 after rho > 0.8: %.2f", cfg$label, r_after))
   }
@@ -242,39 +238,39 @@ gd_test_l1_crossval <- function(cfg, mi) {
                                          time_s = round(as.numeric(Sys.time() - t0), 2)))
 }
 
-gd_test_pipeline <- function(cfg, mi, refined, qr) {
+gd_test_pipeline <- function(cfg, mi, refined, dt_qr) {
   ## sections 10-13: pipeline e2e, empty matches, sampling
   t0 <- Sys.time()
   params <- list(L = cfg$L, treatment_col = cfg$treatment_col,
                  history_col = cfg$history_col, uid = cfg$uid, tid = cfg$tid,
                  covariates = cfg$covariates, cutpoints = cfg$cutpoints)
 
-  qr2 <- gd_run_match_pipeline(cfg$dt, params)
-  expect_true(is.data.table(qr2), info = sprintf("[%s] qr2 data.table", cfg$label))
-  expect_equal(nrow(qr2), 1L, info = sprintf("[%s] qr2 one row", cfg$label))
-  expect_true("L" %in% names(qr2), info = sprintf("[%s] qr2 has L", cfg$label))
-  expect_equal(qr2$L, cfg$L, info = sprintf("[%s] L passed through", cfg$label))
-  expect_equal(qr2$n_matched, qr$n_matched,
+  dt_qr2 <- gd_run_match_pipeline(cfg$dt, params)
+  expect_true(is.data.table(dt_qr2), info = sprintf("[%s] qr2 data.table", cfg$label))
+  expect_equal(nrow(dt_qr2), 1L, info = sprintf("[%s] qr2 one row", cfg$label))
+  expect_true("L" %in% names(dt_qr2), info = sprintf("[%s] qr2 has L", cfg$label))
+  expect_equal(dt_qr2$L, cfg$L, info = sprintf("[%s] L passed through", cfg$label))
+  expect_equal(dt_qr2$n_matched, dt_qr$n_matched,
                info = sprintf("[%s] n_matched consistent", cfg$label))
-  expect_equal(qr2$n_treated, qr$n_treated,
+  expect_equal(dt_qr2$n_treated, dt_qr$n_treated,
                info = sprintf("[%s] n_treated consistent", cfg$label))
-  combined <- rbind(qr, qr2, fill = TRUE)
+  combined <- rbind(dt_qr, dt_qr2, fill = TRUE)
   expect_equal(nrow(combined), 2L, info = sprintf("[%s] rbind-able", cfg$label))
 
   ## empty matches
-  qr_empty <- gd_run_match_pipeline(cfg$dt[FALSE], params)
-  expect_true(is.data.table(qr_empty), info = sprintf("[%s] empty data.table", cfg$label))
-  expect_equal(nrow(qr_empty), 1L, info = sprintf("[%s] empty one row", cfg$label))
-  expect_equal(qr_empty$n_matched, 0L, info = sprintf("[%s] empty n_matched=0", cfg$label))
-  expect_true(is.na(qr_empty$L1_before), info = sprintf("[%s] empty L1 NA", cfg$label))
+  dt_qr_empty <- gd_run_match_pipeline(cfg$dt[FALSE], params)
+  expect_true(is.data.table(dt_qr_empty), info = sprintf("[%s] empty data.table", cfg$label))
+  expect_equal(nrow(dt_qr_empty), 1L, info = sprintf("[%s] empty one row", cfg$label))
+  expect_equal(dt_qr_empty$n_matched, 0L, info = sprintf("[%s] empty n_matched=0", cfg$label))
+  expect_true(is.na(dt_qr_empty$L1_before), info = sprintf("[%s] empty L1 NA", cfg$label))
 
   ## sampling
-  qr_smp <- gd_run_match_pipeline(cfg$dt, params, sample_n_treated = 100L)
-  expect_true(is.data.table(qr_smp), info = sprintf("[%s] smp data.table", cfg$label))
-  expect_equal(nrow(qr_smp), 1L, info = sprintf("[%s] smp one row", cfg$label))
-  expect_equal(qr_smp$n_matched, qr2$n_matched,
+  dt_qr_smp <- gd_run_match_pipeline(cfg$dt, params, sample_n_treated = 100L)
+  expect_true(is.data.table(dt_qr_smp), info = sprintf("[%s] smp data.table", cfg$label))
+  expect_equal(nrow(dt_qr_smp), 1L, info = sprintf("[%s] smp one row", cfg$label))
+  expect_equal(dt_qr_smp$n_matched, dt_qr2$n_matched,
                info = sprintf("[%s] smp match count unchanged", cfg$label))
-  expect_true(qr_smp$n_after_cem <= 100L,
+  expect_true(dt_qr_smp$n_after_cem <= 100L,
               info = sprintf("[%s] smp ≤100 treated", cfg$label))
 
   timings <<- rbind(timings, data.table(label = sprintf("%s pipeline", cfg$label),
@@ -288,22 +284,22 @@ gd_test_helpers <- function(cfg, refined) {
                  covariates = cfg$covariates)
 
   ## qr_s1 empty
-  s1 <- gd_quality_report_s1(cfg$dt, data.table(), params)
-  expect_true(is.data.table(s1), info = "s1_empty data.table")
-  expect_equal(s1$n_matched, 0L, info = "s1_empty n_matched=0")
-  expect_equal(s1$match_rate, 0, info = "s1_empty match_rate=0")
-  expect_true(is.na(s1$pct_tier1), info = "s1_empty pct_tier1 NA")
+  dt_s1 <- gd_quality_report_s1(cfg$dt, data.table(), params)
+  expect_true(is.data.table(dt_s1), info = "s1_empty data.table")
+  expect_equal(dt_s1$n_matched, 0L, info = "s1_empty n_matched=0")
+  expect_equal(dt_s1$match_rate, 0, info = "s1_empty match_rate=0")
+  expect_true(is.na(dt_s1$pct_tier1), info = "s1_empty pct_tier1 NA")
 
   ## qr_s2 NULL and no-cov
-  s2 <- gd_quality_report_s2(NULL, NULL, params)
-  expect_true(is.data.table(s2), info = "s2_null data.table")
-  expect_true(all(is.na(s2$n_after_cem)), info = "s2_null n_after_cem NA")
+  dt_s2 <- gd_quality_report_s2(NULL, NULL, params)
+  expect_true(is.data.table(dt_s2), info = "s2_null data.table")
+  expect_true(all(is.na(dt_s2$n_after_cem)), info = "s2_null n_after_cem NA")
 
   ## s2_nocov: no covariates intersect (matchit_obj not NULL, real data)
-  s2_nc <- gd_quality_report_s2(refined$matchit, refined$data,
+  dt_s2_nc <- gd_quality_report_s2(refined$matchit, refined$data,
                                  list(covariates = "nonexistent"))
-  expect_true(is.data.table(s2_nc), info = "s2_nocov data.table")
-  expect_true(all(is.na(s2_nc$L1_before)), info = "s2_nocov L1 NA")
+  expect_true(is.data.table(dt_s2_nc), info = "s2_nocov data.table")
+  expect_true(all(is.na(dt_s2_nc$L1_before)), info = "s2_nocov L1 NA")
 
   ## coarse_bin edges
   expect_equal(coarse_bin(c(1,2,3), 1), c(1L, 1L, 1L), info = "coarse_bin nbins=1")
@@ -482,10 +478,10 @@ gd_test_quantile_refine <- function(cfg, mi) {
 test_config <- function(cfg) {
   mi   <- gd_test_basic(cfg)
   ref  <- gd_test_cem_refine(cfg, mi)
-  qr   <- gd_test_quality_report(cfg, mi, ref)
+  dt_qr   <- gd_test_quality_report(cfg, mi, ref)
   gd_test_smd_vr(cfg, ref)
   gd_test_l1_crossval(cfg, mi)
-  gd_test_pipeline(cfg, mi, ref, qr)
+  gd_test_pipeline(cfg, mi, ref, dt_qr)
   gd_test_helpers(cfg, ref)
   gd_test_invariants(cfg, mi)
   gd_test_matchit_structure(cfg, mi)
