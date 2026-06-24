@@ -42,7 +42,7 @@ configs <- list(
 gd_test_basic <- function(cfg) {
   ## sections 1-5: summary, matches, consistency, matches-info, tier exclusivity
   t0 <- Sys.time()
-  r_s <- gd_match_history(cfg$dt, L = cfg$L, treatment_col = cfg$treatment_col,
+  r_s <- gd_match_history(cfg$dt, L = cfg$L, treatment_col = cfg$treatment_col,  ## r_s: match history summary
                            history_col = cfg$history_col, uid = cfg$uid, tid = cfg$tid,
                            return_type = "summary")
   expect_true(is.data.frame(r_s), info = sprintf("[%s] summary is data.frame", cfg$label))
@@ -50,7 +50,7 @@ gd_test_basic <- function(cfg) {
               info = sprintf("[%s] summary columns", cfg$label))
   expect_true(r_s$total_treated > 0, info = sprintf("[%s] non-zero treated", cfg$label))
 
-  r_f <- gd_match_history(cfg$dt, L = cfg$L, treatment_col = cfg$treatment_col,
+  r_f <- gd_match_history(cfg$dt, L = cfg$L, treatment_col = cfg$treatment_col,  ## r_f: match history full matches
                            history_col = cfg$history_col, uid = cfg$uid, tid = cfg$tid,
                            return_type = "matches")
   expect_true(nrow(r_f) > 0, info = sprintf("[%s] matches non-empty", cfg$label))
@@ -65,15 +65,15 @@ gd_test_basic <- function(cfg) {
   expect_equal(as.numeric(r_s$treated_matched), as.numeric(uniqueN(r_f$treated_id)),
                info = sprintf("[%s] treated_matched consistent", cfg$label))
 
-  r_mi <- gd_match_history(cfg$dt, L = cfg$L, treatment_col = cfg$treatment_col,
+  r_mi <- gd_match_history(cfg$dt, L = cfg$L, treatment_col = cfg$treatment_col,  ## r_mi: match history matches-info
                             history_col = cfg$history_col, uid = cfg$uid, tid = cfg$tid,
                             return_type = "matches-info")
   expect_true(nrow(r_mi) > 0, info = sprintf("[%s] matches-info non-empty", cfg$label))
   expect_true(all(c("match_key", "match_tier") %in% names(r_mi)),
               info = sprintf("[%s] matches-info columns", cfg$label))
 
-  ## tier exclusivity
-  dt_tc <- r_mi[, .(nbr = uniqueN(match_tier)), treated_id]
+  ## check tier exclusivity: each treated unit in exactly one tier
+  dt_tc <- r_mi[, .(nbr = uniqueN(match_tier)), treated_id]  ## dt_tc: tier counts per treated
   expect_true(max(dt_tc$nbr) == 1, info = sprintf("[%s] one tier per treated", cfg$label))
 
   timings <<- rbind(timings, data.table(label = sprintf("%s basic", cfg$label),
@@ -105,7 +105,7 @@ gd_test_quality_report <- function(cfg, mi, refined) {
   t0 <- Sys.time()
   params <- list(L = cfg$L, treatment_col = cfg$treatment_col, uid = cfg$uid,
                  covariates = cfg$covariates)
-  dt_qr <- gd_quality_report(
+  dt_qr <- gd_quality_report(  ## dt_qr: quality report (stage 1 + stage 2 + params)
     dt_prepared  = cfg$dt,
     dt_match     = mi,
     matchit_obj  = refined$matchit,
@@ -139,15 +139,15 @@ gd_test_quality_report <- function(cfg, mi, refined) {
 
 gd_test_smd_vr <- function(cfg, refined) {
   t0 <- Sys.time()
-  ## SMD/VR comparison
-  dt_cdf <- refined$data[, cfg$covariates, with = FALSE]
-  tv  <- refined$data$treat
-  w   <- refined$matchit$weights
+  ## compare gd_smd_vr against cobalt::bal.tab
+  dt_cdf <- refined$data[, cfg$covariates, with = FALSE]  ## dt_cdf: covariate data frame
+  tv  <- refined$data$treat                                ## tv: treatment vector (0/1)
+  w   <- refined$matchit$weights                            ## w: CEM weights
 
-  dt_bt <- bal.tab(dt_cdf, treat = tv, weights = w, un = TRUE,
+  dt_bt <- bal.tab(dt_cdf, treat = tv, weights = w, un = TRUE,  ## dt_bt: bal.tab output from cobalt
                 stats = c("mean.diffs", "variance.ratios"),
                 binary = "std", continuous = "std")
-  dt_smd <- gd_smd_vr(dt_cdf, tv, w)
+  dt_smd <- gd_smd_vr(dt_cdf, tv, w)  ## dt_smd: standardized mean differences + variance ratios
   invisible(lapply(seq_len(nrow(dt_smd)), function(i) {
     cn <- dt_smd$cov[i]
     expect_equal(dt_smd$smd_un[i],  dt_bt$Balance[cn, "Diff.Un"],    tolerance = 1e-6,
@@ -168,8 +168,8 @@ gd_test_smd_vr <- function(cfg, refined) {
   expect_true(is.numeric(l1_after)  && l1_after  >= 0 && l1_after  <= 1,
               info = sprintf("[%s] l1_med after in [0,1]", cfg$label))
 
-  ## gd_bal_cols_cov edge case
-  dt_bc <- gd_bal_cols_cov("nonexistent", dt_smd)
+  ## gd_bal_cols_cov edge case: no matching cov in smd_results
+  dt_bc <- gd_bal_cols_cov("nonexistent", dt_smd)  ## dt_bc: balance columns (smd/vr) for one cov
   expect_true(is.data.table(dt_bc), info = sprintf("[%s] bc data.table", cfg$label))
   expect_equal(nrow(dt_bc), 1L, info = sprintf("[%s] bc one row", cfg$label))
   expect_true(all(is.na(unlist(dt_bc))), info = sprintf("[%s] bc all NA", cfg$label))
@@ -192,7 +192,7 @@ gd_test_l1_crossval <- function(cfg, mi) {
     list(cov = cfg$covariates[1],                   cp = 8),
     list(cov = cfg$covariates[1],                   cp = 4)
   )
-  dt_l1 <- rbindlist(lapply(l_params, function(p) {
+  dt_l1 <- rbindlist(lapply(l_params, function(p) {  ## dt_l1: L1 imbalance results across parameter combos
     cp <- setNames(rep(list(p$cp), length(p$cov)), p$cov)
     if (length(cp) == 0) return(NULL)
     r <- gd_refine_matches(mi, cfg$dt, uid = cfg$uid, tid = cfg$tid,
@@ -245,7 +245,7 @@ gd_test_pipeline <- function(cfg, mi, refined, dt_qr) {
                  history_col = cfg$history_col, uid = cfg$uid, tid = cfg$tid,
                  covariates = cfg$covariates, cutpoints = cfg$cutpoints)
 
-  dt_qr2 <- gd_run_match_pipeline(cfg$dt, params)
+  dt_qr2 <- gd_run_match_pipeline(cfg$dt, params)  ## dt_qr2: quality report from pipeline run
   expect_true(is.data.table(dt_qr2), info = sprintf("[%s] qr2 data.table", cfg$label))
   expect_equal(nrow(dt_qr2), 1L, info = sprintf("[%s] qr2 one row", cfg$label))
   expect_true("L" %in% names(dt_qr2), info = sprintf("[%s] qr2 has L", cfg$label))
@@ -257,15 +257,15 @@ gd_test_pipeline <- function(cfg, mi, refined, dt_qr) {
   combined <- rbind(dt_qr, dt_qr2, fill = TRUE)
   expect_equal(nrow(combined), 2L, info = sprintf("[%s] rbind-able", cfg$label))
 
-  ## empty matches
-  dt_qr_empty <- gd_run_match_pipeline(cfg$dt[FALSE], params)
+  ## empty matches test: no data → NA results
+  dt_qr_empty <- gd_run_match_pipeline(cfg$dt[FALSE], params)  ## dt_qr_empty: quality report, empty input
   expect_true(is.data.table(dt_qr_empty), info = sprintf("[%s] empty data.table", cfg$label))
   expect_equal(nrow(dt_qr_empty), 1L, info = sprintf("[%s] empty one row", cfg$label))
   expect_equal(dt_qr_empty$n_matched, 0L, info = sprintf("[%s] empty n_matched=0", cfg$label))
   expect_true(is.na(dt_qr_empty$L1_before), info = sprintf("[%s] empty L1 NA", cfg$label))
 
-  ## sampling
-  dt_qr_smp <- gd_run_match_pipeline(cfg$dt, params, sample_n_treated = 100L)
+  ## sampling: CEM refinement on 100 treated only
+  dt_qr_smp <- gd_run_match_pipeline(cfg$dt, params, sample_n_treated = 100L)  ## dt_qr_smp: quality report with sampling
   expect_true(is.data.table(dt_qr_smp), info = sprintf("[%s] smp data.table", cfg$label))
   expect_equal(nrow(dt_qr_smp), 1L, info = sprintf("[%s] smp one row", cfg$label))
   expect_equal(dt_qr_smp$n_matched, dt_qr2$n_matched,
@@ -283,21 +283,21 @@ gd_test_helpers <- function(cfg, refined) {
   params <- list(L = cfg$L, treatment_col = cfg$treatment_col, uid = cfg$uid,
                  covariates = cfg$covariates)
 
-  ## qr_s1 empty
+  ## qr_s1: stage 1 — exact matching coverage (empty input)
   dt_s1 <- gd_quality_report_s1(cfg$dt, data.table(), params)
   expect_true(is.data.table(dt_s1), info = "s1_empty data.table")
   expect_equal(dt_s1$n_matched, 0L, info = "s1_empty n_matched=0")
   expect_equal(dt_s1$match_rate, 0, info = "s1_empty match_rate=0")
   expect_true(is.na(dt_s1$pct_tier1), info = "s1_empty pct_tier1 NA")
 
-  ## qr_s2 NULL and no-cov
+  ## qr_s2: stage 2 — balance diagnostics (NULL input)
   dt_s2 <- gd_quality_report_s2(NULL, NULL, params)
   expect_true(is.data.table(dt_s2), info = "s2_null data.table")
   expect_true(all(is.na(dt_s2$n_after_cem)), info = "s2_null n_after_cem NA")
 
-  ## s2_nocov: no covariates intersect (matchit_obj not NULL, real data)
+  ## s2_nocov: no covariates intersect — tests non-NULL matchit path
   dt_s2_nc <- gd_quality_report_s2(refined$matchit, refined$data,
-                                 list(covariates = "nonexistent"))
+                                 list(covariates = "nonexistent"))  ## dt_s2_nc: stage 2 no covariates
   expect_true(is.data.table(dt_s2_nc), info = "s2_nocov data.table")
   expect_true(all(is.na(dt_s2_nc$L1_before)), info = "s2_nocov L1 NA")
 
@@ -328,7 +328,7 @@ gd_test_invariants <- function(cfg, mi) {
   s_ids <- unique(na.omit(r$data$subclass))
   expect_equal(length(s_ids), length(unique(s_ids)),
                info = sprintf("[%s] unique subclasses", cfg$label))
-  sc <- r$data[!is.na(subclass), .(nt = sum(treat == 1), nc = sum(treat == 0)), by = subclass]
+  sc <- r$data[!is.na(subclass), .(nt = sum(treat == 1), nc = sum(treat == 0)), by = subclass]  ## sc: subclass composition (treated/control counts)
   expect_true(all(sc$nt >= 1), info = sprintf("[%s] each subclass has treated", cfg$label))
   expect_true(all(sc$nc >= 1), info = sprintf("[%s] each subclass has control", cfg$label))
   expect_true(all(r$data[!is.na(subclass) & treat == 1, weight == 1]),
@@ -447,7 +447,7 @@ gd_test_quantile_refine <- function(cfg, mi) {
               info = sprintf("[%s] quantile subclass", cfg$label))
   expect_true(inherits(r_q$matchit, "matchit"),
               info = sprintf("[%s] quantile matchit class", cfg$label))
-  sc_q <- r_q$data[!is.na(subclass), .(nt = sum(treat == 1), nc = sum(treat == 0)), by = subclass]
+  sc_q <- r_q$data[!is.na(subclass), .(nt = sum(treat == 1), nc = sum(treat == 0)), by = subclass]  ## sc_q: subclass composition, quantile breaks
   expect_true(all(sc_q$nt >= 1), info = sprintf("[%s] quantile has treated", cfg$label))
   expect_true(all(sc_q$nc >= 1), info = sprintf("[%s] quantile has control", cfg$label))
   expect_true(all(r_q$data[!is.na(subclass) & treat == 1, weight == 1]),
