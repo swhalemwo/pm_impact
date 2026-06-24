@@ -183,16 +183,36 @@ gd_refine_matches <- function(dt_match, dt_full,
                               uid, tid) {
 
   ## transform matches to long format (one row per control, one row per treated)
-  dt_long <- rbind(dt_match[, .(uid = control_id, tid = get(tid), treat = 0,
-                                set = paste0(treated_id, "_", get(tid)))],
-                   dt_match[, head(.SD, 1), treated_id] %>%
-                   .[, .(uid = treated_id, tid = get(tid), treat = 1,
-                         set = paste0(treated_id, "_", get(tid)))])
+  
+  ## first construct sets: each treated only once per TID %>% can use unique (saves around 1.2 secs compared to calculating sets for entire dt_long)
+  dt_set <- dt_match[, funique(.SD), .SDcols = c("treated_id", tid)] %>%
+    setnames(old = tid, new = "tid") %>% 
+    .[, set := paste0(treated_id, "_", tid)]
+
+  ## then get long data: one person per row
+  ## dt_long_prep <- rbind(dt_match[, .(uid = control_id, tid = get(tid), treat = 0, treated_id)],
+  ##                       dt_match[, head(.SD, 1), treated_id] %>%
+  ##                  .[, .(uid = treated_id, tid = get(tid), treat = 1, treated_id)])
+  ## then merge sets
+  ## dt_long <- merge(dt_long_prep, dt_set, by = c("treated_id", "tid"))
+  ## dt_long2 <- join(dt_long_prep, dt_set, on = c("treated_id", "tid"), keep.col.order = F, verbose = 0)
+
+
+  ## first join set on treated_id and tid
+  dt_long <- join(dt_match[, .(uid = control_id, tid = get(tid), treat = 0, treated_id)],
+                  dt_set, on = c("treated_id", "tid"), verbose = F) %>%
+    rbind(dt_set[, .(uid = treated_id, treated_id, tid, set, treat = 1)]) # then add treated themselves
+
+
 
   ## get unique person-years from the matched set
-  dt_uq <- unique(dt_long[, .(uid, tid)])
-  dt_coarse <- merge(dt_uq, dt_full[, c(uid, tid, covariates), with = FALSE],
-                     by.x = c("uid", "tid"), by.y = c(uid, tid))
+  dt_uq <- funique(dt_long[, .(uid, tid)])
+  ## dt_coarse <- merge(dt_uq, dt_full[, c(uid, tid, covariates), with = FALSE],
+  ##                    by.x = c("uid", "tid"), by.y = c(uid, tid))
+
+  dt_coarse <- join(dt_uq, dt_full[, c(uid, tid, covariates), with = FALSE],
+                     on = c("uid" = uid, "tid" = tid), verbose = F)
+
 
   ## compute breaks for each covariate
   l_breaks <- setNames(lapply(covariates, function(v) {
@@ -426,10 +446,24 @@ gd_run_match_pipeline <- function(dt, params, dt_full = dt,
   ## subsample treated for CEM stage if requested
   dt_cem <- dt_match
   if (!is.null(sample_n_treated)) {
-    treated_all <- unique(dt_match$treated_id)
+
+    treated_all <- funique(dt_match$treated_id)
+    
     if (length(treated_all) > sample_n_treated) {
+
       keep <- sample(treated_all, sample_n_treated)
-      dt_cem <- dt_match[treated_id %in% keep]
+
+      ## dt_match_bu <- dt_match %>% copy
+
+      ## dt_match <- dt_match_bu %>% copy
+      
+      ## setkey(dt_match, treated_id)
+      ## dt_cem <- dt_match[treated_id %in% keep]
+      
+      ## setkey(dt_match, treated_id)
+      ## dt_cem <- dt_match[.(keep), nomatch = NULL]
+
+      dt_cem <- dt_match[.(keep), on = .(treated_id), nomatch= NULL]
     }
   }
 

@@ -425,14 +425,14 @@ params <- list(
   L             = 3,
   treatment_col = "exn_pm",
   history_col   = "exn_pm_cum",
-  unit_id       = "PeopleID",
-  time_id       = "year",
+  uid       = "PeopleID",
+  tid       = "year",
   covariates    = c("BirthYear", "exn_all_cum_ihs"),
   cutpoints     = list(BirthYear = 8, exn_all_cum_ihs = 8)
 )
 
 t1 = Sys.time()
-qr2 <- gd_run_match_pipeline(dt_test, params, sample_n_treated = 1500)
+qr2 <- gd_run_match_pipeline(dt_test, params, sample_n_treated = 3000)
 t2 = Sys.time()
 t2-t1
 
