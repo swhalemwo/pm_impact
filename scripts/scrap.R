@@ -507,7 +507,7 @@ gd_quality_rep_min <- function(dt_panel, refined, params, sample_n_treated) {
 
 
 ## set up grid
-dt_snt_grid <- expand.grid(run = 1:4, snt = c(30, 100, 3000, 1000, 2000)) %>% adt
+dt_snt_grid <- expand.grid(run = 1:7, snt = c(30, 100, 300, 1000, 3000)) %>% adt
 
 ## actual testing
 dt_res_snt <- map(dt_snt_grid$snt,
@@ -520,7 +520,7 @@ dt_res_snt %>% copy %>%
     .[, L1_diff := L1_before - L1_after] %>%
     melt(id.vars = c("snt", "run"), measure.vars = c("L1_after", "L1_before", "L1_diff", "cem_match_rate",
                                                      ## "n_treated", "n_matched", "match_rate", # constant
-                                                     "smd_BirthYear_before", "smd_BirthYear_after"
+                                                     "smd_BirthYear_before", "smd_BirthYear_after", "tdiff"
                                                      )) %>% 
     ggplot(aes(x = factor(snt), y= value, color = variable)) + geom_point() +
     facet_grid(variable ~., scale = "free_y")
