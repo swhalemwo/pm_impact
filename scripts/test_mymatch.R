@@ -2,7 +2,6 @@ library(data.table)
 library(tinytest)
 source("~/Dropbox/phd/papers/foster/scripts/mymatch.R")
 library(cobalt)
-set_collapse(verbose = 0)
 
 # --- Timing collector ---
 timings <- data.table(label = character(), time_s = numeric())
@@ -43,6 +42,7 @@ configs <- list(
 gd_test_basic <- function(cfg) {
   ## sections 1-5: summary, matches, consistency, matches-info, tier exclusivity
   t0 <- Sys.time()
+  
   r_s <- gd_match_history(cfg$dt, L = cfg$L, treatment_col = cfg$treatment_col,  ## r_s: match history summary
                            history_col = cfg$history_col, uid = cfg$uid, tid = cfg$tid,
                            return_type = "summary")
@@ -290,7 +290,7 @@ gd_test_helpers <- function(cfg, refined) {
   expect_equal(dt_s1$n_matched, 0L, info = "s1_empty n_matched=0")
   expect_equal(dt_s1$match_rate, 0, info = "s1_empty match_rate=0")
   expect_true(is.na(dt_s1$pct_tier1), info = "s1_empty pct_tier1 NA")
-
+  
   ## qr_s2: stage 2 — balance diagnostics (NULL input)
   dt_s2 <- gd_quality_report_s2(NULL, NULL, params)
   expect_true(is.data.table(dt_s2), info = "s2_null data.table")
@@ -475,20 +475,36 @@ gd_test_quantile_refine <- function(cfg, mi) {
                                          time_s = round(as.numeric(Sys.time() - t0), 2)))
 }
 
+exec_test <- function(fn, name) {
+    tryCatch(fn(), error = function(e) {
+      expect_true(FALSE, info = sprintf("[%s] crashed in %s: %s",
+                                        cfg$label, name, conditionMessage(e)))
+      NULL
+    })
+  }
+
 # ==== Orchestrator ====
 test_config <- function(cfg) {
-  mi   <- gd_test_basic(cfg)
-  ref  <- gd_test_cem_refine(cfg, mi)
-  dt_qr   <- gd_test_quality_report(cfg, mi, ref)
-  gd_test_smd_vr(cfg, ref)
-  gd_test_l1_crossval(cfg, mi)
-  gd_test_pipeline(cfg, mi, ref, dt_qr)
-  gd_test_helpers(cfg, ref)
-  gd_test_invariants(cfg, mi)
-  gd_test_matchit_structure(cfg, mi)
-  gd_test_matchit_equiv(cfg, mi)
-  gd_test_coarse_breaks(cfg)
-  gd_test_quantile_refine(cfg, mi)
+  ## wrap a test step: crash → test failure with clear label
+  ## Takes a thunk (zero-arg function) so tryCatch wraps the actual execution
+  
+
+  mi <- exec_test(function() gd_test_basic(cfg), "basic")
+  if (is.null(mi)) return()
+  ref <- exec_test(function() gd_test_cem_refine(cfg, mi), "cem refine")
+  if (is.null(ref)) return()
+  
+  dt_qr  <- exec_test(function() gd_test_quality_report(cfg, mi, ref), "quality report")
+
+  exec_test(function() gd_test_smd_vr(cfg, ref),                   "smd vr")
+  exec_test(function() gd_test_l1_crossval(cfg, mi),               "L1 crossval")
+  exec_test(function() gd_test_pipeline(cfg, mi, ref, dt_qr),     "pipeline")
+  exec_test(function() gd_test_helpers(cfg, ref),                  "helpers")
+  exec_test(function() gd_test_invariants(cfg, mi),                "invariants")
+  exec_test(function() gd_test_matchit_structure(cfg, mi),         "matchit struct")
+  exec_test(function() gd_test_matchit_equiv(cfg, mi),             "DT=MI")
+  exec_test(function() gd_test_coarse_breaks(cfg),                 "coarse breaks")
+  exec_test(function() gd_test_quantile_refine(cfg, mi),           "quantile")
 }
 
 # ==== Main execution ====

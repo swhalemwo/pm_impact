@@ -4,6 +4,7 @@ library(cobalt)
 library(collapse, include.only = c("join", "funique", "set_collapse"))
 
 `%||%` <- function(x, y) if (is.null(x)) y else x
+set_collapse(verbose = 0)
 
 #' Match on treatment history using a two-tier exact matching strategy.
 #'
