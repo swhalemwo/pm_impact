@@ -379,22 +379,21 @@ list(dt = dt_big, L = 5L, treatment_col = "exn_pm", history_col = "exn_pm_cum",
 
 
 
-dt_match <- gd_match_history(dt_test[year >= 2000], L=5, return_type = "matches-info")
+dt_match <- gd_match_history(dt_test, L=5, history_col = "exn_pm_cum",
+                             treatment_col = "exn_pm", uid = "PeopleID", tid = "year",
+                             return_type = "matches-info")
 
 dt_match[, .N, match_tier]
-
 dt_match[, uniqueN(treated_id), match_tier]
-
 dt_match[, .N, treated_id]
-
 dt_match[, .(nbr_tiers = uniqueN(match_tier)), treated_id][, max(nbr_tiers)]
 
 
-t1 <- Sys.time()
+
 l_ref <- gd_refine_matches(dt_match, dt_test, covariates = c("BirthYear", "exn_all_cum_ihs"),
-                        cutpoints = list(BirthYear = 8, exn_all_cum_ihs = 16))
-t2 <- Sys.time()
-t2-t1
+                           cutpoints = list(BirthYear = 8, exn_all_cum_ihs = 16),
+                           uid = "PeopleID", tid = "year")
+
 
 dt_ref <- l_ref$data
 
@@ -431,10 +430,12 @@ params <- list(
   cutpoints     = list(BirthYear = 8, exn_all_cum_ihs = 8)
 )
 
-t1 = Sys.time()
-qr2 <- gd_run_match_pipeline(dt_test, params, sample_n_treated = 3000)
-t2 = Sys.time()
-t2-t1
+
+qr2 <- gd_run_match_pipeline(dt_test, params, sample_n_treated = 100)
+
+
+expand.grid(run = 1:5, snt = c(100, 250, 500, 1000))
+
 
 ## ** check gd_l1_med
 
