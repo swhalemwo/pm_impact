@@ -586,6 +586,7 @@ gd_run_match_pipeline <- function(dt, params, dt_full = dt,
 #' @return Single-row data.table.
 gd_quality_report <- function(dt_prepared, dt_match, matchit_obj = NULL,
                               refined_data = NULL, params = list()) {
+  t1 <- Sys.time()
   ## stage 1: exact matching coverage
   dt_s1 <- gd_quality_report_s1(dt_prepared, dt_match, params)
 
@@ -599,7 +600,11 @@ gd_quality_report <- function(dt_prepared, dt_match, matchit_obj = NULL,
     }))
   } else data.table()
 
-  cbind(dt_params, dt_s1, dt_s2)
+  t2 <- Sys.time()
+
+  dt_time <- data.table(tdiff = difftime(t2, t1, units = "secs") %>% as.numeric)
+
+  cbind(dt_params, dt_s1, dt_s2, dt_time)
 }
 
 #' @rdname gd_quality_report
