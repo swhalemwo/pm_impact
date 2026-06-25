@@ -224,7 +224,14 @@ gd_build_dt_long <- function(dt_match, uid, tid) {
   ## each treated unit once per time period (saves ~1.2s over head(.SD,1) per treated_id)
   dt_set <- dt_match[, funique(.SD), .SDcols = c("treated_id", tid)] %>%
     setnames(old = tid, new = "tid") %>%
-    .[, set := paste0(treated_id, "_", tid)]
+    ## .[, set := paste0(treated_id, "_", tid)]
+    .[, set := collapse::finteraction(treated_id, tid, sep = "_")]
+
+  ## microbenchmark(
+  ##   oo <- dt_match[, .(uid = control_id, tid = get(tid), treat = 0, treated_id)],
+  ##   kk <- dt_match[, .(uid = control_id, tid = ..tid, treat = 0, treated_id)],
+  ##   times = 10)
+  ## huh get(tid) is faster
 
   ## join controls to sets, then add treated themselves
   join(dt_match[, .(uid = control_id, tid = get(tid), treat = 0, treated_id)],
@@ -288,37 +295,61 @@ gd_refine_matches <- function(dt_match, dt_full,
 
   ## merge coarse columns to the full dt_long
   coarse_cols <- c("uid", "tid", covariates, paste0(".coarse_", covariates))
-  dt_long <- join(dt_long, dt_coarse[, ..coarse_cols],
-                  on = c("uid", "tid"), verbose = FALSE)
-  ## create cell key: set × coarsened covariates
+  dt_long2 <- join(dt_long, dt_coarse[, ..coarse_cols], on = c("uid", "tid"))
+    ## create cell key: set × coarsened covariates
   cell_cols <- c("set", paste0(".coarse_", covariates))
-  dt_long[, .cell := .GRP, by = cell_cols]
+  dt_long2[, .cell := .GRP, by = cell_cols]
 
+  ## dt_long[, .cell2 := collapse::finteraction(.SD, sep = "_"), .SD = cell_cols] # could save 0.1 secs for 6k trtd
+  ## dt_long[, .(.cell, .cell2)]
+
+  
+  ## alternative approach: make coarse variable, add that to dt_long, then inner join
+  ## dt_coarse[, coarse_cov := collapse::finteraction(.SD), .SDcols = c("tid", l_coarse_cols)] # uncl if tid is ok here
+  ## dt_long3 <- join(dt_long, dt_coarse[, .(treated_id = uid, coarse_cov, tid)],  on = c("treated_id", "tid"))
+  ## join(dt_long3, dt_coarse, on = "coarse_cov", how = "inner", multiple = F)
+  ## idk if that works: people can be in multiple sets
+  ## merging only on coarsed_cov variable doesn't consider whether treatment history is same
+
+  
   ## count treated and control per cell
-  dt_long[, `:=`(.n_treat = sum(treat), N = .N), by = .cell][, .n_ctrl := N - .n_treat]
+  dt_long2[, `:=`(.n_treat = sum(treat), N = .N), by = .cell][, .n_ctrl := N - .n_treat]
+
+  
+  ## doesn't really seem possible to get speed improvements here,
+  ## collapse's (grouped) fsum doesn't seem faster than DTs
+  ## dt_long2 <- dt_long %>% collapse::fgroup_by(.cell) %>%
+  ##   collapse::fmutate(.n_treat = collapse::fsum(treat))
+                      ## N        = collapse::fnobs(treat),
+                      ## .n_ctrl  = N - .n_treat)
+
+  ## join(dt_long[, .(.cell, tr1 = .n_treat, N1 = N, ctrl1 = .n_ctrl)],
+  ##      dt_long2[, .(.cell, tr2 = .n_treat, N2 = N, ctrl2 = .n_ctrl)], on = ".cell") %>%
+  ##   .[tr1 != tr2]
 
   ## assign subclass and weights
   ## subclass: only cells with both treated and control
-  dt_long[.n_treat > 0 & .n_ctrl > 0, subclass := .GRP, by = .cell]
+  
+  dt_long2[.n_treat > 0 & .n_ctrl > 0, subclass := .GRP, by = .cell]
   ## base ATT weights: treated=1, control=n_treat/n_ctrl (within subclass)
-  dt_long[treat == 1 & !is.na(subclass), weight := 1.0]
-  dt_long[treat == 0 & !is.na(subclass), weight := .n_treat / .n_ctrl]
-  dt_long[is.na(subclass), weight := 0]
+  dt_long2[treat == 1 & !is.na(subclass), weight := 1.0]
+  dt_long2[treat == 0 & !is.na(subclass), weight := .n_treat / .n_ctrl]
+  dt_long2[is.na(subclass), weight := 0]
   ## rescale so weights sum to group count within each treatment arm
   ## (matches matchit:::.make_sum_to_n)
-  dt_long[!is.na(subclass), weight := .N * weight / sum(weight), by = .(treat)]
+  dt_long2[!is.na(subclass), weight := .N * weight / sum(weight), by = .(treat)]
 
   ## clean up temp columns
-  dt_long[, c(".n_treat", ".n_ctrl", ".cell", "N", paste0(".coarse_", covariates)) := NULL]
+  dt_long2[, c(".n_treat", ".n_ctrl", ".cell", "N", paste0(".coarse_", covariates)) := NULL]
 
   ## rename internal uid/tid to caller's column names
-  setnames(dt_long, c("uid", "tid"), c(uid, tid))
+  setnames(dt_long2, c("uid", "tid"), c(uid, tid))
 
   ## wrap results in mock matchit object for back-compat
-  r_match <- list(weights = dt_long$weight, subclass = dt_long$subclass)
+  r_match <- list(weights = dt_long2$weight, subclass = dt_long$subclass)
   class(r_match) <- "matchit"
 
-  list(data = dt_long, matchit = r_match)
+  list(data = dt_long2, matchit = r_match)
 }
 
 #' Coarsen a numeric vector into bins.
@@ -529,6 +560,7 @@ gd_run_match_pipeline <- function(dt, params, dt_full = dt,
                     matchit_obj  = refined$matchit,
                     refined_data = refined$data,
                     params       = params)
+  
 }
 
 #' Compute a flat single-row quality report for one parameter combination.
@@ -708,6 +740,20 @@ gd_gen_coarsening <- function(dt_loc, cov_names, ranges, l1.min.bin, l1.max.bin,
   ## compute L1 for this coarsening under uniform weights
   agg <- dt_loc[, .(wT = sum(.w_u * .t), wC = sum(.w_u * !.t)), by = cut_cols]
   l1_u <- sum(abs(agg$wT - agg$wC)) / 2
+
+  
+    
+
+  ## microbenchmark(
+  ##   agg_collapse = dt_loc |>
+  ##     collapse::fgroup_by(cut_cols) |>
+  ##     collapse::fsummarise(
+  ##                 wT = collapse::fsum(collapse::fprod(.w_u, .t)),
+  ##                 wC = collapse::fsum(collapse::fprod(.w_u, !.t))),
+  ##   agg_dt = dt_loc[, .(wT = sum(.w_u * .t), wC = sum(.w_u * !.t)), by = cut_cols],
+  ##   times = 10)
+  
+
 
   ## store binned integer columns for median coarsening reuse
   dt_bin <- copy(dt_loc[, ..cut_cols])
