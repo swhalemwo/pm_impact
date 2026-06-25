@@ -434,20 +434,20 @@ params <- list(
 qr2 <- gd_run_match_pipeline(dt_test, params, sample_n_treated = 1000)
 
 ## sample n treated grid
-dt_snt_grid <- expand.grid(run = 1:5, snt = c(100, 250, 500, 1000)) %>% adt
+## dt_snt_grid <- expand.grid(run = 1:5, snt = c(100, 250, 500, 1000)) %>% adt
 
-dt_res_snt <- map(dt_snt_grid$snt,
-                  ~gd_run_match_pipeline(dt_test, params, sample_n_treated = .x)[, snt := .x]) %>% rbindlist
+## dt_res_snt <- map(dt_snt_grid$snt,
+##                   ~gd_run_match_pipeline(dt_test, params, sample_n_treated = .x)[, snt := .x]) %>% rbindlist
 
-dt_res_snt %>% copy %>%
-    .[, run := 1:.N] %>%
-    .[, L1_diff := L1_before - L1_after] %>%
-    melt(id.vars = c("snt", "run"), measure.vars = c("L1_after", "L1_before", "L1_diff", "cem_match_rate",
-                                                     ## "n_treated", "n_matched", "match_rate", # constant
-                                                     "smd_BirthYear_before", "smd_BirthYear_after"
-                                                     )) %>% 
-    ggplot(aes(x = factor(snt), y= value, color = variable)) + geom_point() +
-    facet_grid(variable ~., scale = "free_y")
+## dt_res_snt %>% copy %>%
+##     .[, run := 1:.N] %>%
+##     .[, L1_diff := L1_before - L1_after] %>%
+##     melt(id.vars = c("snt", "run"), measure.vars = c("L1_after", "L1_before", "L1_diff", "cem_match_rate",
+##                                                      ## "n_treated", "n_matched", "match_rate", # constant
+##                                                      "smd_BirthYear_before", "smd_BirthYear_after"
+##                                                      )) %>% 
+##     ggplot(aes(x = factor(snt), y= value, color = variable)) + geom_point() +
+##     facet_grid(variable ~., scale = "free_y")
 
 ## ** systematic testing of sample_n_treated requirements
 
@@ -500,10 +500,30 @@ gd_quality_rep_min <- function(dt_panel, refined, params, sample_n_treated) {
 
 }
 
-microbenchmark(
-    minrep = gd_quality_rep_min(dt_test, refined_full, params, sample_n_treated = 1000),
-    pipeline = gd_run_match_pipeline(dt_test, params, sample_n_treated = 1000),
-    times = 10)
+## microbenchmark(
+##     minrep = gd_quality_rep_min(dt_test, refined_full, params, sample_n_treated = 1000), # 5.2
+##     pipeline = gd_run_match_pipeline(dt_test, params, sample_n_treated = 1000), # 7 -> use minrep
+##     times = 10)
+
+
+## set up grid
+dt_snt_grid <- expand.grid(run = 1:4, snt = c(30, 100, 3000, 1000, 2000)) %>% adt
+
+## actual testing
+dt_res_snt <- map(dt_snt_grid$snt,
+                  ~gd_quality_rep_min(dt_test, refined_full, params, sample_n_treated = .x)[, snt := .x]) %>%
+    rbindlist
+
+## eval
+dt_res_snt %>% copy %>%
+    .[, run := 1:.N] %>%
+    .[, L1_diff := L1_before - L1_after] %>%
+    melt(id.vars = c("snt", "run"), measure.vars = c("L1_after", "L1_before", "L1_diff", "cem_match_rate",
+                                                     ## "n_treated", "n_matched", "match_rate", # constant
+                                                     "smd_BirthYear_before", "smd_BirthYear_after"
+                                                     )) %>% 
+    ggplot(aes(x = factor(snt), y= value, color = variable)) + geom_point() +
+    facet_grid(variable ~., scale = "free_y")
 
 
 
