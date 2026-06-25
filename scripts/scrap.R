@@ -431,10 +431,80 @@ params <- list(
 )
 
 
-qr2 <- gd_run_match_pipeline(dt_test, params, sample_n_treated = 100)
+qr2 <- gd_run_match_pipeline(dt_test, params, sample_n_treated = 1000)
+
+## sample n treated grid
+dt_snt_grid <- expand.grid(run = 1:5, snt = c(100, 250, 500, 1000)) %>% adt
+
+dt_res_snt <- map(dt_snt_grid$snt,
+                  ~gd_run_match_pipeline(dt_test, params, sample_n_treated = .x)[, snt := .x]) %>% rbindlist
+
+dt_res_snt %>% copy %>%
+    .[, run := 1:.N] %>%
+    .[, L1_diff := L1_before - L1_after] %>%
+    melt(id.vars = c("snt", "run"), measure.vars = c("L1_after", "L1_before", "L1_diff", "cem_match_rate",
+                                                     ## "n_treated", "n_matched", "match_rate", # constant
+                                                     "smd_BirthYear_before", "smd_BirthYear_after"
+                                                     )) %>% 
+    ggplot(aes(x = factor(snt), y= value, color = variable)) + geom_point() +
+    facet_grid(variable ~., scale = "free_y")
+
+## ** systematic testing of sample_n_treated requirements
+
+## general idea:
+## no need to run entire pipeline for new cfg
+## for stuff like sample_n_treated, i can run those step once, and sample from refined objects
 
 
-expand.grid(run = 1:5, snt = c(100, 250, 500, 1000))
+dt_match_full <- gd_match_history(
+    dt_test,
+    L             = params$L,
+    treatment_col = params$treatment_col,
+    history_col   = params$history_col,
+    uid       = params$uid,
+    tid       = params$tid,
+    return_type   = "matches-info"
+)
+
+refined_full <- gd_refine_matches(dt_match_full, dt_test,
+                                  covariates = params$covariates,
+                                  cutpoints  = params$cutpoints,
+                                  uid    = params$uid,
+                                  tid = params$tid)
+
+
+
+gd_quality_rep_min <- function(dt_panel, refined, params, sample_n_treated) {
+    #' sample sample_n_treated and run match stats on dt_ref
+    #' matching and refinement is easily doable with entire df, bottleneck is gof
+    #' can save the entire matching and refining step, and just re-sample the refined dt? 
+
+    ## get ids of sample of refined
+    treated_all <- funique(refined$data$treated_id)
+    l_keep <- sample(treated_all, sample_n_treated)
+    ids_ref <- which(refined$data$treated_id %in% l_keep)
+
+    ## dt_ref_sample <- dt_match[.(l_keep), on = .(treated_id), nomatch= NULL]
+
+    ## create new refined object (data and matchit (in turn: weights, subclass))
+    refined_new <- list(
+        data = refined$data[ids_ref],
+        matchit = list(weights = refined$matchit$weights[ids_ref],
+                       subclass = refined$matchit$subclass[ids_ref]))
+
+    ## generate quality report
+    gd_quality_report(dt_test, dt_match,
+                    matchit_obj  = refined_new$matchit,
+                    refined_data = refined_new$data, 
+                    params       = params)
+
+}
+
+microbenchmark(
+    minrep = gd_quality_rep_min(dt_test, refined_full, params, sample_n_treated = 1000),
+    pipeline = gd_run_match_pipeline(dt_test, params, sample_n_treated = 1000),
+    times = 10)
+
 
 
 ## ** check gd_l1_med
