@@ -346,7 +346,7 @@ gd_refine_matches <- function(dt_match, dt_full,
   setnames(dt_long2, c("uid", "tid"), c(uid, tid))
 
   ## wrap results in mock matchit object for back-compat
-  r_match <- list(weights = dt_long2$weight, subclass = dt_long$subclass)
+  r_match <- list(weights = dt_long2$weight, subclass = dt_long2$subclass)
   class(r_match) <- "matchit"
 
   list(data = dt_long2, matchit = r_match)
@@ -710,18 +710,18 @@ gd_quality_report_s2 <- function(matchit_obj, refined_data, params) {
 #' Generate one random coarsening and compute its L1 statistic.
 #'
 #' @description
-#' Draws random bin counts for each covariate, bins them using
-#' equal-spaced cutpoints, computes L1 under uniform weights.
-#' Returns the L1 value and the binned columns for median selection.
+#' Draws random bin counts for each covariate, bins them, computes L1
+#' under uniform weights using pre-computed .wt / .wc columns.
+#' Returns nbins (not binned columns) to avoid 51x copy overhead.
 #'
-#' @param dt_loc data.table with .t (logical treat) and .w_u (uniform weights) columns.
+#' @param dt_loc data.table with .t (logical treat), .wt, .wc columns.
 #' @param cov_names Character vector of covariate names.
 #' @param ranges List of ranges (min/max) per covariate.
 #' @param l1.min.bin Minimum number of bins per coarsening.
 #' @param l1.max.bin Maximum number of bins per coarsening.
 #' @param nu Integer vector of unique value counts per covariate.
 #' @param cut_cols Character vector of column names to store bin assignments.
-#' @return Named list with l1_u (numeric) and bin_df (data.table of binned columns).
+#' @return Named list with l1_u (numeric) and nbins (integer vector).
 gd_gen_coarsening <- function(dt_loc, cov_names, ranges, l1.min.bin, l1.max.bin,
                               nu, cut_cols) {
   nbins <- vapply(seq_along(cov_names), function(i) {
@@ -729,7 +729,6 @@ gd_gen_coarsening <- function(dt_loc, cov_names, ranges, l1.min.bin, l1.max.bin,
     rng[sample.int(length(rng), 1L)]
   }, integer(1))
 
-  ## assign binned columns in one shot via data.table := with lapply
   dt_loc[, (cut_cols) := lapply(seq_along(cov_names), function(i) {
     if (diff(ranges[[i]]) == 0) return(rep(1L, .N))
     as.integer(findInterval(get(cov_names[i]),
@@ -737,29 +736,12 @@ gd_gen_coarsening <- function(dt_loc, cov_names, ranges, l1.min.bin, l1.max.bin,
       rightmost.closed = TRUE))
   })]
 
-  ## compute L1 for this coarsening under uniform weights
-  agg <- dt_loc[, .(wT = sum(.w_u * .t), wC = sum(.w_u * !.t)), by = cut_cols]
+  agg <- dt_loc[, .(wT = sum(.wt), wC = sum(.wc)), by = cut_cols]
   l1_u <- sum(abs(agg$wT - agg$wC)) / 2
 
-  
-    
-
-  ## microbenchmark(
-  ##   agg_collapse = dt_loc |>
-  ##     collapse::fgroup_by(cut_cols) |>
-  ##     collapse::fsummarise(
-  ##                 wT = collapse::fsum(collapse::fprod(.w_u, .t)),
-  ##                 wC = collapse::fsum(collapse::fprod(.w_u, !.t))),
-  ##   agg_dt = dt_loc[, .(wT = sum(.w_u * .t), wC = sum(.w_u * !.t)), by = cut_cols],
-  ##   times = 10)
-  
-
-
-  ## store binned integer columns for median coarsening reuse
-  dt_bin <- copy(dt_loc[, ..cut_cols])
   dt_loc[, (cut_cols) := NULL]
 
-  list(l1_u = l1_u, bin_df = dt_bin)
+  list(l1_u = l1_u, nbins = nbins)
 }
 
 
@@ -802,23 +784,31 @@ gd_l1_med_both <- function(dt_cov, treat, weights_after,
   w_u[is_t] <- w_u[is_t] / sum(w_u[is_t])
   w_u[!is_t] <- w_u[!is_t] / sum(w_u[!is_t])
 
-  dt_loc[, `:=`(.t = is_t, .w_u = w_u)]
+  dt_loc[, `:=`(.t = is_t, .w_u = w_u, .wt = w_u * is_t, .wc = w_u * !is_t)]
 
   ranges <- lapply(cov_names, function(c) range(dt_loc[[c]], na.rm = TRUE))
   nu <- vapply(cov_names, function(c) uniqueN(dt_loc[[c]]), integer(1))
   cut_cols <- paste0(".b_", cov_names)
 
-  ## step 1-2: generate l1.n coarsenings
+  ## step 1-2: generate l1.n coarsenings (returns nbins, not bin_df)
   l1_results <- lapply(seq_len(l1.n), function(k) {
     gd_gen_coarsening(dt_loc, cov_names, ranges, l1.min.bin, l1.max.bin, nu, cut_cols)
   })
 
-  l1s_u <- vapply(l1_results, `[[`, numeric(1), "l1_u")
-  l_bin <- lapply(l1_results, `[[`, "bin_df")
+  l1s_u <- sapply(l1_results, `[[`, "l1_u")
+  l_nbins <- lapply(l1_results, `[[`, "nbins")
 
-  ## step 3: pick median coarsening
+  ## step 3: pick median coarsening, rebuild bins once
   median_idx <- which(l1s_u == sort(l1s_u, partial = ceiling(l1.n / 2))[ceiling(l1.n / 2)])[1]
-  dt_fixed_cuts <- l_bin[[median_idx]]
+  nbins_fixed <- l_nbins[[median_idx]]
+  b_cols <- paste0(".b_", cov_names)
+  dt_loc[, (b_cols) := lapply(seq_along(cov_names), function(i) {
+    as.integer(findInterval(dt_loc[[cov_names[i]]],
+      seq(ranges[[i]][1], ranges[[i]][2], length.out = nbins_fixed[i] + 1),
+      rightmost.closed = TRUE))
+  })]
+  dt_fixed_cuts <- dt_loc[, ..b_cols]
+  dt_loc[, (b_cols) := NULL]
 
   ## step 4: compute before (uniform) and after (weighted) on fixed coarsening
   dt_fixed_cuts[, bin_id := do.call(paste, c(.SD, sep = "_"))]
