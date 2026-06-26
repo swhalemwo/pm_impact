@@ -478,7 +478,7 @@ gd_test_quantile_refine <- function(cfg, mi) {
                                          time_s = round(as.numeric(Sys.time() - t0), 2)))
 }
 
-exec_test <- function(fn, name) {
+exec_test <- function(fn, name, cfg) {
     tryCatch(fn(), error = function(e) {
       expect_true(FALSE, info = sprintf("[%s] crashed in %s: %s",
                                         cfg$label, name, conditionMessage(e)))
@@ -492,22 +492,22 @@ test_config <- function(cfg) {
   ## Takes a thunk (zero-arg function) so tryCatch wraps the actual execution
   
 
-  mi <- exec_test(function() gd_test_basic(cfg), "basic")
+  mi <- exec_test(function() gd_test_basic(cfg), "basic", cfg)
   if (is.null(mi)) return()
-  ref <- exec_test(function() gd_test_cem_refine(cfg, mi), "cem refine")
+  ref <- exec_test(function() gd_test_cem_refine(cfg, mi), "cem refine", cfg)
   if (is.null(ref)) return()
   
-  dt_qr  <- exec_test(function() gd_test_quality_report(cfg, mi, ref), "quality report")
+  dt_qr  <- exec_test(function() gd_test_quality_report(cfg, mi, ref), "quality report", cfg)
 
-  exec_test(function() gd_test_smd_vr(cfg, ref),                   "smd vr")
-  exec_test(function() gd_test_l1_crossval(cfg, mi),               "L1 crossval")
-  exec_test(function() gd_test_pipeline(cfg, mi, ref, dt_qr),     "pipeline")
-  exec_test(function() gd_test_helpers(cfg, ref),                  "helpers")
-  exec_test(function() gd_test_invariants(cfg, mi),                "invariants")
-  exec_test(function() gd_test_matchit_structure(cfg, mi),         "matchit struct")
-  exec_test(function() gd_test_matchit_equiv(cfg, mi),             "DT=MI")
-  exec_test(function() gd_test_coarse_breaks(cfg),                 "coarse breaks")
-  exec_test(function() gd_test_quantile_refine(cfg, mi),           "quantile")
+  exec_test(function() gd_test_smd_vr(cfg, ref),                   "smd vr", cfg)
+  exec_test(function() gd_test_l1_crossval(cfg, mi),               "L1 crossval", cfg)
+  exec_test(function() gd_test_pipeline(cfg, mi, ref, dt_qr),     "pipeline", cfg)
+  exec_test(function() gd_test_helpers(cfg, ref),                  "helpers", cfg)
+  exec_test(function() gd_test_invariants(cfg, mi),                "invariants", cfg)
+  exec_test(function() gd_test_matchit_structure(cfg, mi),         "matchit struct", cfg)
+  exec_test(function() gd_test_matchit_equiv(cfg, mi),             "DT=MI", cfg)
+  exec_test(function() gd_test_coarse_breaks(cfg),                 "coarse breaks", cfg)
+  exec_test(function() gd_test_quantile_refine(cfg, mi),           "quantile", cfg)
 }
 
 # ==== Main execution ====
