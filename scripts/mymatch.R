@@ -538,41 +538,27 @@ gd_run_match_pipeline <- function(dt, params, dt_full = dt) {
                              refined_data = NULL, params = params))
   }
 
-  ## subsample treated for CEM stage if requested
+  ## subsample treated for CEM stage if requested (via params$sample_n_treated)
   dt_cem <- dt_match
-  if (!is.null(sample_n_treated)) {
-
+  sample_n <- params$sample_n_treated
+  if (!is.null(sample_n)) {
     treated_all <- funique(dt_match$treated_id)
-    
-    if (length(treated_all) > sample_n_treated) {
-
-      keep <- sample(treated_all, sample_n_treated)
-
-      ## dt_match_bu <- dt_match %>% copy
-
-      ## dt_match <- dt_match_bu %>% copy
-      
-      ## setkey(dt_match, treated_id)
-      ## dt_cem <- dt_match[treated_id %in% keep]
-      
-      ## setkey(dt_match, treated_id)
-      ## dt_cem <- dt_match[.(keep), nomatch = NULL]
-
-      dt_cem <- dt_match[.(keep), on = .(treated_id), nomatch= NULL]
+    if (length(treated_all) > sample_n) {
+      keep <- sample(treated_all, sample_n)
+      dt_cem <- dt_match[.(keep), on = .(treated_id), nomatch = NULL]
     }
   }
 
   refined <- gd_refine_matches(dt_cem, dt_full,
                                covariates = params$covariates,
                                cutpoints  = params$cutpoints,
-                               uid    = params$uid,
-                               tid = params$tid)
+                               uid        = params$uid,
+                               tid        = params$tid)
 
   gd_quality_report(dt, dt_match,
                     matchit_obj  = refined$matchit,
                     refined_data = refined$data,
                     params       = params)
-  
 }
 
 #' Compute a flat single-row quality report for one parameter combination.

@@ -19,7 +19,7 @@ configs <- list(
        uid = "PeopleID", tid = "year",
        covariates = c("BirthYear", "exn_all_cum_ihs"),
        cutpoints = list(BirthYear = 8, exn_all_cum_ihs = 8),
-       slow = TRUE, label = "smol_L3")
+       slow = TRUE, label = "smol_L3", sample_n_treated = 100,
        tiers = list(c("hist_str", "Nationality", "Gender"), c("hist_str")))
   ## list(dt = dt, L = 5L, treatment_col = "exn_pm", history_col = "exn_pm_cum",
   ##      uid = "PeopleID", tid = "year",
@@ -245,7 +245,8 @@ gd_test_pipeline <- function(cfg, mi, refined, dt_qr) {
   t0 <- Sys.time()
   params <- list(L = cfg$L, treatment_col = cfg$treatment_col,
                  history_col = cfg$history_col, uid = cfg$uid, tid = cfg$tid,
-                 covariates = cfg$covariates, cutpoints = cfg$cutpoints)
+                 covariates = cfg$covariates, cutpoints = cfg$cutpoints,
+                 sample_n_treated = cfg$sample_n_treated,
                  tiers = cfg$tiers)
 
   dt_qr2 <- gd_run_match_pipeline(cfg$dt, params)  ## dt_qr2: quality report from pipeline run
@@ -268,7 +269,7 @@ gd_test_pipeline <- function(cfg, mi, refined, dt_qr) {
   expect_true(is.na(dt_qr_empty$L1_before), info = sprintf("[%s] empty L1 NA", cfg$label))
 
   ## sampling: CEM refinement on 100 treated only
-  dt_qr_smp <- gd_run_match_pipeline(cfg$dt, params, sample_n_treated = 100L)  ## dt_qr_smp: quality report with sampling
+  dt_qr_smp <- gd_run_match_pipeline(cfg$dt, params)  ## dt_qr_smp: quality report with sampling
   expect_true(is.data.table(dt_qr_smp), info = sprintf("[%s] smp data.table", cfg$label))
   expect_equal(nrow(dt_qr_smp), 1L, info = sprintf("[%s] smp one row", cfg$label))
   expect_equal(dt_qr_smp$n_matched, dt_qr2$n_matched,
