@@ -4,6 +4,7 @@ library(cobalt)
 library(collapse, include.only = c("join", "funique", "set_collapse"))
 
 `%||%` <- function(x, y) if (is.null(x)) y else x
+
 set_collapse(verbose = 0)
 
 #' Match on treatment history using a two-tier exact matching strategy.
@@ -29,11 +30,12 @@ set_collapse(verbose = 0)
 #'   e.g.: list(c("hist_str", "Nationality", "Gender"), c("hist_str")).
 #' @param return_type Option: "summary", "matches", "matches-info".
 #' @return A data.table containing either summary statistics or all matched pairs.
-gd_match_history <- function(dt, L, treatment_col, history_col,
+gd_match_history <- function(dt_panel, L, treatment_col, history_col,
                              uid, tid, tiers,
                              return_type = "summary") {
 
-  dt_d <- md_prep_match(dt, L, treatment_col, history_col, uid, tid)
+  ## dt  
+  dt_d <- md_prep_match(dt_panel, L, treatment_col, history_col, uid, tid)
   dt_matched <- data.table()
   last_tier <- length(tiers)
 
@@ -182,9 +184,9 @@ gd_match_summary <- function(dt_d, dt_matches) {
 #' @param uid Unit ID column name.
 #' @param tid Time ID column name.
 #' @return Modified copy of dt with uid, tid, treat_bin, lag_* and hist_str columns.
-md_prep_match <- function(dt, L, t_col, h_col, uid, tid) {
+md_prep_match <- function(dt_panel, L, t_col, h_col, uid, tid) {
   ## browser()
-  dt_d <- copy(dt)
+  dt_d <- copy(dt_panel)
   setnames(dt_d, c(uid, tid), c("uid", "tid"))
   dt_d <- dt_d[order(uid, tid)]
 
@@ -523,10 +525,10 @@ gd_match_equivalent <- function(r1, r2, uid, tid) {
 #'   matched treated units exceeds this, a random sample is used for the CEM stage.
 #' @return A single-row data.table of quality indicators.
 
-gd_run_match_pipeline <- function(dt, params, dt_full = dt) {
+gd_run_match_pipeline <- function(dt_panel, params, dt_full = dt_panel) {
 
   dt_match <- gd_match_history(
-    dt,
+    dt_panel,
     L             = params$L,
     treatment_col = params$treatment_col,
     history_col   = params$history_col,
@@ -538,7 +540,7 @@ gd_run_match_pipeline <- function(dt, params, dt_full = dt) {
 
   if (nrow(dt_match) == 0) {
     warning("gd_run_match_pipeline: no matches found, returning NA quality row.")
-    return(gd_quality_report(dt, dt_match, matchit_obj = NULL,
+    return(gd_quality_report(dt_panel, dt_match, matchit_obj = NULL,
                              refined_data = NULL, params = params))
   }
 
@@ -558,7 +560,7 @@ gd_run_match_pipeline <- function(dt, params, dt_full = dt) {
                                uid        = params$uid,
                                tid        = params$tid)
 
-  gd_quality_report(dt, dt_match,
+  gd_quality_report(dt_panel, dt_match,
                     matchit_obj  = refined$matchit,
                     refined_data = refined$data,
                     params       = params)
@@ -579,7 +581,7 @@ gd_run_match_pipeline <- function(dt, params, dt_full = dt) {
 #' @param dt Panel data.table (constant across all configs).
 #' @param ... Named arguments. Each is a vector/list of alternatives.
 #' @return A list of config lists, one per parameter combination.
-gd_build_configs <- function(dt, ...) {
+gd_build_configs <- function(dt_panel, ...) {
   l_args <- list(...)
 
   ## all params are alternatives — build indices for each
@@ -589,7 +591,7 @@ gd_build_configs <- function(dt, ...) {
 
   ## convert each grid row to a config
   l_configs <- apply(dt_grid, 1, function(row) {
-    cfg <- list(dt = dt)
+    cfg <- list(dt_panel = dt_panel)
     for (nm in names(l_args)) {
       cfg[[nm]] <- l_args[[nm]][[row[[nm]]]]
     }
@@ -614,10 +616,10 @@ gd_run_configs <- function(l_configs, dt_full = NULL) {
   rbindlist(lapply(seq_along(l_configs), function(i) {
     cfg <- l_configs[[i]]
     label <- cfg$label %||% sprintf("cfg_%d", i)
-    dt_use <- dt_full %||% cfg$dt
+    dt_use <- dt_full %||% cfg$dt_panel
 
     result <- tryCatch(
-      gd_run_match_pipeline(cfg$dt, cfg, dt_full = dt_use),
+      gd_run_match_pipeline(cfg$dt_panel, cfg, dt_full = dt_use),
       error = function(e) {
         warning(sprintf("[%s] pipeline failed: %s", label, conditionMessage(e)))
         data.table(L = cfg$L, match_rate = NA_real_, n_matched = NA_integer_)

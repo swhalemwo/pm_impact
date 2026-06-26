@@ -15,7 +15,7 @@ dt_big <- fread("~/Dropbox/phd/papers/foster/dt_test_big.csv")
 
 # === Config definitions ===
 configs <- list(
-  list(dt = dt, L = 3L, treatment_col = "exn_pm", history_col = "exn_pm_cum",
+  list(dt_panel = dt, L = 3L, treatment_col = "exn_pm", history_col = "exn_pm_cum",
        uid = "PeopleID", tid = "year",
        # covariates = c("BirthYear", "exn_all_cum_ihs"),
        cutpoints = list(BirthYear = 8, exn_all_cum_ihs = 8),
@@ -42,17 +42,24 @@ configs <- list(
 
 gd_test_basic <- function(cfg) {
   ## sections 1-5: summary, matches, consistency, matches-info, tier exclusivity
-  t0 <- Sys.time()
   
-  r_s <- gd_match_history(cfg$dt, L = cfg$L, treatment_col = cfg$treatment_col,  ## r_s: match history summary
+  
+  t0 <- Sys.time()
+  ## r_s <- gd_match_history(cfg$dt, L = cfg$L, treatment_col = cfg$treatment_col,
+  ## r_s: match history summary
+  r_s <- gd_match_history(cfg$dt_panel, L = cfg$L, treatment_col = cfg$treatment_col,
                            history_col = cfg$history_col, uid = cfg$uid, tid = cfg$tid, tiers = cfg$tiers,
-                           return_type = "summary")
+                          return_type = "summary")
+  
+  
   expect_true(is.data.frame(r_s), info = sprintf("[%s] summary is data.frame", cfg$label))
   expect_true(all(c("total_treated", "treated_matched", "total_matches") %in% names(r_s)),
               info = sprintf("[%s] summary columns", cfg$label))
   expect_true(r_s$total_treated > 0, info = sprintf("[%s] non-zero treated", cfg$label))
 
-  r_f <- gd_match_history(cfg$dt, L = cfg$L, treatment_col = cfg$treatment_col,  ## r_f: match history full matches
+  ## r_f <- gd_match_history(cfg$dt, L = cfg$L, treatment_col = cfg$treatment_col,
+  ## r_f: match history full matches
+  r_f <- gd_match_history(cfg$dt_panel, L = cfg$L, treatment_col = cfg$treatment_col,
                            history_col = cfg$history_col, uid = cfg$uid, tid = cfg$tid, tiers = cfg$tiers,
                            return_type = "matches")
   expect_true(nrow(r_f) > 0, info = sprintf("[%s] matches non-empty", cfg$label))
@@ -86,8 +93,7 @@ gd_test_basic <- function(cfg) {
 gd_test_cem_refine <- function(cfg, mi) {
   ## section 6: CEM refinement structure
   t0 <- Sys.time()
-  r <- gd_refine_matches(mi, cfg$dt, uid = cfg$uid, tid = cfg$tid,
-                          cutpoints = cfg$cutpoints)
+  r <- gd_refine_matches(mi, cfg$dt_panel, cutpoints = cfg$cutpoints, uid = cfg$uid, tid = cfg$tid)
   expect_true(is.list(r), info = sprintf("[%s] refine is list", cfg$label))
   expect_true(all(c("data", "matchit") %in% names(r)),
               info = sprintf("[%s] refine slots", cfg$label))
@@ -105,10 +111,9 @@ gd_test_cem_refine <- function(cfg, mi) {
 gd_test_quality_report <- function(cfg, mi, refined) {
   ## section 7: quality report schema
   t0 <- Sys.time()
-  params <- list(L = cfg$L, treatment_col = cfg$treatment_col, uid = cfg$uid,
-                 cutpoints = cfg$cutpoints)
+  params <- list(L = cfg$L, treatment_col = cfg$treatment_col, uid = cfg$uid, cutpoints = cfg$cutpoints)
   dt_qr <- gd_quality_report(
-    dt_prepared  = cfg$dt,
+    dt_prepared  = cfg$dt_panel,
     dt_match     = mi,
     matchit_obj  = refined$matchit,
     refined_data = refined$data,
@@ -227,6 +232,10 @@ gd_test_l1_crossval <- function(cfg, mi) {
               info = sprintf("[%s] cobalt L1 decreases", cfg$label))
   expect_true(all(dt_l1$my_reduction > 0),
               info = sprintf("[%s] our L1 decreases", cfg$label))
+
+  print(dt_l1[, .(combo, co_before, co_after, my_before, my_after, diff_before, diff_after,
+                  co_reduc = co_reduction, my_reduc = my_reduction)], n = 100)
+  
   mad_before <- mean(dt_l1$diff_before)
   expect_true(mad_before < 0.005,
               info = sprintf("[%s] L1 before MAE < 0.005: %.4f", cfg$label, mad_before))
@@ -313,7 +322,7 @@ gd_test_helpers <- function(cfg, refined) {
   expect_true(min(coarse_bin(rnorm(100), 10)) >= 1,  info = "coarse_bin min ≥ 1")
 
   ## ematch_yr NULL
-  dt_tmp <- copy(cfg$dt)[, `:=`(tid = get(cfg$tid),
+  dt_tmp <- copy(cfg$dt_panel)[, `:=`(tid = get(cfg$tid),
                                  treat_bin = fifelse(get(cfg$treatment_col) > 0, 1L, 0L))]
   null_res <- gd_ematch_yr(1800, dt_tmp, NULL, "exn_pm", "matches", 1)
   expect_true(is.null(null_res), info = "ematch_yr NULL for empty year")
@@ -325,8 +334,7 @@ gd_test_helpers <- function(cfg, refined) {
 gd_test_invariants <- function(cfg, mi) {
   ## sections 19-20: subclass/weight invariants, single cov/bin
   t0 <- Sys.time()
-  r <- gd_refine_matches(mi, cfg$dt, uid = cfg$uid, tid = cfg$tid,
-                          cutpoints = cfg$cutpoints)
+  r <- gd_refine_matches(mi, cfg$dt_panel, cutpoints = cfg$cutpoints, uid = cfg$uid, tid = cfg$tid)
 
   ## invariants
   s_ids <- unique(na.omit(r$data$subclass))
@@ -350,8 +358,7 @@ gd_test_invariants <- function(cfg, mi) {
 
   ## single covariate
   cp_1c <- setNames(list(cfg$cutpoints[[1]]), names(cfg$cutpoints)[1])
-  r_1c <- gd_refine_matches(mi, cfg$dt, uid = cfg$uid, tid = cfg$tid,
-                             cutpoints = cp_1c)
+  r_1c <- gd_refine_matches(mi, cfg$dt_panel, cutpoints = cp_1c, uid = cfg$uid, tid = cfg$tid)
   expect_true(is.list(r_1c) && all(c("data", "matchit") %in% names(r_1c)),
               info = sprintf("[%s] single cov list", cfg$label))
   expect_true("subclass" %in% names(r_1c$data),
@@ -359,8 +366,7 @@ gd_test_invariants <- function(cfg, mi) {
 
   ## single bin per covariate
   cp_1b <- setNames(lapply(names(cfg$cutpoints), function(x) 1L), names(cfg$cutpoints))
-  r_1b <- gd_refine_matches(mi, cfg$dt, uid = cfg$uid, tid = cfg$tid,
-                             cutpoints = cp_1b)
+  r_1b <- gd_refine_matches(mi, cfg$dt_panel, cutpoints = cp_1b, uid = cfg$uid, tid = cfg$tid)
   expect_equal(uniqueN(na.omit(r_1b$data$subclass)),
                uniqueN(r_1b$data[!is.na(subclass) & treat == 1, set]),
                info = sprintf("[%s] single bin = one per set", cfg$label))
@@ -372,8 +378,7 @@ gd_test_invariants <- function(cfg, mi) {
 gd_test_matchit_structure <- function(cfg, mi) {
   ## section 21: matchit version structure
   t0 <- Sys.time()
-  r_mi <- gd_refine_matches_matchit(mi, cfg$dt, uid = cfg$uid, tid = cfg$tid,
-                                     cutpoints = cfg$cutpoints)
+  r_mi <- gd_refine_matches_matchit(mi, cfg$dt_panel, cutpoints = cfg$cutpoints, uid = cfg$uid, tid = cfg$tid)
   expect_true(is.list(r_mi), info = sprintf("[%s] matchit list", cfg$label))
   expect_true(all(c("data", "matchit") %in% names(r_mi)),
               info = sprintf("[%s] matchit slots", cfg$label))
@@ -391,18 +396,16 @@ gd_test_matchit_equiv <- function(cfg, mi) {
 
   ## equal-width bins (integer cutpoints)
   cp_int <- lapply(cfg$cutpoints, function(x) if (is.numeric(x)) as.integer(x) else x)
-  r_dt <- gd_refine_matches(mi, cfg$dt, uid = cfg$uid, tid = cfg$tid,
-                             cutpoints = cp_int)
-  r_mi <- gd_refine_matches_matchit(mi, cfg$dt, uid = cfg$uid, tid = cfg$tid,
-                                     cutpoints = cp_int)
+  r_dt <- gd_refine_matches(mi, cfg$dt_panel, uid = cfg$uid, tid = cfg$tid, cutpoints = cp_int)
+  r_mi <- gd_refine_matches_matchit(mi, cfg$dt_panel, uid = cfg$uid, tid = cfg$tid, cutpoints = cp_int)
   expect_true(gd_match_equivalent(r_dt, r_mi, uid = cfg$uid, tid = cfg$tid),
               info = sprintf("[%s] equal-width DT=MI", cfg$label))
 
   ## quantile breaks
-  l_breaks <- gd_coarse_breaks(cfg$dt, cfg$cutpoints)
-  r_dt2 <- gd_refine_matches(mi, cfg$dt, uid = cfg$uid, tid = cfg$tid,
+  l_breaks <- gd_coarse_breaks(cfg$dt_panel, cfg$cutpoints)
+  r_dt2 <- gd_refine_matches(mi, cfg$dt_panel, uid = cfg$uid, tid = cfg$tid,
                               cutpoints = l_breaks)
-  r_mi2 <- gd_refine_matches_matchit(mi, cfg$dt, uid = cfg$uid, tid = cfg$tid,
+  r_mi2 <- gd_refine_matches_matchit(mi, cfg$dt_panel, uid = cfg$uid, tid = cfg$tid,
                                       cutpoints = l_breaks)
   expect_true(gd_match_equivalent(r_dt2, r_mi2, uid = cfg$uid, tid = cfg$tid),
               info = sprintf("[%s] quantile DT=MI", cfg$label))
@@ -414,24 +417,26 @@ gd_test_matchit_equiv <- function(cfg, mi) {
 gd_test_coarse_breaks <- function(cfg) {
   ## section 23: coarse_breaks structure
   t0 <- Sys.time()
-  br <- gd_coarse_breaks(cfg$dt, cfg$cutpoints)
+  br <- gd_coarse_breaks(cfg$dt_panel, cfg$cutpoints)
+  
   expect_true(is.list(br), info = sprintf("[%s] coarse_breaks list", cfg$label))
   expect_equal(names(br), names(cfg$cutpoints),
                info = sprintf("[%s] coarse_breaks names", cfg$label))
   expect_true(all(diff(br[[1]]) > 0),
               info = sprintf("[%s] coarse_breaks increasing", cfg$label))
-  expect_true(br[[1]][1] <= min(cfg$dt[[names(cfg$cutpoints)[1]]]),
+  expect_true(br[[1]][1] <= min(cfg$dt_panel[[names(cfg$cutpoints)[1]]]),
               info = sprintf("[%s] coarse_breaks first ≤ min", cfg$label))
 
   ## 1 bin
   cp1 <- setNames(list(1), names(cfg$cutpoints)[1])
-  br1 <- gd_coarse_breaks(cfg$dt, cp1)
+  br1 <- gd_coarse_breaks(cfg$dt_panel, cp1)
   expect_equal(length(br1[[1]]), 2,
                info = sprintf("[%s] 1 bin = 2 breakpoints", cfg$label))
 
   ## fewer unique values than bins
   cp_uq <- setNames(list(20), names(cfg$cutpoints)[1])
-  br_uniq <- gd_coarse_breaks(cfg$dt[1:10], cp_uq)
+  br_uniq <- gd_coarse_breaks(cfg$dt_panel[1:10], cp_uq)
+  
   expect_true(length(br_uniq[[1]]) <= 10,
               info = sprintf("[%s] ≤n unique breaks", cfg$label))
 
@@ -442,9 +447,8 @@ gd_test_coarse_breaks <- function(cfg) {
 gd_test_quantile_refine <- function(cfg, mi) {
   ## sections 24-25: quantile breaks internal consistency
   t0 <- Sys.time()
-  l_breaks <- gd_coarse_breaks(cfg$dt, cfg$cutpoints)
-  r_q <- gd_refine_matches(mi, cfg$dt, uid = cfg$uid, tid = cfg$tid,
-                            cutpoints = l_breaks)
+  l_breaks <- gd_coarse_breaks(cfg$dt_panel, cfg$cutpoints)
+  r_q <- gd_refine_matches(mi, cfg$dt_panel, uid = cfg$uid, tid = cfg$tid, cutpoints = l_breaks)
   expect_true(is.list(r_q), info = sprintf("[%s] quantile refine list", cfg$label))
   expect_true("subclass" %in% names(r_q$data),
               info = sprintf("[%s] quantile subclass", cfg$label))
@@ -461,9 +465,8 @@ gd_test_quantile_refine <- function(cfg, mi) {
               info = sprintf("[%s] quantile unmatched weight=0", cfg$label))
 
   ## reproducibility: same quantile breaks → identical subclass assignments
-  l_breaks2 <- gd_coarse_breaks(cfg$dt, cfg$cutpoints)
-  r_q2 <- gd_refine_matches(mi, cfg$dt, uid = cfg$uid, tid = cfg$tid,
-                             cutpoints = l_breaks2)
+  l_breaks2 <- gd_coarse_breaks(cfg$dt_panel, cfg$cutpoints)
+  r_q2 <- gd_refine_matches(mi, cfg$dt_panel, uid = cfg$uid, tid = cfg$tid, cutpoints = l_breaks2)
   fp1 <- r_q$data[!is.na(subclass),
                    .(uid = get(cfg$uid), tid = get(cfg$tid), treat, s = subclass)][order(uid, tid, treat)]
   fp2 <- r_q2$data[!is.na(subclass),
@@ -497,6 +500,7 @@ test_config <- function(cfg) {
   if (is.null(ref)) return()
   
   dt_qr  <- exec_test(function() gd_test_quality_report(cfg, mi, ref), "quality report", cfg)
+  print(dt_qr) %>% t
 
   exec_test(function() gd_test_smd_vr(cfg, ref),                   "smd vr", cfg)
   exec_test(function() gd_test_l1_crossval(cfg, mi),               "L1 crossval", cfg)
