@@ -270,8 +270,8 @@ gd_build_dt_long <- function(dt_match, uid, tid) {
 #'   Must contain match_tier column (from matches-info mode).
 #' @param dt_full The full panel data containing covariates.
 #' @param covariates Character vector. Covariates for refinement.
-#' @param cutpoints List. For each covariate: integer (number of equal-width bins)
-#'   or numeric vector of explicit breakpoints.
+#' @param cutpoints Named list. Names are covariate names, values are
+#'   integers (equal-width bins) or numeric vectors (explicit breakpoints).
 #' @param uid String. Column name for the unit identifier in dt_full.
 #'   Must also match the id used in dt_match (via control_id/treated_id).
 #' @param tid String. Column name for the time identifier in dt_full and dt_match.
@@ -279,8 +279,10 @@ gd_build_dt_long <- function(dt_match, uid, tid) {
 #'   \item{data}{data.table with subclass and weight columns}
 #'   \item{matchit}{a list with $weights and $subclass for back-compat}
 gd_refine_matches <- function(dt_match, dt_full,
-                              covariates, cutpoints,
+                              cutpoints,
                               uid, tid) {
+
+  covariates <- names(cutpoints)
 
   ## build long-format match table
   dt_long <- gd_build_dt_long(dt_match, uid, tid)
@@ -419,7 +421,8 @@ gd_breaks_one <- function(v, dt_ref, cutpoints) {
 #' @param covariates Character vector of covariate names.
 #' @param cutpoints Named list mapping covariate names to number of bins.
 #' @return Named list mapping covariate names to numeric break vectors.
-gd_coarse_breaks <- function(dt_ref, covariates, cutpoints) {
+gd_coarse_breaks <- function(dt_ref, cutpoints) {
+  covariates <- names(cutpoints)
   setNames(lapply(covariates, gd_breaks_one, dt_ref, cutpoints), covariates)
 }
 
@@ -433,8 +436,9 @@ gd_coarse_breaks <- function(dt_ref, covariates, cutpoints) {
 #' @inheritParams gd_refine_matches
 #' @return A list with data and matchit slots (same structure as gd_refine_matches).
 gd_refine_matches_matchit <- function(dt_match, dt_full,
-                                      covariates, cutpoints,
+                                      cutpoints,
                                       uid, tid) {
+  covariates <- names(cutpoints)
 
   ## build long-format match table (same as DT version)
   dt_long <- gd_build_dt_long(dt_match, uid, tid)
@@ -550,7 +554,6 @@ gd_run_match_pipeline <- function(dt, params, dt_full = dt) {
   }
 
   refined <- gd_refine_matches(dt_cem, dt_full,
-                               covariates = params$covariates,
                                cutpoints  = params$cutpoints,
                                uid        = params$uid,
                                tid        = params$tid)
@@ -683,7 +686,7 @@ gd_quality_report_s2 <- function(matchit_obj, refined_data, params) {
   } else NA_real_
 
   ## identify real covariates (not the set dummies from matchit)
-  covs <- intersect(params$covariates, names(refined_data))
+  covs <- intersect(names(params$cutpoints), names(refined_data))
 
   if (length(covs) == 0) {
     return(data.table(n_after_cem = as.integer(n_after_cem),

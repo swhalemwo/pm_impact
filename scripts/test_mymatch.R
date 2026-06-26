@@ -17,7 +17,7 @@ dt_big <- fread("~/Dropbox/phd/papers/foster/dt_test_big.csv")
 configs <- list(
   list(dt = dt, L = 3L, treatment_col = "exn_pm", history_col = "exn_pm_cum",
        uid = "PeopleID", tid = "year",
-       covariates = c("BirthYear", "exn_all_cum_ihs"),
+       # covariates = c("BirthYear", "exn_all_cum_ihs"),
        cutpoints = list(BirthYear = 8, exn_all_cum_ihs = 8),
        slow = TRUE, label = "smol_L3", sample_n_treated = 100,
        tiers = list(c("hist_str", "Nationality", "Gender"), c("hist_str")))
@@ -87,7 +87,7 @@ gd_test_cem_refine <- function(cfg, mi) {
   ## section 6: CEM refinement structure
   t0 <- Sys.time()
   r <- gd_refine_matches(mi, cfg$dt, uid = cfg$uid, tid = cfg$tid,
-                          covariates = cfg$covariates, cutpoints = cfg$cutpoints)
+                          cutpoints = cfg$cutpoints)
   expect_true(is.list(r), info = sprintf("[%s] refine is list", cfg$label))
   expect_true(all(c("data", "matchit") %in% names(r)),
               info = sprintf("[%s] refine slots", cfg$label))
@@ -106,8 +106,8 @@ gd_test_quality_report <- function(cfg, mi, refined) {
   ## section 7: quality report schema
   t0 <- Sys.time()
   params <- list(L = cfg$L, treatment_col = cfg$treatment_col, uid = cfg$uid,
-                 covariates = cfg$covariates)
-  dt_qr <- gd_quality_report(  ## dt_qr: quality report (stage 1 + stage 2 + params)
+                 cutpoints = cfg$cutpoints)
+  dt_qr <- gd_quality_report(
     dt_prepared  = cfg$dt,
     dt_match     = mi,
     matchit_obj  = refined$matchit,
@@ -121,7 +121,7 @@ gd_test_quality_report <- function(cfg, mi, refined) {
   expect_true(all(s1_cols %in% names(dt_qr)), info = sprintf("[%s] stage-1 cols", cfg$label))
   s2_cols <- c("n_after_cem", "cem_match_rate", "L1_before", "L1_after")
   expect_true(all(s2_cols %in% names(dt_qr)), info = sprintf("[%s] stage-2 cols", cfg$label))
-  invisible(lapply(cfg$covariates, function(v) {
+  invisible(lapply(names(cfg$cutpoints), function(v) {
     expect_true(paste0("smd_", v, "_before") %in% names(dt_qr),
                 info = sprintf("[%s] SMD %s before", cfg$label, v))
     expect_true(paste0("smd_", v, "_after") %in% names(dt_qr),
@@ -142,7 +142,7 @@ gd_test_quality_report <- function(cfg, mi, refined) {
 gd_test_smd_vr <- function(cfg, refined) {
   t0 <- Sys.time()
   ## compare gd_smd_vr against cobalt::bal.tab
-  dt_cdf <- refined$data[, cfg$covariates, with = FALSE]  ## dt_cdf: covariate data frame
+  dt_cdf <- refined$data[, names(cfg$cutpoints), with = FALSE]  ## dt_cdf: covariate data frame
   tv  <- refined$data$treat                                ## tv: treatment vector (0/1)
   w   <- refined$matchit$weights                            ## w: CEM weights
 
@@ -187,18 +187,18 @@ gd_test_l1_crossval <- function(cfg, mi) {
   t0 <- Sys.time()
   set.seed(42)
   l_params <- list(
-    list(cov = cfg$covariates,                     cp = 8),
-    list(cov = cfg$covariates,                     cp = 6),
-    list(cov = cfg$covariates,                     cp = 4),
-    list(cov = cfg$covariates,                     cp = 2),
-    list(cov = cfg$covariates[1],                   cp = 8),
-    list(cov = cfg$covariates[1],                   cp = 4)
+    list(cov = names(cfg$cutpoints),                     cp = 8),
+    list(cov = names(cfg$cutpoints),                     cp = 6),
+    list(cov = names(cfg$cutpoints),                     cp = 4),
+    list(cov = names(cfg$cutpoints),                     cp = 2),
+    list(cov = names(cfg$cutpoints)[1],                   cp = 8),
+    list(cov = names(cfg$cutpoints)[1],                   cp = 4)
   )
   dt_l1 <- rbindlist(lapply(l_params, function(p) {  ## dt_l1: L1 imbalance results across parameter combos
     cp <- setNames(rep(list(p$cp), length(p$cov)), p$cov)
     if (length(cp) == 0) return(NULL)
     r <- gd_refine_matches(mi, cfg$dt, uid = cfg$uid, tid = cfg$tid,
-                            covariates = p$cov, cutpoints = cp)
+                            cutpoints = cp)
     covs <- p$cov
     dt_cov <- r$data[, covs, with = FALSE]
     tv  <- r$data$treat
@@ -245,7 +245,7 @@ gd_test_pipeline <- function(cfg, mi, refined, dt_qr) {
   t0 <- Sys.time()
   params <- list(L = cfg$L, treatment_col = cfg$treatment_col,
                  history_col = cfg$history_col, uid = cfg$uid, tid = cfg$tid,
-                 covariates = cfg$covariates, cutpoints = cfg$cutpoints,
+                 cutpoints = cfg$cutpoints,
                  sample_n_treated = cfg$sample_n_treated,
                  tiers = cfg$tiers)
 
@@ -285,7 +285,7 @@ gd_test_helpers <- function(cfg, refined) {
   ## sections 14-18: edge cases (quality report, coarse_bin, ematch_yr)
   t0 <- Sys.time()
   params <- list(L = cfg$L, treatment_col = cfg$treatment_col, uid = cfg$uid,
-                 covariates = cfg$covariates)
+                 cutpoints = cfg$cutpoints)
 
   ## qr_s1: stage 1 — exact matching coverage (empty input)
   dt_s1 <- gd_quality_report_s1(cfg$dt, data.table(), params)
@@ -326,7 +326,7 @@ gd_test_invariants <- function(cfg, mi) {
   ## sections 19-20: subclass/weight invariants, single cov/bin
   t0 <- Sys.time()
   r <- gd_refine_matches(mi, cfg$dt, uid = cfg$uid, tid = cfg$tid,
-                          covariates = cfg$covariates, cutpoints = cfg$cutpoints)
+                          cutpoints = cfg$cutpoints)
 
   ## invariants
   s_ids <- unique(na.omit(r$data$subclass))
@@ -349,18 +349,18 @@ gd_test_invariants <- function(cfg, mi) {
               info = sprintf("[%s] matchit class", cfg$label))
 
   ## single covariate
+  cp_1c <- setNames(list(cfg$cutpoints[[1]]), names(cfg$cutpoints)[1])
   r_1c <- gd_refine_matches(mi, cfg$dt, uid = cfg$uid, tid = cfg$tid,
-                             covariates = cfg$covariates[1],
-                             setNames(list(cfg$cutpoints[[1]]), cfg$covariates[1]))
+                             cutpoints = cp_1c)
   expect_true(is.list(r_1c) && all(c("data", "matchit") %in% names(r_1c)),
               info = sprintf("[%s] single cov list", cfg$label))
   expect_true("subclass" %in% names(r_1c$data),
               info = sprintf("[%s] single cov subclass", cfg$label))
 
   ## single bin per covariate
-  cp_1b <- setNames(lapply(cfg$covariates, function(x) 1L), cfg$covariates)
+  cp_1b <- setNames(lapply(names(cfg$cutpoints), function(x) 1L), names(cfg$cutpoints))
   r_1b <- gd_refine_matches(mi, cfg$dt, uid = cfg$uid, tid = cfg$tid,
-                             covariates = cfg$covariates, cutpoints = cp_1b)
+                             cutpoints = cp_1b)
   expect_equal(uniqueN(na.omit(r_1b$data$subclass)),
                uniqueN(r_1b$data[!is.na(subclass) & treat == 1, set]),
                info = sprintf("[%s] single bin = one per set", cfg$label))
@@ -373,7 +373,6 @@ gd_test_matchit_structure <- function(cfg, mi) {
   ## section 21: matchit version structure
   t0 <- Sys.time()
   r_mi <- gd_refine_matches_matchit(mi, cfg$dt, uid = cfg$uid, tid = cfg$tid,
-                                     covariates = cfg$covariates,
                                      cutpoints = cfg$cutpoints)
   expect_true(is.list(r_mi), info = sprintf("[%s] matchit list", cfg$label))
   expect_true(all(c("data", "matchit") %in% names(r_mi)),
@@ -393,18 +392,18 @@ gd_test_matchit_equiv <- function(cfg, mi) {
   ## equal-width bins (integer cutpoints)
   cp_int <- lapply(cfg$cutpoints, function(x) if (is.numeric(x)) as.integer(x) else x)
   r_dt <- gd_refine_matches(mi, cfg$dt, uid = cfg$uid, tid = cfg$tid,
-                             covariates = cfg$covariates, cutpoints = cp_int)
+                             cutpoints = cp_int)
   r_mi <- gd_refine_matches_matchit(mi, cfg$dt, uid = cfg$uid, tid = cfg$tid,
-                                     covariates = cfg$covariates, cutpoints = cp_int)
+                                     cutpoints = cp_int)
   expect_true(gd_match_equivalent(r_dt, r_mi, uid = cfg$uid, tid = cfg$tid),
               info = sprintf("[%s] equal-width DT=MI", cfg$label))
 
   ## quantile breaks
-  l_breaks <- gd_coarse_breaks(cfg$dt, cfg$covariates, cfg$cutpoints)
+  l_breaks <- gd_coarse_breaks(cfg$dt, cfg$cutpoints)
   r_dt2 <- gd_refine_matches(mi, cfg$dt, uid = cfg$uid, tid = cfg$tid,
-                              covariates = cfg$covariates, cutpoints = l_breaks)
+                              cutpoints = l_breaks)
   r_mi2 <- gd_refine_matches_matchit(mi, cfg$dt, uid = cfg$uid, tid = cfg$tid,
-                                      covariates = cfg$covariates, cutpoints = l_breaks)
+                                      cutpoints = l_breaks)
   expect_true(gd_match_equivalent(r_dt2, r_mi2, uid = cfg$uid, tid = cfg$tid),
               info = sprintf("[%s] quantile DT=MI", cfg$label))
 
@@ -415,24 +414,24 @@ gd_test_matchit_equiv <- function(cfg, mi) {
 gd_test_coarse_breaks <- function(cfg) {
   ## section 23: coarse_breaks structure
   t0 <- Sys.time()
-  br <- gd_coarse_breaks(cfg$dt, cfg$covariates, cfg$cutpoints)
+  br <- gd_coarse_breaks(cfg$dt, cfg$cutpoints)
   expect_true(is.list(br), info = sprintf("[%s] coarse_breaks list", cfg$label))
-  expect_equal(names(br), cfg$covariates,
+  expect_equal(names(br), names(cfg$cutpoints),
                info = sprintf("[%s] coarse_breaks names", cfg$label))
   expect_true(all(diff(br[[1]]) > 0),
               info = sprintf("[%s] coarse_breaks increasing", cfg$label))
-  expect_true(br[[1]][1] <= min(cfg$dt[[cfg$covariates[1]]]),
+  expect_true(br[[1]][1] <= min(cfg$dt[[names(cfg$cutpoints)[1]]]),
               info = sprintf("[%s] coarse_breaks first ≤ min", cfg$label))
 
   ## 1 bin
-  cp1 <- setNames(list(1), cfg$covariates[1])
-  br1 <- gd_coarse_breaks(cfg$dt, cfg$covariates[1], cp1)
+  cp1 <- setNames(list(1), names(cfg$cutpoints)[1])
+  br1 <- gd_coarse_breaks(cfg$dt, cp1)
   expect_equal(length(br1[[1]]), 2,
                info = sprintf("[%s] 1 bin = 2 breakpoints", cfg$label))
 
   ## fewer unique values than bins
-  br_uniq <- gd_coarse_breaks(cfg$dt[1:10], cfg$covariates[1],
-                               setNames(list(20), cfg$covariates[1]))
+  cp_uq <- setNames(list(20), names(cfg$cutpoints)[1])
+  br_uniq <- gd_coarse_breaks(cfg$dt[1:10], cp_uq)
   expect_true(length(br_uniq[[1]]) <= 10,
               info = sprintf("[%s] ≤n unique breaks", cfg$label))
 
@@ -443,9 +442,9 @@ gd_test_coarse_breaks <- function(cfg) {
 gd_test_quantile_refine <- function(cfg, mi) {
   ## sections 24-25: quantile breaks internal consistency
   t0 <- Sys.time()
-  l_breaks <- gd_coarse_breaks(cfg$dt, cfg$covariates, cfg$cutpoints)
+  l_breaks <- gd_coarse_breaks(cfg$dt, cfg$cutpoints)
   r_q <- gd_refine_matches(mi, cfg$dt, uid = cfg$uid, tid = cfg$tid,
-                            covariates = cfg$covariates, cutpoints = l_breaks)
+                            cutpoints = l_breaks)
   expect_true(is.list(r_q), info = sprintf("[%s] quantile refine list", cfg$label))
   expect_true("subclass" %in% names(r_q$data),
               info = sprintf("[%s] quantile subclass", cfg$label))
@@ -462,9 +461,9 @@ gd_test_quantile_refine <- function(cfg, mi) {
               info = sprintf("[%s] quantile unmatched weight=0", cfg$label))
 
   ## reproducibility: same quantile breaks → identical subclass assignments
-  l_breaks2 <- gd_coarse_breaks(cfg$dt, cfg$covariates, cfg$cutpoints)
+  l_breaks2 <- gd_coarse_breaks(cfg$dt, cfg$cutpoints)
   r_q2 <- gd_refine_matches(mi, cfg$dt, uid = cfg$uid, tid = cfg$tid,
-                             covariates = cfg$covariates, cutpoints = l_breaks2)
+                             cutpoints = l_breaks2)
   fp1 <- r_q$data[!is.na(subclass),
                    .(uid = get(cfg$uid), tid = get(cfg$tid), treat, s = subclass)][order(uid, tid, treat)]
   fp2 <- r_q2$data[!is.na(subclass),
