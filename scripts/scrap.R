@@ -427,7 +427,9 @@ params <- list(
   uid       = "PeopleID",
   tid       = "year",
   covariates    = c("BirthYear", "exn_all_cum_ihs"),
-  cutpoints     = list(BirthYear = 8, exn_all_cum_ihs = 8)
+  cutpoints     = list(BirthYear = 8, exn_all_cum_ihs = 8),
+  tiers = list(c("hist_str", "Nationality", "Gender"), c("hist_str")),
+  sample_n_treated = 100
 )
 
 
@@ -463,7 +465,11 @@ dt_match_full <- gd_match_history(
     history_col   = params$history_col,
     uid       = params$uid,
     tid       = params$tid,
-    return_type   = "matches-info"
+    return_type   = "matches-info",
+    tiers = list(c("hist_str", "Nationality", "Gender"), c("hist_str", "Nationality"),
+                 c("hist_str", "Gender"), "hist_str")
+    ## tiers =     params$tiers
+    ## tiers = list("hist_str") # big yikes, results in 280m results
 )
 
 refined_full <- gd_refine_matches(dt_match_full, dt_test,

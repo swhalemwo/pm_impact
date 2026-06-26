@@ -20,6 +20,7 @@ configs <- list(
        covariates = c("BirthYear", "exn_all_cum_ihs"),
        cutpoints = list(BirthYear = 8, exn_all_cum_ihs = 8),
        slow = TRUE, label = "smol_L3")
+       tiers = list(c("hist_str", "Nationality", "Gender"), c("hist_str")))
   ## list(dt = dt, L = 5L, treatment_col = "exn_pm", history_col = "exn_pm_cum",
   ##      uid = "PeopleID", tid = "year",
   ##      covariates = c("BirthYear", "exn_all_cum_ihs"),
@@ -44,7 +45,7 @@ gd_test_basic <- function(cfg) {
   t0 <- Sys.time()
   
   r_s <- gd_match_history(cfg$dt, L = cfg$L, treatment_col = cfg$treatment_col,  ## r_s: match history summary
-                           history_col = cfg$history_col, uid = cfg$uid, tid = cfg$tid,
+                           history_col = cfg$history_col, uid = cfg$uid, tid = cfg$tid, tiers = cfg$tiers,
                            return_type = "summary")
   expect_true(is.data.frame(r_s), info = sprintf("[%s] summary is data.frame", cfg$label))
   expect_true(all(c("total_treated", "treated_matched", "total_matches") %in% names(r_s)),
@@ -52,7 +53,7 @@ gd_test_basic <- function(cfg) {
   expect_true(r_s$total_treated > 0, info = sprintf("[%s] non-zero treated", cfg$label))
 
   r_f <- gd_match_history(cfg$dt, L = cfg$L, treatment_col = cfg$treatment_col,  ## r_f: match history full matches
-                           history_col = cfg$history_col, uid = cfg$uid, tid = cfg$tid,
+                           history_col = cfg$history_col, uid = cfg$uid, tid = cfg$tid, tiers = cfg$tiers,
                            return_type = "matches")
   expect_true(nrow(r_f) > 0, info = sprintf("[%s] matches non-empty", cfg$label))
   expect_true(all(c("control_id", "treated_id", "year") %in% names(r_f)),
@@ -67,7 +68,7 @@ gd_test_basic <- function(cfg) {
                info = sprintf("[%s] treated_matched consistent", cfg$label))
 
   r_mi <- gd_match_history(cfg$dt, L = cfg$L, treatment_col = cfg$treatment_col,  ## r_mi: match history matches-info
-                            history_col = cfg$history_col, uid = cfg$uid, tid = cfg$tid,
+                            history_col = cfg$history_col, uid = cfg$uid, tid = cfg$tid, tiers = cfg$tiers,
                             return_type = "matches-info")
   expect_true(nrow(r_mi) > 0, info = sprintf("[%s] matches-info non-empty", cfg$label))
   expect_true(all(c("match_key", "match_tier") %in% names(r_mi)),
@@ -245,6 +246,7 @@ gd_test_pipeline <- function(cfg, mi, refined, dt_qr) {
   params <- list(L = cfg$L, treatment_col = cfg$treatment_col,
                  history_col = cfg$history_col, uid = cfg$uid, tid = cfg$tid,
                  covariates = cfg$covariates, cutpoints = cfg$cutpoints)
+                 tiers = cfg$tiers)
 
   dt_qr2 <- gd_run_match_pipeline(cfg$dt, params)  ## dt_qr2: quality report from pipeline run
   expect_true(is.data.table(dt_qr2), info = sprintf("[%s] qr2 data.table", cfg$label))
