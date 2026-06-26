@@ -532,8 +532,8 @@ dt_res_snt %>% copy %>%
     facet_grid(variable ~., scale = "free_y")
 
 
-cfgs <- gd_build_configs(
-  dt = dt,
+l_cfgs <- gd_build_configs(
+  dt = dt_test,
   L = list(3L, 5L),
   treatment_col = list("exn_pm"),
   history_col = list("exn_pm_cum"),
@@ -542,9 +542,13 @@ cfgs <- gd_build_configs(
   ## covariates = list(c("BirthYear", "exn_all_cum_ihs"), c("BirthYear")),
   cutpoints = list(list(BirthYear = 8, exn_all_cum_ihs = 8), list(BirthYear = 8)),
   tiers = list(list(c("hist_str", "Nationality", "Gender"), c("hist_str"))),
-  sample_n_treated = list(500, 300)
+  sample_n_treated = list(100)
 )
 
+l_res <- gd_run_configs(l_cfgs, dt_full = dt_test)
+
+run_match_pipeline(l_cfgs
+gd_pipe
 
 
 ## ** check gd_l1_med
