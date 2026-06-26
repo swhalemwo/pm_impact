@@ -532,7 +532,7 @@ gd_run_match_pipeline <- function(dt, params, dt_full = dt) {
     history_col   = params$history_col,
     uid           = params$uid,
     tid           = params$tid,
-    tiers         = params$tiers,
+    tiers         = params$tiers, # %||% list(c("hist_str", "Nationality", "Gender"), c("hist_str")),
     return_type   = "matches-info"
   )
 
@@ -562,6 +562,73 @@ gd_run_match_pipeline <- function(dt, params, dt_full = dt) {
                     matchit_obj  = refined$matchit,
                     refined_data = refined$data,
                     params       = params)
+}
+
+#' Build a config grid from varying parameters.
+#'
+#' @description
+#' Generates all combinations of the supplied parameters. All named
+#' arguments are treated as alternatives (vectors/lists of values).
+#' Arguments with length 1 are treated as single values, arguments
+#' with length > 1 produce multiple configs.
+#'
+#' For list-valued parameters like covariates or cutpoints, wrap each
+#' alternative in a list: e.g. `covariates = list(c("x"), c("y", "z"))`.
+#' A single alternative: `covariates = list(c("x"))`.
+#'
+#' @param dt Panel data.table (constant across all configs).
+#' @param ... Named arguments. Each is a vector/list of alternatives.
+#' @return A list of config lists, one per parameter combination.
+gd_build_configs <- function(dt, ...) {
+  l_args <- list(...)
+
+  ## all params are alternatives — build indices for each
+  l_indices <- lapply(l_args, function(x) seq_along(x))
+  dt_grid <- do.call(data.table::CJ, c(l_indices, list(sorted = FALSE)))
+  setnames(dt_grid, names(l_args))
+
+  ## convert each grid row to a config
+  l_configs <- apply(dt_grid, 1, function(row) {
+    cfg <- list(dt = dt)
+    for (nm in names(l_args)) {
+      cfg[[nm]] <- l_args[[nm]][[row[[nm]]]]
+    }
+    cfg
+  })
+
+  l_configs
+}
+
+#' Run the pipeline across a config grid and collect results.
+#'
+#' @description
+#' Iterates over configs from gd_build_configs (or a list of configs),
+#' calls gd_run_match_pipeline for each, and collects the quality report
+#' rows into a single data.table.
+#'
+#' @param l_configs A list of config lists (as from gd_build_configs).
+#' @param dt_full Optional full panel data (default uses each config's dt).
+#' @return data.table with one row per config, columns from quality report
+#'   plus a `label` column for identification.
+gd_run_configs <- function(l_configs, dt_full = NULL) {
+  rbindlist(lapply(seq_along(l_configs), function(i) {
+    cfg <- l_configs[[i]]
+    label <- cfg$label %||% sprintf("cfg_%d", i)
+    dt_use <- dt_full %||% cfg$dt
+
+    result <- tryCatch(
+      gd_run_match_pipeline(cfg$dt, cfg, dt_full = dt_use),
+      error = function(e) {
+        warning(sprintf("[%s] pipeline failed: %s", label, conditionMessage(e)))
+        data.table(L = cfg$L, match_rate = NA_real_, n_matched = NA_integer_)
+      }
+    )
+
+    if (is.data.table(result) && nrow(result) == 1) {
+      result[, label := label]
+    }
+    result
+  }), fill = TRUE)
 }
 
 #' Compute a flat single-row quality report for one parameter combination.
