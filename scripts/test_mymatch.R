@@ -8,8 +8,8 @@ timings <- data.table(label = character(), time_s = numeric())
 
 # Load small test data
 dt <- fread("~/Dropbox/phd/papers/foster/dt_test_smol.csv")
-dt_med <- fread("~/Dropbox/phd/papers/foster/dt_test_med.csv")
-dt_big <- fread("~/Dropbox/phd/papers/foster/dt_test_big.csv")
+## dt_med <- fread("~/Dropbox/phd/papers/foster/dt_test_med.csv")
+## dt_big <- fread("~/Dropbox/phd/papers/foster/dt_test_big.csv")
 
 
 
