@@ -1029,18 +1029,21 @@ gd_smd_vr <- function(dt_cov, treat, weights) {
 #'   Defaults to dt_panel.
 #' @return data.table with internal uid/tid columns, lag columns for each
 #'   coarsened history, and a multivariate hist_str column.
+gd_hist_breaks_one <- function(dt_ref, hcol, nb) {
+  #' compute quantile breakpoints for one history column from reference data
+  x <- dt_ref[[hcol]]
+  if (uniqueN(x, na.rm = TRUE) <= nb) sort(unique(x))
+  else quantile(x, probs = seq(0, 1, length.out = nb + 1), na.rm = TRUE)
+}
+
 md_coarse_history <- function(dt_d, dt_ref, history_cols, coarse_cols,
                               nb_vec, history_breaks) {
   #' coarsen each cumulative history column in-place via data.table assignment
   switch(history_breaks,
     none = dt_d[, (coarse_cols) := lapply(history_cols, function(h) dt_d[[h]])],
     quantile = {
-      l_breaks <- setNames(lapply(seq_along(history_cols), function(i) {
-        x <- dt_ref[[history_cols[i]]]
-        nb <- nb_vec[i]
-        if (uniqueN(x, na.rm = TRUE) <= nb) sort(unique(x))
-        else quantile(x, probs = seq(0, 1, length.out = nb + 1), na.rm = TRUE)
-      }), coarse_cols)
+      l_breaks <- setNames(map2(history_cols, nb_vec, ~gd_hist_breaks_one(dt_ref, .x, .y)),
+                           coarse_cols)
       dt_d[, (coarse_cols) := map2(history_cols, l_breaks[coarse_cols],
                                     ~coarse_bin(get(.x), breaks = .y))]
     },
@@ -1048,6 +1051,16 @@ md_coarse_history <- function(dt_d, dt_ref, history_cols, coarse_cols,
                                           ~coarse_bin(get(.x), nbins = .y))]
   )
   invisible()
+}
+
+gd_build_lags_one <- function(dt_d, ch_col, uid, lag_offsets) {
+  #' create L lags of one coarsened history column, return as standalone data.table
+  lag_cols <- paste0(ch_col, "_l", lag_offsets)
+  collapse::L(dt_d, by = ~uid, n = lag_offsets, cols = ch_col) %>%
+    copy %>%
+    .[, paste0("L0.", ch_col) := get(ch_col)] %>%
+    setnames(old = paste0("L", lag_offsets, ".", ch_col), new = lag_cols) %>%
+    .[, ..lag_cols]
 }
 
 #' Prepare multivariate treatment history for CEM stratum construction.
@@ -1096,21 +1109,15 @@ md_prep_multivar_hist <- function(dt_panel, L, history_cols, history_nbins,
   hist_tags <- paste0("h", seq_along(history_cols))
   coarse_cols <- paste0(hist_tags, "_c")
 
-  ## coarsen cumulative values (before lagging) — dispatch to helper
+  ## coarsen cumulative values (before lagging)
   nb_vec <- if (length(history_nbins) == 1L) rep(history_nbins, length(history_cols))
             else history_nbins
   md_coarse_history(dt_d, dt_ref, history_cols, coarse_cols, nb_vec, history_breaks)
 
-  ## create L lags of each coarsened history column; collect via map, cbind once
+  ## create L lags of each coarsened history column
   lag_offsets <- 0:(L - 1)
-  l_lagdata <- map(coarse_cols, function(ch_col) {
-    lag_cols <- paste0(ch_col, "_l", lag_offsets)
-    collapse::L(dt_d, by = ~uid, n = lag_offsets, cols = ch_col) %>%
-      copy %>%
-      .[, paste0("L0.", ch_col) := get(ch_col)] %>%
-      setnames(old = paste0("L", lag_offsets, ".", ch_col), new = lag_cols) %>%
-      .[, ..lag_cols]
-  })
+  l_lagdata <- map(coarse_cols, gd_build_lags_one,
+                   dt_d = dt_d, uid = "uid", lag_offsets = lag_offsets)
 
   all_lag_cols <- unlist(map(l_lagdata, names))
   dt_d <- Reduce(cbind, c(list(dt_d), l_lagdata))
@@ -1187,9 +1194,9 @@ gd_cem_strata <- function(config) {
   if (length(covariate_cols) > 0 && length(covariate_cutpoints) > 0) {
     l_breaks <- gd_coarse_breaks(dt_prep, covariate_cutpoints)
     coarse_cov_cols <- paste0(".cr_", covariate_cols)
-    dt_prep[, (coarse_cov_cols) := lapply(covariate_cols, function(v) {
-      coarse_bin(get(v), breaks = l_breaks[[v]])
-    })]
+    dt_prep[, (coarse_cov_cols) := lapply(covariate_cols,
+                                              function(v) coarse_bin(get(v),
+                                                                      breaks = l_breaks[[v]]))]
   }
 
   ## step 3: form strata from year + hist_str + coarse covariates
@@ -1215,6 +1222,22 @@ gd_cem_strata <- function(config) {
 }
 
 
+gd_cem_print_treat_col <- function(tc, dt_s) {
+  #' print stratum coverage for one treatment column
+  ncol <- paste0("n_", tc)
+  n_treat_per_stratum <- dt_s[[ncol]][dt_s[[ncol]] > 0]
+  cat(sprintf("\n  Strata w/ %s > 0  : %d / %d (%.1f%%)",
+              tc, length(n_treat_per_stratum), nrow(dt_s),
+              100 * length(n_treat_per_stratum) / nrow(dt_s)))
+  if (length(n_treat_per_stratum) > 0) {
+    cat(sprintf("\n    per stratum      : min=%d, median=%d, mean=%.1f, max=%d",
+                min(n_treat_per_stratum),
+                as.integer(median(n_treat_per_stratum)),
+                mean(n_treat_per_stratum),
+                max(n_treat_per_stratum)))
+  }
+}
+
 #' Print-friendly summary of CEM strata results.
 #'
 #' @param cem_result List returned by gd_cem_strata.
@@ -1239,20 +1262,7 @@ gd_cem_strata_diag <- function(cem_result) {
               max(dt_s$n_total)))
   cat(sprintf("\n  Unique hist_str   : %d", uniqueN(dt_d$hist_str)))
 
-  walk(cfg$treatment_cols, function(tc) {
-    ncol <- paste0("n_", tc)
-    n_treat_per_stratum <- dt_s[[ncol]][dt_s[[ncol]] > 0]
-    cat(sprintf("\n  Strata w/ %s > 0  : %d / %d (%.1f%%)",
-                tc, length(n_treat_per_stratum), nrow(dt_s),
-                100 * length(n_treat_per_stratum) / nrow(dt_s)))
-    if (length(n_treat_per_stratum) > 0) {
-      cat(sprintf("\n    per stratum      : min=%d, median=%d, mean=%.1f, max=%d",
-                  min(n_treat_per_stratum),
-                  as.integer(median(n_treat_per_stratum)),
-                  mean(n_treat_per_stratum),
-                  max(n_treat_per_stratum)))
-    }
-  })
+  walk(cfg$treatment_cols, gd_cem_print_treat_col, dt_s = dt_s)
 
   n_ctrl_strata <- sum(dt_s$n_control > 0)
   cat(sprintf("\n  Strata w/ controls: %d / %d (%.1f%%)",
