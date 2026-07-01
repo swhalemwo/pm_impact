@@ -1017,21 +1017,26 @@ gd_hist_breaks_one <- function(dt_ref, hcol, nb) {
 #' @param nb_vec Integer vector. Number of bins per history column.
 #' @param history_breaks String. One of "quantile", "equal", or "none".
 #' @return Invisibly NULL; `dt_d` is modified by reference.
-md_coarse_history <- function(dt_d, dt_ref, history_cols, coarse_cols,
+gd_coarse_history <- function(dt_d, dt_ref, history_cols, coarse_cols,
                               nb_vec, history_breaks) {
-  switch(history_breaks,
-    none = dt_d[, (coarse_cols) := lapply(history_cols, function(h) dt_d[[h]])],
+  dt_coarse_hist <- dt_d %>% copy
+  
+  dt_coarse_hist <- switch(history_breaks,
+    none = dt_coarse_hist[, (coarse_cols) := lapply(history_cols, function(h) dt_coarse_hist[[h]])],
     quantile = {
       l_breaks <- setNames(map2(history_cols, nb_vec, ~gd_hist_breaks_one(dt_ref, .x, .y)),
                            coarse_cols)
-      dt_d[, (coarse_cols) := map2(history_cols, l_breaks[coarse_cols],
+      dt_coarse_hist[, (coarse_cols) := map2(history_cols, l_breaks[coarse_cols],
                                     ~coarse_bin(get(.x), breaks = .y))]
     },
-    equal = dt_d[, (coarse_cols) := map2(history_cols, nb_vec,
+    equal = dt_coarse_hist[, (coarse_cols) := map2(history_cols, nb_vec,
                                           ~coarse_bin(get(.x), nbins = .y))]
-  )
-  invisible()
+    )
+
+  return(dt_coarse_hist)
+  
 }
+
 
 #' Build L lags of one coarsened history column.
 #'
@@ -1082,9 +1087,10 @@ gd_build_lags_one <- function(dt_d, ch_col, uid, lag_offsets) {
 #'   Defaults to dt_panel.
 #' @return data.table with internal uid/tid columns, lag columns for each
 #'   coarsened history, and a multivariate hist_str column.
-md_prep_multivar_hist <- function(dt_panel, L, history_cols, history_nbins,
+gd_prep_multivar_hist <- function(dt_panel, L, history_cols, history_nbins,
                                    history_breaks = "quantile",
-                                   uid, tid, dt_ref = NULL) {
+                                  uid, tid, dt_ref = NULL) {
+
   dt_d <- copy(dt_panel)
   setnames(dt_d, c(uid, tid), c("uid", "tid"))
   dt_d <- dt_d[order(uid, tid)]
@@ -1096,15 +1102,16 @@ md_prep_multivar_hist <- function(dt_panel, L, history_cols, history_nbins,
   coarse_cols <- paste0(hist_tags, "_c")
 
   ## coarsen cumulative values (before lagging)
-  nb_vec <- if (length(history_nbins) == 1L) rep(history_nbins, length(history_cols))
-            else history_nbins
-  md_coarse_history(dt_d, dt_ref, history_cols, coarse_cols, nb_vec, history_breaks)
+  nb_vec <- if (length(history_nbins) == 1L) rep(history_nbins, length(history_cols)) else history_nbins
+
+  dt_coarse_hist <- gd_coarse_history(dt_d, dt_ref, history_cols, coarse_cols, nb_vec, history_breaks)
 
   ## create L lags of each coarsened history column
   lag_offsets <- 0:(L - 1)
   l_lagdata <- map(coarse_cols, gd_build_lags_one,
-                   dt_d = dt_d, uid = "uid", lag_offsets = lag_offsets)
+                   dt_d = dt_coarse_hist, uid = "uid", lag_offsets = lag_offsets)
 
+  
   all_lag_cols <- unlist(map(l_lagdata, names))
   dt_d <- Reduce(cbind, c(list(dt_d), l_lagdata))
 
@@ -1152,6 +1159,7 @@ md_prep_multivar_hist <- function(dt_panel, L, history_cols, history_nbins,
 #'     per-treatment counts, n_control)}
 #'   \item{config}{the input config (for reference)}
 gd_cem_strata <- function(config) {
+
   ## unpack config
   dt_panel           <- config$dt_panel
   L                  <- config$L
@@ -1165,7 +1173,7 @@ gd_cem_strata <- function(config) {
   covariate_cutpoints <- config$covariate_cutpoints %||% list()
 
   ## step 1: multivariate history preparation
-  dt_prep <- md_prep_multivar_hist(
+  dt_prep <- gd_prep_multivar_hist(
     dt_panel  = dt_panel,
     L         = L,
     history_cols   = history_cols,
