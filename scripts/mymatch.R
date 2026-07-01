@@ -996,49 +996,29 @@ gd_smd_vr <- function(dt_cov, treat, weights) {
 #   - Reuses existing coarsening/diagnostic infrastructure (coarse_bin,
 #     gd_coarse_breaks, gd_l1_med_both, gd_smd_vr)
 
-#' Prepare multivariate treatment history for CEM stratum construction.
+#' Compute quantile breakpoints for one history column.
 #'
-#' @description
-#' For each history column (cumulative exhibition counts), optionally coarsens
-#' the values into bins, creates L lags of the coarsened values, then
-#' concatenates all lagged values into a single multivariate `hist_str`.
-#' This ensures that units in the same stratum share identical treatment
-#' histories across all institution types.
-#'
-#' The coarsening step is critical: without it, artists with 200 vs 201 prior
-#' PI exhibitions would be in different strata despite being substantively
-#' identical. Coarsening bins these together.
-#'
-#' Coarsening can be:
-#'   - "quantile": quantile-based breaks from the full panel (default)
-#'   - "equal": equal-width bins via coarse_bin
-#'   - "none": no coarsening (raw cumulative values used as-is)
-#'
-#' @param dt_panel data.table. Panel data with cumulative history columns.
-#' @param L Integer. Number of lags to construct.
-#' @param history_cols Character vector. Names of cumulative history columns.
-#'   These should represent state at the START of each year (cumulative counts
-#'   up to that point).
-#' @param history_nbins Integer or named integer vector. Number of bins per
-#'   history column. If a single integer, applied to all columns. Ignored if
-#'   `history_breaks = "none"`.
-#' @param history_breaks String. One of "quantile", "equal", or "none".
-#' @param uid String. Unit identifier column name in dt_panel.
-#' @param tid String. Time identifier column name in dt_panel.
-#' @param dt_ref Optional reference data.table for computing quantile breaks.
-#'   Defaults to dt_panel.
-#' @return data.table with internal uid/tid columns, lag columns for each
-#'   coarsened history, and a multivariate hist_str column.
+#' @param dt_ref Reference data.table containing the full panel.
+#' @param hcol String. Column name in `dt_ref` for which to compute breaks.
+#' @param nb Integer. Number of bins (will be reduced if unique values < nb).
+#' @return Numeric vector of breakpoints.
 gd_hist_breaks_one <- function(dt_ref, hcol, nb) {
-  #' compute quantile breakpoints for one history column from reference data
   x <- dt_ref[[hcol]]
   if (uniqueN(x, na.rm = TRUE) <= nb) sort(unique(x))
   else quantile(x, probs = seq(0, 1, length.out = nb + 1), na.rm = TRUE)
 }
 
+#' Coarsen cumulative history columns in-place via data.table assignment.
+#'
+#' @param dt_d data.table to modify in-place (must contain `history_cols`).
+#' @param dt_ref Reference data.table for computing quantile breaks.
+#' @param history_cols Character vector. Names of cumulative history columns.
+#' @param coarse_cols Character vector. Names for the resulting coarsened columns.
+#' @param nb_vec Integer vector. Number of bins per history column.
+#' @param history_breaks String. One of "quantile", "equal", or "none".
+#' @return Invisibly NULL; `dt_d` is modified by reference.
 md_coarse_history <- function(dt_d, dt_ref, history_cols, coarse_cols,
                               nb_vec, history_breaks) {
-  #' coarsen each cumulative history column in-place via data.table assignment
   switch(history_breaks,
     none = dt_d[, (coarse_cols) := lapply(history_cols, function(h) dt_d[[h]])],
     quantile = {
@@ -1053,8 +1033,14 @@ md_coarse_history <- function(dt_d, dt_ref, history_cols, coarse_cols,
   invisible()
 }
 
+#' Build L lags of one coarsened history column.
+#'
+#' @param dt_d data.table. Panel data with internal `uid` column.
+#' @param ch_col String. Name of the coarsened history column to lag.
+#' @param uid String. Unit identifier (must be "uid" — internal column name).
+#' @param lag_offsets Integer vector. Lag offsets (typically `0:(L-1)`).
+#' @return data.table with lag columns only (to be cbinded to `dt_d`).
 gd_build_lags_one <- function(dt_d, ch_col, uid, lag_offsets) {
-  #' create L lags of one coarsened history column, return as standalone data.table
   lag_cols <- paste0(ch_col, "_l", lag_offsets)
   collapse::L(dt_d, by = ~uid, n = lag_offsets, cols = ch_col) %>%
     copy %>%
@@ -1222,8 +1208,8 @@ gd_cem_strata <- function(config) {
 }
 
 
+#' Print stratum coverage for one treatment column.
 gd_cem_print_treat_col <- function(tc, dt_s) {
-  #' print stratum coverage for one treatment column
   ncol <- paste0("n_", tc)
   n_treat_per_stratum <- dt_s[[ncol]][dt_s[[ncol]] > 0]
   cat(sprintf("\n  Strata w/ %s > 0  : %d / %d (%.1f%%)",
