@@ -513,11 +513,178 @@ test_config <- function(cfg) {
   exec_test(function() gd_test_quantile_refine(cfg, mi),           "quantile", cfg)
 }
 
+# ===========================================================================
+# Multicategory CEM Stratum Tests
+# ===========================================================================
+
+cem_configs <- list(
+  list(dt_panel = dt, L = 3L,
+       treatment_cols = c("exn_pm", "exn_pi"),
+       history_cols = c("exn_pm_cum_ihs", "exn_pi_cum_ihs"),
+       history_nbins = c(5L, 5L), history_breaks = "quantile",
+       uid = "PeopleID", tid = "year",
+       covariate_cols = c("BirthYear", "exn_all_cum_ihs"),
+       covariate_cutpoints = list(BirthYear = 8, exn_all_cum_ihs = 8),
+       label = "quantile_5"),
+  list(dt_panel = dt, L = 3L,
+       treatment_cols = c("exn_pm", "exn_pi"),
+       history_cols = c("exn_pm_cum_ihs", "exn_pi_cum_ihs"),
+       history_nbins = 5L, history_breaks = "equal",
+       uid = "PeopleID", tid = "year",
+       covariate_cols = c("BirthYear", "exn_all_cum_ihs"),
+       covariate_cutpoints = list(BirthYear = 8, exn_all_cum_ihs = 8),
+       label = "equal_5"),
+  list(dt_panel = dt, L = 3L,
+       treatment_cols = c("exn_pm", "exn_pi"),
+       history_cols = c("exn_pm_cum_ihs", "exn_pi_cum_ihs"),
+       history_nbins = 5L, history_breaks = "none",
+       uid = "PeopleID", tid = "year",
+       covariate_cols = character(0),
+       covariate_cutpoints = list(),
+       label = "none_no_cov")
+)
+
+gd_test_cem_prep <- function(cfg) {
+  t0 <- Sys.time()
+  dt_p <- md_prep_multivar_hist(
+    dt_panel = cfg$dt_panel, L = cfg$L,
+    history_cols = cfg$history_cols, history_nbins = cfg$history_nbins,
+    history_breaks = cfg$history_breaks,
+    uid = cfg$uid, tid = cfg$tid
+  )
+  expect_true(is.data.table(dt_p),
+              info = sprintf("[%s] prep is data.table", cfg$label))
+  expect_true(nrow(dt_p) > 0,
+              info = sprintf("[%s] prep non-empty", cfg$label))
+  expect_true("hist_str" %in% names(dt_p),
+              info = sprintf("[%s] hist_str column", cfg$label))
+  expect_true(all(c("uid", "tid") %in% names(dt_p)),
+              info = sprintf("[%s] internal uid/tid", cfg$label))
+  ## rows should decrease by (L-1) per artist due to lag NA removal
+  expect_true(nrow(dt_p) < nrow(cfg$dt_panel),
+              info = sprintf("[%s] rows decreased from lag removal", cfg$label))
+
+  timings <<- rbind(timings, data.table(label = sprintf("%s cem_prep", cfg$label),
+                                         time_s = round(as.numeric(Sys.time() - t0), 2)))
+  dt_p
+}
+
+gd_test_cem_strata <- function(cfg) {
+  t0 <- Sys.time()
+  result <- gd_cem_strata(cfg)
+  expect_true(is.list(result),
+              info = sprintf("[%s] result is list", cfg$label))
+  expect_true(all(c("data", "strata_summary", "config") %in% names(result)),
+              info = sprintf("[%s] result slots", cfg$label))
+  dt_d <- result$data
+  expect_true("stratum" %in% names(dt_d),
+              info = sprintf("[%s] stratum column", cfg$label))
+  expect_true(cfg$uid %in% names(dt_d),
+              info = sprintf("[%s] uid preserved", cfg$label))
+  expect_true(cfg$tid %in% names(dt_d),
+              info = sprintf("[%s] tid preserved", cfg$label))
+
+  ## treatment columns preserved
+  invisible(lapply(cfg$treatment_cols, function(tc) {
+    expect_true(tc %in% names(dt_d),
+                info = sprintf("[%s] treatment col %s preserved", cfg$label, tc))
+  }))
+
+  timings <<- rbind(timings, data.table(label = sprintf("%s cem_strata", cfg$label),
+                                         time_s = round(as.numeric(Sys.time() - t0), 2)))
+  result
+}
+
+gd_test_cem_consistency <- function(cfg, result) {
+  t0 <- Sys.time()
+  dt_d <- result$data
+  dt_s <- result$strata_summary
+
+  ## within-stratum consistency: year, hist_str, and coarse covariates are invariant
+  cv_cols <- intersect(names(dt_d), paste0(".cr_", cfg$covariate_cols))
+  check_cols <- c(cfg$tid, "hist_str", cv_cols)
+  for (cc in check_cols) {
+    nv <- dt_d[, uniqueN(get(cc)), by = stratum][V1 > 1]
+    expect_true(nrow(nv) == 0,
+                info = sprintf("[%s] %s invariant within strata", cfg$label, cc))
+  }
+
+  ## strata_summary matches data
+  expect_equal(nrow(dt_s), uniqueN(dt_d$stratum),
+               info = sprintf("[%s] strata_summary has one row per stratum", cfg$label))
+
+  ## n_total in summary matches actual
+  dt_check <- dt_d[, .(.N), by = stratum]
+  dt_join <- merge(dt_check, dt_s[, .(stratum, n_total)], by = "stratum")
+  expect_true(all(dt_join$N == dt_join$n_total),
+              info = sprintf("[%s] n_total correct", cfg$label))
+
+  ## per-treatment counts in summary are >= 0 (already checked by being in data.table)
+  for (tc in cfg$treatment_cols) {
+    ncol <- paste0("n_", tc)
+    expect_true(ncol %in% names(dt_s),
+                info = sprintf("[%s] summary has n_%s", cfg$label, tc))
+    expect_true(all(dt_s[[ncol]] >= 0),
+                info = sprintf("[%s] n_%s non-negative", cfg$label, tc))
+  }
+
+  ## n_control is computed
+  expect_true("n_control" %in% names(dt_s),
+              info = sprintf("[%s] summary has n_control", cfg$label))
+
+  timings <<- rbind(timings, data.table(label = sprintf("%s cem_consistency", cfg$label),
+                                         time_s = round(as.numeric(Sys.time() - t0), 2)))
+}
+
+gd_test_cem_edge_cases <- function(cfg) {
+  t0 <- Sys.time()
+
+  ## empty data
+  cfg_empty <- cfg
+  cfg_empty$dt_panel <- cfg$dt_panel[FALSE]
+  cfg_empty$label <- paste0(cfg$label, "_empty")
+  expect_error(
+    gd_cem_strata(cfg_empty),
+    info = sprintf("[%s] empty data handled", cfg$label)
+  )
+
+  ## single treatment (should still work)
+  cfg_one <- cfg
+  cfg_one$treatment_cols <- cfg$treatment_cols[1]
+  cfg_one$history_cols <- cfg$history_cols[1]
+  if (length(cfg$history_nbins) > 1) {
+    cfg_one$history_nbins <- cfg$history_nbins[1]
+  }
+  cfg_one$label <- paste0(cfg$label, "_one")
+  res_one <- gd_cem_strata(cfg_one)
+  expect_true("stratum" %in% names(res_one$data),
+              info = sprintf("[%s] single treatment works", cfg$label))
+
+  ## diag function
+  gd_cem_strata_diag(res_one)
+
+  timings <<- rbind(timings, data.table(label = sprintf("%s cem_edges", cfg$label),
+                                         time_s = round(as.numeric(Sys.time() - t0), 2)))
+}
+
+test_cem_config <- function(cfg) {
+  dt_p <- exec_test(function() gd_test_cem_prep(cfg), "cem_prep", cfg)
+  if (is.null(dt_p)) return()
+  res <- exec_test(function() gd_test_cem_strata(cfg), "cem_strata", cfg)
+  if (is.null(res)) return()
+  exec_test(function() gd_test_cem_consistency(cfg, res), "cem_consistency", cfg)
+  exec_test(function() gd_test_cem_edge_cases(cfg), "cem_edges", cfg)
+}
+
 # ==== Main execution ====
 run_slow <- Sys.getenv("FOSTER_TEST_SLOW", "true") != "false"
 
 for (cfg in configs) {
   test_config(cfg)
+}
+
+for (cfg in cem_configs) {
+  test_cem_config(cfg)
 }
 
 # --- Timing report ---

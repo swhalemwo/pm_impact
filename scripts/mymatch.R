@@ -1,6 +1,7 @@
 library(data.table)
 library(MatchIt)
 library(cobalt)
+library(purrr)
 library(collapse, include.only = c("join", "funique", "set_collapse"))
 
 `%||%` <- function(x, y) if (is.null(x)) y else x
@@ -974,4 +975,289 @@ gd_smd_vr <- function(dt_cov, treat, weights) {
 
   rbindlist(out) %>%
     setnames(c("cov", "smd_un", "vr_un", "smd_adj", "vr_adj"))
+}
+
+
+# =============================================================================
+# Multicategory CEM Stratum Construction
+# =============================================================================
+# The following functions implement the CEM stratum approach for multicategory
+# treatments (Iacus, King, Porro 2012, Section 5.1). Instead of the two-stage
+# (exact-match -> CEM-refine) pipeline for binary treatment, we:
+#   1. Coarsen cumulative treatment history for each institution type
+#   2. Create L lags of each coarsened history
+#   3. Form strata from (year, multivariate hist_str, coarsened covariates)
+#   4. Keep all strata (feols handles within-stratum collinearity)
+#
+# This approach:
+#   - Handles multiple treatment types simultaneously
+#   - Ensures matched units share identical histories across ALL treatment types
+#   - Is dramatically simpler computationally (no Cartesian joins, no sets)
+#   - Reuses existing coarsening/diagnostic infrastructure (coarse_bin,
+#     gd_coarse_breaks, gd_l1_med_both, gd_smd_vr)
+
+#' Prepare multivariate treatment history for CEM stratum construction.
+#'
+#' @description
+#' For each history column (cumulative exhibition counts), optionally coarsens
+#' the values into bins, creates L lags of the coarsened values, then
+#' concatenates all lagged values into a single multivariate `hist_str`.
+#' This ensures that units in the same stratum share identical treatment
+#' histories across all institution types.
+#'
+#' The coarsening step is critical: without it, artists with 200 vs 201 prior
+#' PI exhibitions would be in different strata despite being substantively
+#' identical. Coarsening bins these together.
+#'
+#' Coarsening can be:
+#'   - "quantile": quantile-based breaks from the full panel (default)
+#'   - "equal": equal-width bins via coarse_bin
+#'   - "none": no coarsening (raw cumulative values used as-is)
+#'
+#' @param dt_panel data.table. Panel data with cumulative history columns.
+#' @param L Integer. Number of lags to construct.
+#' @param history_cols Character vector. Names of cumulative history columns.
+#'   These should represent state at the START of each year (cumulative counts
+#'   up to that point).
+#' @param history_nbins Integer or named integer vector. Number of bins per
+#'   history column. If a single integer, applied to all columns. Ignored if
+#'   `history_breaks = "none"`.
+#' @param history_breaks String. One of "quantile", "equal", or "none".
+#' @param uid String. Unit identifier column name in dt_panel.
+#' @param tid String. Time identifier column name in dt_panel.
+#' @param dt_ref Optional reference data.table for computing quantile breaks.
+#'   Defaults to dt_panel.
+#' @return data.table with internal uid/tid columns, lag columns for each
+#'   coarsened history, and a multivariate hist_str column.
+md_coarse_history <- function(dt_d, dt_ref, history_cols, coarse_cols,
+                              nb_vec, history_breaks) {
+  #' coarsen each cumulative history column in-place via data.table assignment
+  switch(history_breaks,
+    none = dt_d[, (coarse_cols) := lapply(history_cols, function(h) dt_d[[h]])],
+    quantile = {
+      l_breaks <- setNames(lapply(seq_along(history_cols), function(i) {
+        x <- dt_ref[[history_cols[i]]]
+        nb <- nb_vec[i]
+        if (uniqueN(x, na.rm = TRUE) <= nb) sort(unique(x))
+        else quantile(x, probs = seq(0, 1, length.out = nb + 1), na.rm = TRUE)
+      }), coarse_cols)
+      dt_d[, (coarse_cols) := map2(history_cols, l_breaks[coarse_cols],
+                                    ~coarse_bin(get(.x), breaks = .y))]
+    },
+    equal = dt_d[, (coarse_cols) := map2(history_cols, nb_vec,
+                                          ~coarse_bin(get(.x), nbins = .y))]
+  )
+  invisible()
+}
+
+#' Prepare multivariate treatment history for CEM stratum construction.
+#'
+#' @description
+#' For each history column (cumulative exhibition counts), optionally coarsens
+#' the values into bins, creates L lags of the coarsened values, then
+#' concatenates all lagged values into a single multivariate `hist_str`.
+#' This ensures that units in the same stratum share identical treatment
+#' histories across all institution types.
+#'
+#' The coarsening step is critical: without it, artists with 200 vs 201 prior
+#' PI exhibitions would be in different strata despite being substantively
+#' identical. Coarsening bins these together.
+#'
+#' Coarsening can be:
+#'   - "quantile": quantile-based breaks from the full panel (default)
+#'   - "equal": equal-width bins via coarse_bin
+#'   - "none": no coarsening (raw cumulative values used as-is)
+#'
+#' @param dt_panel data.table. Panel data with cumulative history columns.
+#' @param L Integer. Number of lags to construct.
+#' @param history_cols Character vector. Names of cumulative history columns.
+#'   These should represent state at the START of each year (cumulative counts
+#'   up to that point).
+#' @param history_nbins Integer or named integer vector. Number of bins per
+#'   history column. If a single integer, applied to all columns. Ignored if
+#'   `history_breaks = "none"`.
+#' @param history_breaks String. One of "quantile", "equal", or "none".
+#' @param uid String. Unit identifier column name in dt_panel.
+#' @param tid String. Time identifier column name in dt_panel.
+#' @param dt_ref Optional reference data.table for computing quantile breaks.
+#'   Defaults to dt_panel.
+#' @return data.table with internal uid/tid columns, lag columns for each
+#'   coarsened history, and a multivariate hist_str column.
+md_prep_multivar_hist <- function(dt_panel, L, history_cols, history_nbins,
+                                   history_breaks = "quantile",
+                                   uid, tid, dt_ref = NULL) {
+  dt_d <- copy(dt_panel)
+  setnames(dt_d, c(uid, tid), c("uid", "tid"))
+  dt_d <- dt_d[order(uid, tid)]
+
+  if (is.null(dt_ref)) dt_ref <- dt_d
+
+  ## short internal names for lag columns
+  hist_tags <- paste0("h", seq_along(history_cols))
+  coarse_cols <- paste0(hist_tags, "_c")
+
+  ## coarsen cumulative values (before lagging) — dispatch to helper
+  nb_vec <- if (length(history_nbins) == 1L) rep(history_nbins, length(history_cols))
+            else history_nbins
+  md_coarse_history(dt_d, dt_ref, history_cols, coarse_cols, nb_vec, history_breaks)
+
+  ## create L lags of each coarsened history column; collect via map, cbind once
+  lag_offsets <- 0:(L - 1)
+  l_lagdata <- map(coarse_cols, function(ch_col) {
+    lag_cols <- paste0(ch_col, "_l", lag_offsets)
+    collapse::L(dt_d, by = ~uid, n = lag_offsets, cols = ch_col) %>%
+      copy %>%
+      .[, paste0("L0.", ch_col) := get(ch_col)] %>%
+      setnames(old = paste0("L", lag_offsets, ".", ch_col), new = lag_cols) %>%
+      .[, ..lag_cols]
+  })
+
+  all_lag_cols <- unlist(map(l_lagdata, names))
+  dt_d <- Reduce(cbind, c(list(dt_d), l_lagdata))
+
+  ## filter to complete cases and create multivariate hist_str
+  dt_d <- collapse::na_omit(dt_d, cols = all_lag_cols)
+  dt_d[, hist_str := collapse::finteraction(.SD, sep = "_"), .SDcols = all_lag_cols]
+
+  return(dt_d)
+}
+
+
+#' Form CEM strata for multicategory treatment analysis.
+#'
+#' @description
+#' Full pipeline: prepare multivariate treatment history, coarsen covariates,
+#' and form strata. Each stratum is a combination of:
+#'   (year tid, multivariate hist_str, coarsened covariate bins)
+#'
+#' Within each stratum, all units share identical:
+#'   - Treatment history across all institution types (L lags)
+#'   - Coarsened covariate values
+#'   - Year
+#'
+#' The resulting data can be passed directly to feols() for DiD estimation
+#' with stratum fixed effects:
+#'   feols(outcome ~ treat_PM + treat_PES + treat_gallery | stratum, data)
+#'
+#' @param config Named list with the following fields:
+#'   \itemize{
+#'     \item dt_panel: data.table with panel data
+#'     \item L: integer, number of lags
+#'     \item treatment_cols: character vector of treatment column names
+#'     \item history_cols: character vector of cumulative history column names
+#'     \item history_nbins: integer or named vector, bins per history column
+#'     \item history_breaks: string, "quantile", "equal", or "none"
+#'     \item uid: string, unit identifier column
+#'     \item tid: string, time identifier column
+#'     \item covariate_cols: character vector of covariate names (optional)
+#'     \item covariate_cutpoints: named list of cutpoints for covariates (optional)
+#'   }
+#' @return Named list:
+#'   \item{data}{data.table with original columns plus stratum, hist_str, and
+#'     coarsened covariate columns}
+#'   \item{strata_summary}{data.table with one row per stratum (n_total,
+#'     per-treatment counts, n_control)}
+#'   \item{config}{the input config (for reference)}
+gd_cem_strata <- function(config) {
+  ## unpack config
+  dt_panel           <- config$dt_panel
+  L                  <- config$L
+  treatment_cols     <- config$treatment_cols
+  history_cols       <- config$history_cols
+  history_nbins      <- config$history_nbins %||% 5L
+  history_breaks     <- config$history_breaks %||% "quantile"
+  uid                <- config$uid
+  tid                <- config$tid
+  covariate_cols     <- config$covariate_cols %||% character(0)
+  covariate_cutpoints <- config$covariate_cutpoints %||% list()
+
+  ## step 1: multivariate history preparation
+  dt_prep <- md_prep_multivar_hist(
+    dt_panel  = dt_panel,
+    L         = L,
+    history_cols   = history_cols,
+    history_nbins  = history_nbins,
+    history_breaks = history_breaks,
+    uid       = uid,
+    tid       = tid
+  )
+
+  ## step 2: coarsen covariates (reuse existing infrastructure)
+  coarse_cov_cols <- character(0)
+  if (length(covariate_cols) > 0 && length(covariate_cutpoints) > 0) {
+    l_breaks <- gd_coarse_breaks(dt_prep, covariate_cutpoints)
+    coarse_cov_cols <- paste0(".cr_", covariate_cols)
+    dt_prep[, (coarse_cov_cols) := lapply(covariate_cols, function(v) {
+      coarse_bin(get(v), breaks = l_breaks[[v]])
+    })]
+  }
+
+  ## step 3: form strata from year + hist_str + coarse covariates
+  stratum_cols <- c("tid", "hist_str", coarse_cov_cols)
+  dt_prep[, stratum := collapse::finteraction(.SD, sep = "_"), .SDcols = stratum_cols]
+
+  ## step 4: build strata summary — total N, per-treatment counts, n_control
+  dt_summary <- dt_prep[, c(
+    list(n_total = .N),
+    setNames(lapply(treatment_cols, function(tc) sum(get(tc) > 0)),
+             paste0("n_", treatment_cols)),
+    list(n_control = sum(Reduce(`&`, lapply(.SD, `<=`, 0))))
+  ), by = stratum, .SDcols = treatment_cols]
+
+  ## step 5: restore original column names
+  setnames(dt_prep, c("uid", "tid"), c(uid, tid))
+
+  list(
+    data           = dt_prep,
+    strata_summary = dt_summary,
+    config         = config
+  )
+}
+
+
+#' Print-friendly summary of CEM strata results.
+#'
+#' @param cem_result List returned by gd_cem_strata.
+#' @return The strata_summary data.table (invisibly), with a printed overview.
+gd_cem_strata_diag <- function(cem_result) {
+  dt_s <- cem_result$strata_summary
+  dt_d <- cem_result$data
+  cfg  <- cem_result$config
+
+  cat(sprintf("\nCEM Strata Diagnostics"))
+  cat(sprintf("\n  Lags (L)          : %d", cfg$L))
+  cat(sprintf("\n  Treatment cols    : %s", paste(cfg$treatment_cols, collapse = ", ")))
+  cat(sprintf("\n  History cols      : %s", paste(cfg$history_cols, collapse = ", ")))
+  cat(sprintf("\n  History breaks    : %s (nbins: %s)", cfg$history_breaks,
+              paste(cfg$history_nbins, collapse = ", ")))
+  cat(sprintf("\n  N (prepped)       : %d", nrow(dt_d)))
+  cat(sprintf("\n  N strata          : %d", nrow(dt_s)))
+  cat(sprintf("\n  Strata size       : min=%d, median=%d, mean=%.1f, max=%d",
+              min(dt_s$n_total),
+              as.integer(median(dt_s$n_total)),
+              mean(dt_s$n_total),
+              max(dt_s$n_total)))
+  cat(sprintf("\n  Unique hist_str   : %d", uniqueN(dt_d$hist_str)))
+
+  walk(cfg$treatment_cols, function(tc) {
+    ncol <- paste0("n_", tc)
+    n_treat_per_stratum <- dt_s[[ncol]][dt_s[[ncol]] > 0]
+    cat(sprintf("\n  Strata w/ %s > 0  : %d / %d (%.1f%%)",
+                tc, length(n_treat_per_stratum), nrow(dt_s),
+                100 * length(n_treat_per_stratum) / nrow(dt_s)))
+    if (length(n_treat_per_stratum) > 0) {
+      cat(sprintf("\n    per stratum      : min=%d, median=%d, mean=%.1f, max=%d",
+                  min(n_treat_per_stratum),
+                  as.integer(median(n_treat_per_stratum)),
+                  mean(n_treat_per_stratum),
+                  max(n_treat_per_stratum)))
+    }
+  })
+
+  n_ctrl_strata <- sum(dt_s$n_control > 0)
+  cat(sprintf("\n  Strata w/ controls: %d / %d (%.1f%%)",
+              n_ctrl_strata, nrow(dt_s), 100 * n_ctrl_strata / nrow(dt_s)))
+  cat("\n")
+
+  invisible(dt_s)
 }
