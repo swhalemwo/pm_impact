@@ -670,11 +670,12 @@ dt_cbn <- merge(dt_ref_matched, dt_dv[, .SD, .SDcols = !"exn_pi"] , by = c("Peop
 feols(exn_pi_dil ~ treat | set, dt_cbn, weights = ~weight)
 
 
-dt_test <- data.table(stratum = c("a", "a", "b", "b", "b", "c", "c", "c"),
-                      treat = factor(c(1,2,1,2,3,1,2,3)),
-                      outcome = rnorm(n=8))
+dt_test <- data.table(stratum = c("a", "a", "b", "b", "b", "c", "c", "c", "d", "d"),
+                      treat = factor(c(1,2,1,2,3,1,2,3, 2, 3)),
+                      outcome = rnorm(n=10))
 
 feols(outcome ~ treat | stratum, dt_test)
+feols(outcome ~ treat | stratum, dt_test[stratum != "d"])
 
 
 library(lintr)
