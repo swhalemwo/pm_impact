@@ -490,6 +490,8 @@ gd_match_equivalent <- function(r1, r2, uid, tid) {
   ## 1. total row count
   if (nrow(r1$data) != nrow(r2$data)) return(FALSE)
 
+  ## browser()
+
   ## extract matched indicators
   sc1 <- if (is.factor(r1$matchit$subclass)) as.integer(r1$matchit$subclass) else r1$matchit$subclass
   sc2 <- if (is.factor(r2$matchit$subclass)) as.integer(r2$matchit$subclass) else r2$matchit$subclass
@@ -1157,8 +1159,8 @@ gd_prep_multivar_hist <- function(dt_panel, L, history_cols, history_nbins,
 #'     \item history_breaks: string, "quantile", "equal", or "none"
 #'     \item uid: string, unit identifier column
 #'     \item tid: string, time identifier column
-#'     \item covariate_cols: character vector of covariate names (optional)
-#'     \item covariate_cutpoints: named list of cutpoints for covariates (optional)
+#'     \item covariate_cutpoints: named list of cutpoints for covariates (optional;
+#'       covariate names are derived from names(cutpoints))
 #'   }
 #' @return Named list:
 #'   \item{data}{data.table with original columns plus stratum, hist_str, and
@@ -1177,8 +1179,8 @@ gd_cem_strata <- function(config) {
   history_breaks     <- config$history_breaks %||% "quantile"
   uid                <- config$uid
   tid                <- config$tid
-  covariate_cols     <- config$covariate_cols %||% character(0)
   covariate_cutpoints <- config$covariate_cutpoints %||% list()
+  covariate_cols       <- names(covariate_cutpoints)
 
   ## step 1: multivariate history preparation
   dt_prep <- gd_prep_multivar_hist(

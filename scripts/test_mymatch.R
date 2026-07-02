@@ -522,7 +522,6 @@ cem_configs <- list(
        history_cols = c("exn_pm_cum_ihs", "exn_pi_cum_ihs"),
        history_nbins = c(5L, 5L), history_breaks = "quantile",
        uid = "PeopleID", tid = "year",
-       covariate_cols = c("BirthYear", "exn_all_cum_ihs"),
        covariate_cutpoints = list(BirthYear = 8, exn_all_cum_ihs = 8),
        label = "quantile_5"),
   list(dt_panel = dt, L = 3L,
@@ -530,7 +529,6 @@ cem_configs <- list(
        history_cols = c("exn_pm_cum_ihs", "exn_pi_cum_ihs"),
        history_nbins = 5L, history_breaks = "equal",
        uid = "PeopleID", tid = "year",
-       covariate_cols = c("BirthYear", "exn_all_cum_ihs"),
        covariate_cutpoints = list(BirthYear = 8, exn_all_cum_ihs = 8),
        label = "equal_5"),
   list(dt_panel = dt, L = 3L,
@@ -538,14 +536,13 @@ cem_configs <- list(
        history_cols = c("exn_pm_cum_ihs", "exn_pi_cum_ihs"),
        history_nbins = 5L, history_breaks = "none",
        uid = "PeopleID", tid = "year",
-       covariate_cols = character(0),
        covariate_cutpoints = list(),
        label = "none_no_cov")
 )
 
 gd_test_cem_prep <- function(cfg) {
   t0 <- Sys.time()
-  dt_p <- md_prep_multivar_hist(
+  dt_p <- gd_prep_multivar_hist(
     dt_panel = cfg$dt_panel, L = cfg$L,
     history_cols = cfg$history_cols, history_nbins = cfg$history_nbins,
     history_breaks = cfg$history_breaks,
@@ -600,7 +597,7 @@ gd_test_cem_consistency <- function(cfg, result) {
   dt_s <- result$strata_summary
 
   ## within-stratum consistency: year, hist_str, and coarse covariates are invariant
-  cv_cols <- intersect(names(dt_d), paste0(".cr_", cfg$covariate_cols))
+  cv_cols <- intersect(names(dt_d), paste0(".cr_", names(cfg$covariate_cutpoints)))
   check_cols <- c(cfg$tid, "hist_str", cv_cols)
   for (cc in check_cols) {
     nv <- dt_d[, uniqueN(get(cc)), by = stratum][V1 > 1]
