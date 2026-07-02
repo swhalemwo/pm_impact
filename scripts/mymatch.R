@@ -441,6 +441,7 @@ gd_coarse_breaks <- function(dt_ref, cutpoints) {
 gd_refine_matches_matchit <- function(dt_match, dt_full,
                                       cutpoints,
                                       uid, tid) {
+  ## browser()
   covariates <- names(cutpoints)
 
   ## build long-format match table (same as DT version)
@@ -456,6 +457,8 @@ gd_refine_matches_matchit <- function(dt_match, dt_full,
   formula <- as.formula(paste("treat ~ set +", paste(covariates, collapse = " + ")))
   r_match <- matchit(formula, data = dt_long, method = "cem",
                      cutpoints = cutpoints)
+
+
 
   dt_long[, subclass := r_match$subclass]
   list(data = dt_long, matchit = r_match)
@@ -1008,15 +1011,15 @@ gd_hist_breaks_one <- function(dt_ref, hcol, nb) {
   else quantile(x, probs = seq(0, 1, length.out = nb + 1), na.rm = TRUE)
 }
 
-#' Coarsen cumulative history columns in-place via data.table assignment.
+#' Coarsen cumulative history columns, returning a copy of `dt_d`.
 #'
-#' @param dt_d data.table to modify in-place (must contain `history_cols`).
+#' @param dt_d data.table containing `history_cols`.
 #' @param dt_ref Reference data.table for computing quantile breaks.
 #' @param history_cols Character vector. Names of cumulative history columns.
 #' @param coarse_cols Character vector. Names for the resulting coarsened columns.
 #' @param nb_vec Integer vector. Number of bins per history column.
 #' @param history_breaks String. One of "quantile", "equal", or "none".
-#' @return Invisibly NULL; `dt_d` is modified by reference.
+#' @return data.table with coarsened history columns appended.
 gd_coarse_history <- function(dt_d, dt_ref, history_cols, coarse_cols,
                               nb_vec, history_breaks) {
   dt_coarse_hist <- dt_d %>% copy
