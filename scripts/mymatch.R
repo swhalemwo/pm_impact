@@ -1016,7 +1016,8 @@ gd_smd_vr <- function(dt_cov, treat, weights) {
 gd_hist_breaks_one <- function(dt_ref, hcol, nb) {
   x <- dt_ref[[hcol]]
   if (uniqueN(x, na.rm = TRUE) <= nb) sort(unique(x))
-  else quantile(x, probs = seq(0, 1, length.out = nb + 1), na.rm = TRUE)
+  ## else quantile(x, probs = seq(0, 1, length.out = nb + 1), na.rm = TRUE)
+  else quantile(x, probs = seq(1/nb, 1-(1/nb), length.out = nb -1), na.rm = TRUE)
 }
 
 #' Coarsen cumulative history columns, returning a copy of `dt_d`.
@@ -1117,15 +1118,21 @@ gd_prep_multivar_hist <- function(dt_panel, L, history_cols, history_nbins,
 
   dt_coarse_hist <- gd_coarse_history(dt_d, dt_ref, history_cols, coarse_cols, nb_vec, history_breaks)
 
+  
   ## create L lags of each coarsened history column
   lag_offsets <- 0:(L - 1)
   l_lagdata <- map(coarse_cols, gd_build_lags_one,
                    dt_d = dt_coarse_hist, uid = "uid", lag_offsets = lag_offsets)
 
-  
   all_lag_cols <- unlist(map(l_lagdata, names))
   dt_d <- Reduce(cbind, c(list(dt_d), l_lagdata))
 
+
+  ## REV this variable lagging (previous block) can be shortened to this: 
+  ## collapse::L(dt_coarse_hist, by = ~uid, n = lag_offsets, cols = coarse_cols)
+  ## no need to map/Reduce-cbind, collapse can do it one swoop
+  
+  
   ## filter to complete cases and create multivariate hist_str
   dt_d <- collapse::na_omit(dt_d, cols = all_lag_cols)
   dt_d[, hist_str := collapse::finteraction(.SD, sep = "_"), .SDcols = all_lag_cols]
@@ -1184,6 +1191,8 @@ gd_cem_strata <- function(config) {
   covariate_cols       <- names(covariate_cutpoints)
 
   ## step 1: multivariate history preparation
+  ## history columns: get lagged to construct hist_str
+  ## covariates: don't get lagged
   dt_prep <- gd_prep_multivar_hist(
     dt_panel  = dt_panel,
     L         = L,
@@ -1199,9 +1208,7 @@ gd_cem_strata <- function(config) {
   if (length(covariate_cols) > 0 && length(covariate_cutpoints) > 0) {
     l_breaks <- gd_coarse_breaks(dt_prep, covariate_cutpoints)
     coarse_cov_cols <- paste0(".cr_", covariate_cols)
-    dt_prep[, (coarse_cov_cols) := lapply(covariate_cols,
-                                              function(v) coarse_bin(get(v),
-                                                                      breaks = l_breaks[[v]]))]
+    dt_prep[, (coarse_cov_cols) := map(covariate_cols, ~coarse_bin(get(.x), breaks = l_breaks[[.x]]))]
   }
 
   ## step 3: form strata from year + hist_str + coarse covariates
