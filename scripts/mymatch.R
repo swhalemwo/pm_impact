@@ -1050,22 +1050,6 @@ gd_coarse_history <- function(dt_d, dt_ref, history_cols, coarse_cols,
 }
 
 
-#' Build L lags of one coarsened history column.
-#'
-#' @param dt_d data.table. Panel data with internal `uid` column.
-#' @param ch_col String. Name of the coarsened history column to lag.
-#' @param uid String. Unit identifier (must be "uid" — internal column name).
-#' @param lag_offsets Integer vector. Lag offsets (typically `0:(L-1)`).
-#' @return data.table with lag columns only (to be cbinded to `dt_d`).
-gd_build_lags_one <- function(dt_d, ch_col, uid, lag_offsets) {
-  lag_cols <- paste0(ch_col, "_l", lag_offsets)
-  collapse::L(dt_d, by = ~uid, n = lag_offsets, cols = ch_col) %>%
-    copy %>%
-    .[, paste0("L0.", ch_col) := get(ch_col)] %>%
-    setnames(old = paste0("L", lag_offsets, ".", ch_col), new = lag_cols) %>%
-    .[, ..lag_cols]
-}
-
 #' Prepare multivariate treatment history for CEM stratum construction.
 #'
 #' @description
@@ -1120,24 +1104,17 @@ gd_prep_multivar_hist <- function(dt_panel, L, history_cols, history_nbins,
 
   
   ## create L lags of each coarsened history column
-  lag_offsets <- 0:(L - 1)
-  l_lagdata <- map(coarse_cols, gd_build_lags_one,
-                   dt_d = dt_coarse_hist, uid = "uid", lag_offsets = lag_offsets)
-
-  all_lag_cols <- unlist(map(l_lagdata, names))
-  dt_d <- Reduce(cbind, c(list(dt_d), l_lagdata))
-
-
-  ## REV this variable lagging (previous block) can be shortened to this: 
-  ## collapse::L(dt_coarse_hist, by = ~uid, n = lag_offsets, cols = coarse_cols)
-  ## no need to map/Reduce-cbind, collapse can do it one swoop
+  dt_lags <- collapse::L(dt_coarse_hist, by = ~uid, n = 0:(L - 1), cols = coarse_cols)
+  all_lag_cols <- setdiff(names(dt_lags), "uid")
   
-  
+  dt_d2 <- cbind(dt_d, dt_lags[, ..all_lag_cols])
+
+
   ## filter to complete cases and create multivariate hist_str
-  dt_d <- collapse::na_omit(dt_d, cols = all_lag_cols)
-  dt_d[, hist_str := collapse::finteraction(.SD, sep = "_"), .SDcols = all_lag_cols]
+  dt_d2 <- collapse::na_omit(dt_d2, cols = all_lag_cols)
+  dt_d2[, hist_str := collapse::finteraction(.SD, sep = "_"), .SDcols = all_lag_cols]
 
-  return(dt_d)
+  return(dt_d2)
 }
 
 
