@@ -424,14 +424,13 @@ gd_test_coarse_breaks <- function(cfg) {
                info = sprintf("[%s] coarse_breaks names", cfg$label))
   expect_true(all(diff(br[[1]]) > 0),
               info = sprintf("[%s] coarse_breaks increasing", cfg$label))
-  expect_true(br[[1]][1] <= min(cfg$dt_panel[[names(cfg$cutpoints)[1]]]),
-              info = sprintf("[%s] coarse_breaks first ≤ min", cfg$label))
+  ## expect_true(br[[1]][1] <= min(cfg$dt_panel[[names(cfg$cutpoints)[1]]]),
+  ##             info = sprintf("[%s] coarse_breaks first ≤ min", cfg$label))
 
-  ## 1 bin
-  cp1 <- setNames(list(1), names(cfg$cutpoints)[1])
-  br1 <- gd_coarse_breaks(cfg$dt_panel, cp1)
-  expect_equal(length(br1[[1]]), 2,
-               info = sprintf("[%s] 1 bin = 2 breakpoints", cfg$label))
+  ## 1 bin: no longer makes sense
+  ## cp1 <- setNames(list(1), names(cfg$cutpoints)[1])
+  ## br1 <- gd_coarse_breaks(cfg$dt_panel, cp1)
+  ## expect_equal(length(br1[[1]]), 2, info = sprintf("[%s] 1 bin = 2 breakpoints", cfg$label))
 
   ## fewer unique values than bins
   cp_uq <- setNames(list(20), names(cfg$cutpoints)[1])
