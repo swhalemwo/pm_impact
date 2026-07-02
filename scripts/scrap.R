@@ -675,3 +675,109 @@ dt_test <- data.table(stratum = c("a", "a", "b", "b", "b", "c", "c", "c"),
                       outcome = rnorm(n=8))
 
 feols(outcome ~ treat | stratum, dt_test)
+
+
+library(lintr)
+lint("~/Dropbox/phd/papers/foster/scripts/mymatch.R")
+
+
+gd_cem_strata(cem_configs[[1]])
+
+## callgraph (inconvenient af)
+options(browser = "surf")
+fw <- foodweb(filter = T)
+plot(fw)
+
+foodweb(FUN = gd_run_match_pipeline) %>% plot
+
+
+
+
+## some fake data
+l_breaks <- gd_coarse_breaks(cfg$dt_panel, cfg$cutpoints)
+r_dt2 <- gd_refine_matches(mi, cfg$dt_panel, uid = cfg$uid, tid = cfg$tid,
+                              cutpoints = l_breaks)
+  r_mi2 <- gd_refine_matches_matchit(mi, cfg$dt_panel, uid = cfg$uid, tid = cfg$tid,
+                                      cutpoints = l_breaks)
+
+
+
+source("~/Dropbox/phd/papers/foster/scripts/mymatch.R")
+
+dt_full <- tribble(
+    ~PeopleID,  ~year,  ~BirthYear,  ~exn_all_cum_ihs,  ~treated_id,  ~control_id,  
+    1L,         2020L,  1995L,       9,                 1,            1,
+    101L,       2020L,  1930L,       1,                 1,            101,
+    102L,       2020L,  1950L,       2.5,               1,            102,
+    103L,       2020L,  1960L,       4,                 1,            103,
+    104L,       2020L,  1975L,       6,                 1,            104,
+    105L,       2020L,  1990L,       8,                 1,            105) %>% adt
+
+dt_cem <- dt_full[PeopleID != 1]
+
+## --- Our equal-width (4 bins) ---
+cp_int <- list(BirthYear = 4L, exn_all_cum_ihs = 4L)
+
+gd_refine_matches(dt_cem, dt_full, uid = "PeopleID", tid= "year", cutpoints = cp_int)$data[, .(PeopleID, subclass)]
+
+gd_refine_matches_matchit(dt_cem, dt_full, uid = "PeopleID", tid= "year", cutpoints = cp_int)$data[, .(PeopleID, subclass)]
+
+
+
+## ** equal spaced breaks
+
+dt <- fread("dt_test_smol.csv")
+
+## MatchIt CEM with same cutpoints
+x <- dt$exn_pi_cum_ihs
+cp_int <- 5L  ## same as our 5-bin quantile
+
+## run matchit CEM to see what it does internally
+form <- as.formula("treat ~ exn_pi_cum_ihs")
+dt_tmp <- data.table(treat = sample(0:1, nrow(dt), replace = TRUE), exn_pi_cum_ihs = x)
+set.seed(42)
+r <- matchit(form, data = dt_tmp, method = "cem", cutpoints = list(exn_pi_cum_ihs = 5L))
+
+## compute our coarse_bin version
+source("~/Dropbox/phd/papers/foster/scripts/mymatch.R")
+
+table(r$subclass, our_bin) # yeah complete overlap just different order
+
+## ** equal-size bins
+
+l_br <- gd_coarse_breaks(dt_tmp, cutpoints = list(exn_pi_cum_ihs = 5))
+r_mi_eqsb <- matchit(form, data = dt_tmp, method = "cem", cutpoints = l_br)
+r_mi_eqsb$subclass %>% table
+
+
+## l_br <- gd_coarse_breaks(dt_tmp, cutpoints = list(exn_pi_cum_ihs = 10))
+## r_mi_eqsb <- matchit(form, data = dt_tmp, method = "cem", cutpoints = l_br)
+## r_mi_eqsb$subclass %>% table
+## ## matchit can take custom cutpoints
+
+
+table(r$subclass, r_mi_eqsb$subclass)
+
+r_coarse_bin <- coarse_bin(x, breaks = l_br$exn_pi_cum_ihs)
+table(r_coarse_bin)
+table(r_mi_eqsb$subclass)
+
+table(r_coarse_bin, r_mi_eqsb$subclass) 
+
+
+r_mi_eqsb$subclass %>% table %>% sum # 57971
+r_coarse_bin %>% table %>% sum # 57972
+
+x # 57972
+dt_tmp # 57972
+
+r_mi_eqsb$subclass[is.na(r_mi_eqsb$subclass)]
+r_coarse_bin[1126] # the non-matched in matchit is the singleton in coarse_bin
+
+## try with new coarsening function
+l_br_new <- gd_coarse_breaks(dt_tmp, cutpoints = list(exn_pi_cum_ihs = 5))
+
+r_mi_eqsb_new <- matchit(form, data = dt_tmp, method = "cem", cutpoints = l_br_new)
+
+
+table(r_mi_eqsb$subclass, r_mi_eqsb_new$subclass)# same res

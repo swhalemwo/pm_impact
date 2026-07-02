@@ -301,7 +301,8 @@ gd_refine_matches <- function(dt_match, dt_full,
     cp <- cutpoints[[v]]
     if (is.null(cp)) stop("gd_refine_matches: cutpoints must specify a value for ", v)
     if (is.numeric(cp) && length(cp) == 1) {
-      seq(range(dt_coarse[[v]], na.rm = TRUE)[1], range(dt_coarse[[v]], na.rm = TRUE)[2], length.out = cp + 1)
+      ## seq(range(dt_coarse[[v]], na.rm = TRUE)[1], range(dt_coarse[[v]], na.rm = TRUE)[2], length.out = cp + 1)
+      seq(range(dt_coarse[[v]], na.rm = TRUE)[1], range(dt_coarse[[v]], na.rm = TRUE)[2], length.out = cp + 1)[2:cp]
     } else cp
   }), covariates)
 
@@ -368,7 +369,7 @@ gd_refine_matches <- function(dt_match, dt_full,
   list(data = dt_long2, matchit = r_match)
 }
 
-#' Coarsen a numeric vector into bins.
+#' Coarsen a numeric vector into bins. 
 #'
 #' @description
 #' If `breaks` is provided, uses those breakpoints directly.
@@ -404,9 +405,13 @@ gd_breaks_one <- function(v, dt_ref, cutpoints) {
   if (length(unique(x)) <= nbins) {
     sort(unique(x))
   } else {
-    quantile(x, probs = seq(0, 1, length.out = nbins + 1), na.rm = TRUE)
+    ## quantile(x, probs = seq(0, 1, length.out = nbins + 1), na.rm = TRUE)
+    quantile(x, probs = seq(1/nbins, 1-(1/nbins), length.out = nbins -1 ), na.rm = TRUE)
   }
 }
+
+
+
 
 #' Compute quantile-based breakpoints for CEM coarsening.
 #'
