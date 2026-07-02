@@ -683,10 +683,12 @@ lint("~/Dropbox/phd/papers/foster/scripts/mymatch.R")
 
 
 
-gd_cem_strata_diag(res)
+
 
 
 res <- gd_cem_strata(cem_configs[[1]])
+
+gd_cem_strata_diag(res)
 
 res$strata_summary[n_total > 1] %>%
 .[, nbr_grps := rowSums(.SD > 0), .SDcols = paste0("n_", c(res$config$treatment_cols, "control"))] %>%
