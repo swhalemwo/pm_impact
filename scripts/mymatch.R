@@ -236,6 +236,7 @@ md_prep_match <- function(dt_panel, L, t_col, h_col, uid, tid) {
 gd_build_dt_long <- function(dt_match, uid, tid) {
   ## first construct sets: each treated only once per TID
   ## each treated unit once per time period (saves ~1.2s over head(.SD,1) per treated_id)
+
   dt_set <- dt_match[, funique(.SD), .SDcols = c("treated_id", tid)] %>%
     setnames(old = tid, new = "tid") %>%
     ## .[, set := paste0(treated_id, "_", tid)]
