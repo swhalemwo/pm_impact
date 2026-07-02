@@ -9,7 +9,7 @@ timings <- data.table(label = character(), time_s = numeric())
 # Load small test data
 dt <- fread("~/Dropbox/phd/papers/foster/dt_test_smol.csv")
 ## dt_med <- fread("~/Dropbox/phd/papers/foster/dt_test_med.csv")
-## dt_big <- fread("~/Dropbox/phd/papers/foster/dt_test_big.csv")
+dt_big <- fread("~/Dropbox/phd/papers/foster/dt_test_big.csv")
 
 
 
@@ -517,21 +517,21 @@ test_config <- function(cfg) {
 # ===========================================================================
 
 cem_configs <- list(
-  list(dt_panel = dt, L = 3L,
+  list(dt_panel = dt_big, L = 3L,
        treatment_cols = c("exn_pm", "exn_pi"),
        history_cols = c("exn_pm_cum_ihs", "exn_pi_cum_ihs"),
        history_nbins = c(5L, 5L), history_breaks = "quantile",
        uid = "PeopleID", tid = "year",
        covariate_cutpoints = list(BirthYear = 8, exn_all_cum_ihs = 8),
        label = "quantile_5"),
-  list(dt_panel = dt, L = 3L,
+  list(dt_panel = dt_big, L = 3L,
        treatment_cols = c("exn_pm", "exn_pi"),
        history_cols = c("exn_pm_cum_ihs", "exn_pi_cum_ihs"),
        history_nbins = 5L, history_breaks = "equal",
        uid = "PeopleID", tid = "year",
        covariate_cutpoints = list(BirthYear = 8, exn_all_cum_ihs = 8),
        label = "equal_5"),
-  list(dt_panel = dt, L = 3L,
+  list(dt_panel = dt_big, L = 3L,
        treatment_cols = c("exn_pm", "exn_pi"),
        history_cols = c("exn_pm_cum_ihs", "exn_pi_cum_ihs"),
        history_nbins = 5L, history_breaks = "none",
