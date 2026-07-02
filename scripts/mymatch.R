@@ -1211,52 +1211,119 @@ gd_cem_strata <- function(config) {
 }
 
 
-#' Print stratum coverage for one treatment column.
-gd_cem_print_treat_col <- function(tc, dt_s) {
-  ncol <- paste0("n_", tc)
-  n_treat_per_stratum <- dt_s[[ncol]][dt_s[[ncol]] > 0]
+#' Compute CEM quality stats for one treatment column (helper).
+#'
+#' @param tc String. Treatment column name.
+#' @param dt_s data.table. Strata summary from gd_cem_strata.
+#' @return Named numeric vector with n_strata_{tc}, pct_strata_{tc},
+#'   and strata_{tc}_{min,median,mean,max}.
+gd_cem_quality_treat <- function(tc, dt_s) {
+  n_treat <- dt_s[[paste0("n_", tc)]]
+  n_treat_pos <- n_treat[n_treat > 0]
+  n <- length(n_treat_pos)
+  c(
+    setNames(n, paste0("n_strata_", tc)),
+    setNames(round(n / nrow(dt_s), 4), paste0("pct_strata_", tc)),
+    if (n > 0) {
+      setNames(c(min(n_treat_pos), as.integer(median(n_treat_pos)),
+                  round(mean(n_treat_pos), 1), max(n_treat_pos)),
+               paste0("strata_", tc, c("_min", "_median", "_mean", "_max")))
+    } else {
+      setNames(rep(NA_integer_, 4), paste0("strata_", tc, c("_min", "_median", "_mean", "_max")))
+    }
+  )
+}
+
+#' Generate single-row CEM quality report.
+#'
+#' @description
+#' Collects coverage and balance diagnostics from a CEM stratum run into
+#' a single-row data.table. Designed for rbindlist-ing across configs.
+#'
+#' @param cem_result List returned by gd_cem_strata.
+#' @return A single-row data.table with columns:
+#'   \itemize{
+#'     \item L, history_breaks, history_nbins_str (config)
+#'     \item n_prepped, n_strata, strata_median_size, strata_mean_size,
+#'           strata_min_size, strata_max_size, n_hist_str
+#'     \item For each treatment column tc:
+#'           n_strata_{tc}, pct_strata_{tc},
+#'           strata_{tc}_min, strata_{tc}_median, strata_{tc}_mean,
+#'           strata_{tc}_max
+#'     \item n_ctrl_strata, pct_ctrl_strata
+#'   }
+gd_cem_quality_report <- function(cem_result) {
+  dt_s <- cem_result$strata_summary
+  dt_d <- cem_result$data
+  cfg  <- cem_result$config
+
+  ## control coverage
+  n_ctrl_strata <- sum(dt_s$n_control > 0)
+
+  ## build named list preserving types, then wrap in data.table
+  l_out <- c(
+    list(L                 = cfg$L,
+         history_breaks    = cfg$history_breaks,
+         history_nbins_str = paste(cfg$history_nbins, collapse = ","),
+         n_prepped         = nrow(dt_d),
+         n_strata          = nrow(dt_s),
+         strata_median_size = as.integer(median(dt_s$n_total)),
+         strata_mean_size   = round(mean(dt_s$n_total), 1),
+         strata_min_size    = min(dt_s$n_total),
+         strata_max_size    = max(dt_s$n_total),
+         n_hist_str        = uniqueN(dt_d$hist_str)),
+    as.list(unlist(map(cfg$treatment_cols, gd_cem_quality_treat, dt_s = dt_s))),
+    list(n_ctrl_strata     = n_ctrl_strata,
+         pct_ctrl_strata   = round(n_ctrl_strata / nrow(dt_s), 4))
+  )
+
+  as.data.table(l_out)
+}
+
+#' Print CEM coverage for one treatment column (helper for diag).
+#'
+#' @param tc String. Treatment column name.
+#' @param dt_q data.table. Quality report from gd_cem_quality_report.
+#' @param dt_s data.table. Strata summary from gd_cem_strata.
+gd_cem_diag_print_treat <- function(tc, dt_q, dt_s) {
+  n_cur <- dt_q[[paste0("n_strata_", tc)]]
+  p_cur <- dt_q[[paste0("pct_strata_", tc)]]
   cat(sprintf("\n  Strata w/ %s > 0  : %d / %d (%.1f%%)",
-              tc, length(n_treat_per_stratum), nrow(dt_s),
-              100 * length(n_treat_per_stratum) / nrow(dt_s)))
-  if (length(n_treat_per_stratum) > 0) {
+              tc, n_cur, nrow(dt_s), 100 * p_cur))
+  if (!is.na(dt_q[[paste0("strata_", tc, "_min")]])) {
     cat(sprintf("\n    per stratum      : min=%d, median=%d, mean=%.1f, max=%d",
-                min(n_treat_per_stratum),
-                as.integer(median(n_treat_per_stratum)),
-                mean(n_treat_per_stratum),
-                max(n_treat_per_stratum)))
+                dt_q[[paste0("strata_", tc, "_min")]],
+                dt_q[[paste0("strata_", tc, "_median")]],
+                dt_q[[paste0("strata_", tc, "_mean")]],
+                dt_q[[paste0("strata_", tc, "_max")]]))
   }
 }
 
 #' Print-friendly summary of CEM strata results.
 #'
 #' @param cem_result List returned by gd_cem_strata.
-#' @return The strata_summary data.table (invisibly), with a printed overview.
+#' @return The quality report data.table (invisibly), with a printed overview.
 gd_cem_strata_diag <- function(cem_result) {
+  dt_q <- gd_cem_quality_report(cem_result)
   dt_s <- cem_result$strata_summary
-  dt_d <- cem_result$data
   cfg  <- cem_result$config
 
   cat(sprintf("\nCEM Strata Diagnostics"))
-  cat(sprintf("\n  Lags (L)          : %d", cfg$L))
-  cat(sprintf("\n  Treatment cols    : %s", paste(cfg$treatment_cols, collapse = ", ")))
-  cat(sprintf("\n  History cols      : %s", paste(cfg$history_cols, collapse = ", ")))
+  cat(sprintf("\n  L (lags)          : %d", dt_q$L))
   cat(sprintf("\n  History breaks    : %s (nbins: %s)", cfg$history_breaks,
               paste(cfg$history_nbins, collapse = ", ")))
-  cat(sprintf("\n  N (prepped)       : %d", nrow(dt_d)))
-  cat(sprintf("\n  N strata          : %d", nrow(dt_s)))
+  cat(sprintf("\n  N (prepped)       : %d", dt_q$n_prepped))
+  cat(sprintf("\n  N strata          : %d", dt_q$n_strata))
   cat(sprintf("\n  Strata size       : min=%d, median=%d, mean=%.1f, max=%d",
-              min(dt_s$n_total),
-              as.integer(median(dt_s$n_total)),
-              mean(dt_s$n_total),
-              max(dt_s$n_total)))
-  cat(sprintf("\n  Unique hist_str   : %d", uniqueN(dt_d$hist_str)))
+              dt_q$strata_min_size, dt_q$strata_median_size,
+              dt_q$strata_mean_size, dt_q$strata_max_size))
+  cat(sprintf("\n  Unique hist_str   : %d", dt_q$n_hist_str))
 
-  walk(cfg$treatment_cols, gd_cem_print_treat_col, dt_s = dt_s)
+  walk(cfg$treatment_cols, gd_cem_diag_print_treat, dt_q = dt_q, dt_s = dt_s)
 
-  n_ctrl_strata <- sum(dt_s$n_control > 0)
   cat(sprintf("\n  Strata w/ controls: %d / %d (%.1f%%)",
-              n_ctrl_strata, nrow(dt_s), 100 * n_ctrl_strata / nrow(dt_s)))
+              dt_q$n_ctrl_strata, nrow(dt_s), 100 * dt_q$pct_ctrl_strata))
   cat("\n")
 
-  invisible(dt_s)
+  invisible(dt_q)
 }

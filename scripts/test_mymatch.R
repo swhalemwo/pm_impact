@@ -656,8 +656,25 @@ gd_test_cem_edge_cases <- function(cfg) {
   expect_true("stratum" %in% names(res_one$data),
               info = sprintf("[%s] single treatment works", cfg$label))
 
+  ## quality report schema — single row, correct columns
+  dt_q <- gd_cem_quality_report(res_one)
+  expect_true(is.data.table(dt_q),
+              info = sprintf("[%s] quality report is data.table", cfg$label))
+  expect_equal(nrow(dt_q), 1L,
+               info = sprintf("[%s] quality report single row", cfg$label))
+  expect_true("n_prepped" %in% names(dt_q),
+              info = sprintf("[%s] quality report has n_prepped", cfg$label))
+  expect_true("n_strata" %in% names(dt_q),
+              info = sprintf("[%s] quality report has n_strata", cfg$label))
+  expect_true(paste0("n_strata_", cfg_one$treatment_cols[1]) %in% names(dt_q),
+              info = sprintf("[%s] quality report has per-treatment col", cfg$label))
+  expect_true("n_ctrl_strata" %in% names(dt_q),
+              info = sprintf("[%s] quality report has n_ctrl_strata", cfg$label))
+
   ## diag function
-  gd_cem_strata_diag(res_one)
+  dt_q2 <- gd_cem_strata_diag(res_one)
+  expect_true(is.data.table(dt_q2),
+              info = sprintf("[%s] diag returns data.table", cfg$label))
 
   timings <<- rbind(timings, data.table(label = sprintf("%s cem_edges", cfg$label),
                                          time_s = round(as.numeric(Sys.time() - t0), 2)))
