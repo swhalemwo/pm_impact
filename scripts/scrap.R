@@ -433,7 +433,7 @@ params <- list(
 )
 
 
-qr2 <- gd_run_match_pipeline(dt_test, params, sample_n_treated = 1000)
+qr2 <- gd_run_match_pipeline(dt_test, params)
 
 ## sample n treated grid
 ## dt_snt_grid <- expand.grid(run = 1:5, snt = c(100, 250, 500, 1000)) %>% adt
