@@ -1234,6 +1234,66 @@ gd_cem_quality_treat_cov <- function(tc, dt_s) {
   )
 }
 
+#' Balance diagnostics for one treatment contrast (helper).
+#'
+#' Computes SMD, VR, and L1 before and after CEM pruning + weighting for a
+#' single treatment column. "Before" = full data, uniform weights, k=1 vs k=0.
+#' "After" = strata where both k=1 and k=0 exist, with ATT weights
+#' (treated=1, control=n_treat/n_control within stratum), following the
+#' CEM paper (Iacus, King, Porro 2012) and cobalt's multi-category approach.
+#'
+#' Returns NULL (skipped) if no covariates are specified.
+#'
+#' @param tc String. Treatment column name.
+#' @param dt_d data.table. CEM-prepared data (from gd_cem_strata).
+#' @param covariate_cols Character vector of covariate names.
+#' @param stratum_col String. Column name of stratum assignment.
+#' @return Named numeric vector with L1_{tc}_before/after and per-covariate
+#'   smd/vr_{v}_{tc}_before/after, or NULL if no covariates.
+gd_cem_quality_treat_bal <- function(tc, dt_d, covariate_cols, stratum_col) {
+  if (length(covariate_cols) == 0) return(NULL)
+
+  treat_v <- as.integer(dt_d[[tc]] > 0)
+  dt_cov <- dt_d[, covariate_cols, with = FALSE]
+
+  ## before: full data, uniform weights
+  w_u <- rep(1, nrow(dt_d))
+  l1_before <- gd_l1_med_both(dt_cov, treat_v, w_u)$before
+  dt_smd_before <- gd_smd_vr(dt_cov, treat_v, w_u)
+
+  ## after: prune to strata with both k=1 and k=0, ATT weights
+  dt_strat <- dt_d[, .(n1 = sum(get(tc) > 0), n0 = sum(get(tc) == 0)),
+                    by = stratum_col]
+  viable_strata <- dt_strat[n1 > 0 & n0 > 0, get(stratum_col)]
+  after_idx <- dt_d[[stratum_col]] %in% viable_strata
+
+  if (sum(after_idx) == 0) {
+    l_smd <- lapply(covariate_cols, function(v) {
+      r_u <- dt_smd_before[cov == v]
+      setNames(c(round(r_u$smd_un, 4), round(r_u$vr_un, 4), NA_real_, NA_real_),
+               c(paste0("smd_", v, "_", tc, "_before"), paste0("vr_", v, "_", tc, "_before"),
+                 paste0("smd_", v, "_", tc, "_after"), paste0("vr_", v, "_", tc, "_after")))
+    })
+    return(c(setNames(round(l1_before, 4), paste0("L1_", tc, "_before")),
+             setNames(NA_real_, paste0("L1_", tc, "_after")), do.call(c, l_smd)))
+  }
+
+  ## subset to viable strata, compute CEM ATT weights
+  dt_after <- dt_d[after_idx]
+  dt_strat_sz <- dt_after[, .(n1 = sum(get(tc) > 0), n0 = sum(get(tc) == 0)),
+                           by = stratum_col]
+  dt_after[dt_strat_sz, on = stratum_col, `:=`(.n1 = i.n1, .n0 = i.n0)]
+  dt_after[, .w := 1]
+  dt_after[get(tc) == 0, .w := .n1 / .n0]
+  dt_after[, c(".n1", ".n0") := NULL]
+
+  w_after <- dt_after$.w
+  treat_after <- treat_v[after_idx]
+  dt_cov_after <- dt_cov[after_idx]
+
+  l1_after <- gd_l1_med_both(dt_cov_after, treat_after, w_after)$after
+  dt_smd_after <- gd_smd_vr(dt_cov_after, treat_after, w_after)
+
   ## flatten SMD/VR columns
   ## l_smd <- lapply(covariate_cols, function(v) {
   ##   r_u <- dt_smd_before[cov == v]
@@ -1248,6 +1308,16 @@ gd_cem_quality_treat_cov <- function(tc, dt_s) {
     melt(id.vars = c("cov", "src"), measure.vars = setdiff(names(dt_smd_before), "cov"), variable.name = "mes") %>%
     .[(src == "before" & mes %in% c("smd_un", "vr_un")) | (src == "after" & mes %in% c("smd_adj", "vr_adj"))] %>% 
     .[, setNames(value, sprintf("%s_%s_%s_%s", sub("_.*", "", mes), cov, tc, src))]
+    
+
+  
+  c(setNames(l1_before, paste0("L1_", tc, "_before")),
+    setNames(l1_after, paste0("L1_", tc, "_after")),
+    l_smd)
+
+}
+
+
 #' Generate single-row CEM quality report.
 #'
 #' @description
