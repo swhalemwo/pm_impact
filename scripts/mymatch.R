@@ -1234,6 +1234,20 @@ gd_cem_quality_treat_cov <- function(tc, dt_s) {
   )
 }
 
+  ## flatten SMD/VR columns
+  ## l_smd <- lapply(covariate_cols, function(v) {
+  ##   r_u <- dt_smd_before[cov == v]
+  ##   r_w <- dt_smd_after[cov == v]
+  ##   setNames(c(round(r_u$smd_un, 4), round(r_u$vr_un, 4),
+  ##              round(r_w$smd_adj, 4), round(r_w$vr_adj, 4)),
+  ##            c(paste0("smd_", v, "_", tc, "_before"), paste0("vr_", v, "_", tc, "_before"),
+  ##              paste0("smd_", v, "_", tc, "_after"), paste0("vr_", v, "_", tc, "_after")))
+  ## })
+
+  l_smd <- rbind(copy(dt_smd_before)[, src := "before"], copy(dt_smd_after)[, src := "after"]) %>%
+    melt(id.vars = c("cov", "src"), measure.vars = setdiff(names(dt_smd_before), "cov"), variable.name = "mes") %>%
+    .[(src == "before" & mes %in% c("smd_un", "vr_un")) | (src == "after" & mes %in% c("smd_adj", "vr_adj"))] %>% 
+    .[, setNames(value, sprintf("%s_%s_%s_%s", sub("_.*", "", mes), cov, tc, src))]
 #' Generate single-row CEM quality report.
 #'
 #' @description
