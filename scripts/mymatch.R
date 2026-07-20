@@ -1321,8 +1321,12 @@ gd_cem_quality_treat_bal <- function(tc, dt_d, covariate_cols, stratum_col) {
 #' Generate single-row CEM quality report.
 #'
 #' @description
-#' Collects coverage and balance diagnostics from a CEM stratum run into
-#' a single-row data.table. Designed for rbindlist-ing across configs.
+#' Collects coverage, balance, and covariate diagnostics from a CEM stratum
+#' run into a single-row data.table. Designed for rbindlist-ing across configs.
+#'
+#' Balance assessment follows cobalt's multi-category approach: for each
+#' treatment column, compute SMD, VR, and L1 comparing that treatment vs its
+#' complement, then report per-treatment and worst-case across treatments.
 #'
 #' @param cem_result List returned by gd_cem_strata.
 #' @return A single-row data.table with columns:
@@ -1334,13 +1338,19 @@ gd_cem_quality_treat_bal <- function(tc, dt_d, covariate_cols, stratum_col) {
 #'           n_strata_{tc}, pct_strata_{tc},
 #'           strata_{tc}_min, strata_{tc}_median, strata_{tc}_mean,
 #'           strata_{tc}_max
+#'     \item For each treatment column tc:
+#'           L1_{tc}_before, L1_{tc}_after,
+#'           per-covariate smd_{v}_{tc}_before/after, vr_{v}_{tc}_before/after
 #'     \item n_ctrl_strata, pct_ctrl_strata
+#'     \item L1_worst_before, L1_worst_after (max across treatment cols)
 #'   }
 gd_cem_quality_report <- function(cem_result) {
+
   dt_s <- cem_result$strata_summary
   dt_d <- cem_result$data
   cfg  <- cem_result$config
 
+  ## identify covariate columns for balance assessment
   cov_cols <- names(cfg$covariate_cutpoints)
 
   ## control coverage
@@ -1348,6 +1358,29 @@ gd_cem_quality_report <- function(cem_result) {
 
   ## coverage stats per treatment
   l_cov <- map(cfg$treatment_cols, gd_cem_quality_treat_cov, dt_s = dt_s)
+
+  ## balance stats per treatment
+  l_bal <- if (length(cov_cols) > 0) {
+             map(cfg$treatment_cols, gd_cem_quality_treat_bal,
+                 dt_d = dt_d, covariate_cols = cov_cols, stratum_col = "stratum")
+           } else list()
+
+  ## gd_cem_quality_treat_bal(cfg$treatment_cols[1], dt_d, cov_cols, "stratum")
+
+  ## worst-case L1 across treatments (names include treatment suffix)
+
+  ## disgusting syntax -> rewrite
+  l1_worst_before <- if (length(l_bal) > 0) {
+                       max(sapply(seq_along(l_bal),
+                                  function(i) l_bal[[i]][[paste0("L1_", cfg$treatment_cols[i], "_before")]]),
+                           na.rm = TRUE)
+                     } else NA_real_
+  l1_worst_after  <- if (length(l_bal) > 0) {
+                       max(sapply(seq_along(l_bal), function(i) l_bal[[i]][[paste0("L1_", cfg$treatment_cols[i],
+                                                                                   "_after")]]), na.rm = TRUE)
+                     } else NA_real_
+
+  ## build output
   l_out <- c(
     list(L                 = cfg$L,
          history_breaks    = cfg$history_breaks,
@@ -1359,9 +1392,12 @@ gd_cem_quality_report <- function(cem_result) {
          strata_min_size    = min(dt_s$n_total),
          strata_max_size    = max(dt_s$n_total),
          n_hist_str        = uniqueN(dt_d$hist_str)),
-    as.list(unlist(map(cfg$treatment_cols, gd_cem_quality_treat, dt_s = dt_s))),
-    list(n_ctrl_strata     = n_ctrl_strata,
-         pct_ctrl_strata   = round(n_ctrl_strata / nrow(dt_s), 4))
+    as.list(unlist(l_cov)),
+    as.list(unlist(l_bal)),
+    list(L1_worst_before = l1_worst_before,
+         L1_worst_after  = l1_worst_after,
+         n_ctrl_strata   = n_ctrl_strata,
+         pct_ctrl_strata = round(n_ctrl_strata / nrow(dt_s), 4))
   )
 
   as.data.table(l_out)
