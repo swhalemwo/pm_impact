@@ -1211,13 +1211,13 @@ gd_cem_strata <- function(config) {
 }
 
 
-#' Compute CEM quality stats for one treatment column (helper).
+#' Compute coverage stats for one treatment column (helper).
 #'
 #' @param tc String. Treatment column name.
 #' @param dt_s data.table. Strata summary from gd_cem_strata.
 #' @return Named numeric vector with n_strata_{tc}, pct_strata_{tc},
 #'   and strata_{tc}_{min,median,mean,max}.
-gd_cem_quality_treat <- function(tc, dt_s) {
+gd_cem_quality_treat_cov <- function(tc, dt_s) {
   n_treat <- dt_s[[paste0("n_", tc)]]
   n_treat_pos <- n_treat[n_treat > 0]
   n <- length(n_treat_pos)
@@ -1257,10 +1257,13 @@ gd_cem_quality_report <- function(cem_result) {
   dt_d <- cem_result$data
   cfg  <- cem_result$config
 
+  cov_cols <- names(cfg$covariate_cutpoints)
+
   ## control coverage
   n_ctrl_strata <- sum(dt_s$n_control > 0)
 
-  ## build named list preserving types, then wrap in data.table
+  ## coverage stats per treatment
+  l_cov <- map(cfg$treatment_cols, gd_cem_quality_treat_cov, dt_s = dt_s)
   l_out <- c(
     list(L                 = cfg$L,
          history_breaks    = cfg$history_breaks,
