@@ -1197,7 +1197,7 @@ gd_cem_strata <- function(config) {
     list(n_total = .N),
     setNames(lapply(treatment_cols, function(tc) sum(get(tc) > 0)),
              paste0("n_", treatment_cols)),
-    list(n_control = sum(Reduce(`&`, lapply(.SD, `<=`, 0))))
+    list(n_control = sum(Reduce(`&`, lapply(.SD, `<=`, 0)))) # for how many people are all treat cols 0
   ), by = stratum, .SDcols = treatment_cols]
 
   ## step 5: restore original column names
