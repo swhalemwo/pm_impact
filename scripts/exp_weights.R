@@ -1,4 +1,5 @@
 
+
 dt2 <- data.table(stratum = c(1,1,1,1,2,2,2,2,2,2),
                   treat1 = c(0,0,1,1,0,1,1,0,0,1),
                   treat2 = c(1,0,1,0,0,0,1,0,1,0))
@@ -32,7 +33,6 @@ cem_multitreat_weights <- function(dt_s, p_vec) {
   as.numeric(w)
 }
 
-cem_multitreat_weights(dt_s2, p)
 
 dt2[, w := cem_multitreat_weights(.SD, p), stratum]
 
