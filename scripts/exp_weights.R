@@ -13,10 +13,10 @@ rat_t1_t2 = sum(dt_s2$msT1)/sum(dt_s2$msT2)
 
 
 treat_cols <- c("treat1", "treat2")
-n_ctrl <- sum(rowSums(dt2[, ..treat_cols]) == 0)  ## rows where ALL treatments are 0
-n_tk   <- sapply(treat_cols, \(tc) sum(dt2[[tc]]))  ## per-treatment counts
-R      <- n_ctrl / n_tk   ## target ratio for each treatment
-p      <- R / (1 + R)     ## equivalent proportion
+n_tk   <- sapply(treat_cols, \(tc) sum(dt2[[tc]]))          ## per-treatment counts
+n_notk <- sapply(treat_cols, \(tc) sum(dt2[[tc]] == 0))     ## complements
+R      <- n_notk / n_tk                                      ## target: (not treat_k)/(treat_k)
+p      <- R / (1 + R)
 print(p)
 
 
