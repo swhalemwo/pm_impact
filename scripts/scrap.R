@@ -823,7 +823,8 @@ dt_s <- dt[, .(msT = sum(treat), # number of treat in stratum
                msC = sum(treat == 0)), # number of control in stratum
            by = stratum]
 mT <- sum(dt_s$msT)  ## 3 treated (nbr total matched)
-mC <- sum(dt_s$msC)  ## 4 control (nbr total controls)
+mC <- sum(dt_s$msC)  ## 4 (7) control (nbr total controls)
+
 
 ## CEM ATT weights (Iacus, King, Porro 2012, eq 6):
 ##   treated:    w = 1
@@ -853,3 +854,5 @@ dt[, mean(w), .(treat, stratum)]
 dt[, sum(w), .(treat, stratum)]
 
 ## hmm the weights are only for controls anyways.. and often i won't have any controls... 
+
+## think how this can be expanded to multiple treatment cols
