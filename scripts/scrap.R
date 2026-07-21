@@ -684,11 +684,9 @@ lint("~/Dropbox/phd/papers/foster/scripts/mymatch.R")
 
 
 
-
-
 res <- gd_cem_strata(cem_configs[[1]])
 
-gd_cem_strata_diag(res)
+gd_cem_quality_report(res) %>% t
 
 res$strata_summary[n_total > 1] %>%
 .[, nbr_grps := rowSums(.SD > 0), .SDcols = paste0("n_", c(res$config$treatment_cols, "control"))] %>%
@@ -792,3 +790,66 @@ r_mi_eqsb_new <- matchit(form, data = dt_tmp, method = "cem", cutpoints = l_br_n
 
 
 table(r_mi_eqsb$subclass, r_mi_eqsb_new$subclass)# same res
+
+## * check feasability of MI
+dt_big_mi <- dt_big %>% copy %>% .[, treat := as.integer(collapse::finteraction(as.integer(exn_pm > 1), as.integer(exn_pi > 1)) != "0.0")]
+dt_big_mi[, .N, treat]
+
+r_big <- matchit(treat ~ exn_pm_cum_ihs + Gender + Nationality, dt_big_mi,  method = "cem")
+summary(r_big) # still too slow: takes at least 3 min
+
+
+## * re-assess cem matching
+
+
+c_cem1 <- list(dt_panel = dt_big, L = 3L,
+       treatment_cols = c("exn_pm", "exn_pi"),
+       history_cols = c("exn_pm_cum_ihs", "exn_pi_cum_ihs"),
+       history_nbins = c(5L, 5L), history_breaks = "quantile",
+       uid = "PeopleID", tid = "year",
+       covariate_cutpoints = list(BirthYear = 8, exn_all_cum_ihs = 8),
+       label = "quantile_5")
+
+test_cem_config(c_cem1)
+
+
+## * weight inspection
+
+dt <- data.table(stratum = c(1,1,1,1, 2,2,2, 2,2,2),
+                 treat   = c(1,1,0,0, 1,0,0,0,0,0))
+
+
+dt_s <- dt[, .(msT = sum(treat), # number of treat in stratum
+               msC = sum(treat == 0)), # number of control in stratum
+           by = stratum]
+mT <- sum(dt_s$msT)  ## 3 treated (nbr total matched)
+mC <- sum(dt_s$msC)  ## 4 control (nbr total controls)
+
+## CEM ATT weights (Iacus, King, Porro 2012, eq 6):
+##   treated:    w = 1
+##   control:    w = (mC / mT) × (msT / msC)
+dt[dt_s, on = "stratum", `:=`(msT = i.msT, msC = i.msC)]
+dt[treat == 1, w := 1]
+dt[treat == 0, w := (mC / mT) * (msT / msC)]
+
+print(dt[, .(stratum, treat, msT, msC, w)])
+
+## Check: within each stratum, sum(treated weight) vs sum(control weight)
+dt[, `:=`(Wt = sum(w[treat == 1]), Wc = sum(w[treat == 0])), by = stratum]
+unique(dt[, .(stratum, Wt, Wc, ratio = round(Wc / Wt, 2))])
+
+
+r <- matchit(treat ~ stratum, data = dt, method = "cem",
+             cutpoints = list(stratum = NULL))
+
+
+cbind(dt, weight = r$weights)
+
+
+dt[, mean(w), treat] # hmm weights by treatment average up to 1 per treatment
+
+
+dt[, mean(w), .(treat, stratum)]
+dt[, sum(w), .(treat, stratum)]
+
+## hmm the weights are only for controls anyways.. and often i won't have any controls... 
