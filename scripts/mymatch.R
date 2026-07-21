@@ -1118,6 +1118,110 @@ gd_prep_multivar_hist <- function(dt_panel, L, history_cols, history_nbins,
 }
 
 
+#' @section Weight Functions:
+#' The following functions compute observation weights for CEM strata.
+#' They are called by \code{gd_cem_weights} dispatcher, which is invoked
+#' inside \code{gd_cem_strata} when \code{weight_type} is specified in config.
+
+#' CEM weights: uniform (no weighting).
+#'
+#' @param dt_d data.table. CEM-prepared data (ignored).
+#' @return Numeric vector of ones.
+gd_cem_weights_none <- function(dt_d) rep(1, nrow(dt_d))
+
+#' CEM weights: any-treatment vs pure control.
+#'
+#' Collapses all treatment columns into "any treatment" vs "pure control"
+#' (all treatments = 0), then computes standard CEM ATT weights per stratum:
+#' treated = 1, control = (mC / mT) * (msT / msC).
+#'
+#' @param dt_d data.table with stratum and treatment columns.
+#' @param treat_cols Character vector of binary treatment column names.
+#' @return Numeric vector of weights.
+gd_cem_weights_any_ctrl <- function(dt_d, treat_cols) {
+  any_treat <- as.integer(Reduce(`|`, lapply(dt_d[, ..treat_cols], `>`, 0)))
+    
+  mT <- sum(any_treat)
+  mC <- length(any_treat) - mT
+  dt_d[, .any_treat := any_treat]
+  w <- dt_d[, {
+    msT <- sum(.any_treat)
+    msC <- .N - msT
+    if (msT > 0 & msC > 0) fifelse(.any_treat == 1, 1, (mC / mT) * (msT / msC)) else rep_len(0, .N)
+  }, by = stratum]$V1
+  dt_d[, .any_treat := NULL]
+  w
+
+  ## data.table(w=w)[w < 5] %>% ggplot(aes(x=w)) + geom_density()
+}
+
+#' CEM weights: composite treatment factor.
+#'
+#' Creates a single factor from all treatment column patterns, then computes
+#' CEM ATT weights per stratum relative to the pure control baseline.
+#' Each non-control pattern gets weight = (mC / mP) * (msP / msC) where
+#' mC/mP are global counts of control/pattern and msP/msC are stratum counts.
+#'
+#' @inheritParams gd_cem_weights_any_ctrl
+#' @return Numeric vector of weights.
+gd_cem_weights_composite <- function(dt_d, treat_cols) {
+  dt_d[, .treat_cat := collapse::finteraction(.SD, sep = "_"),
+       .SDcols = treat_cols]
+  ctrl_level <- paste(rep(0, length(treat_cols)), collapse = "_")
+
+  ## global pattern counts
+  dt_global <- dt_d[, .N, by = .treat_cat]
+  names(dt_global)[2] <- "gN"
+  mC <- dt_global[.treat_cat == ctrl_level, gN]
+
+  ## per-stratum pattern counts
+  dt_w <- dt_d[, .N, by = .(stratum, .treat_cat)]
+  dt_w <- merge(dt_w, dt_global, by = ".treat_cat")
+
+  ## compute weights per stratum
+  dt_w[stratum %in% dt_w[, .(msC = sum(N[.treat_cat == ctrl_level])), by = stratum][msC > 0, stratum],
+       w := fifelse(.treat_cat == ctrl_level, 1, (mC / gN) * (N / sum(N[.treat_cat == ctrl_level]))),
+       by = stratum]
+
+  ## merge back
+  dt_w <- dt_w[, .(stratum, .treat_cat, w)]
+  dt_d[dt_w, on = .(stratum, .treat_cat), w := i.w]
+  w <- dt_d$w
+  w[is.na(w)] <- 0
+  dt_d[, c(".treat_cat", "w") := NULL]
+  w
+
+  ## dt_d[w<10] %>% ggplot(aes(x=w)) + geom_density()
+}
+
+#' CEM weights: quadratic programming (NOT IMPLEMENTED).
+#'
+#' Placeholder for future QP-based weights that simultaneously satisfy
+#' ratio constraints for all treatment columns within each stratum.
+#'
+#' @inheritParams gd_cem_weights_any_ctrl
+#' @return Never returns — raises error.
+gd_cem_weights_qp <- function(dt_d, treat_cols) {
+  stop("gd_cem_weights_qp: QP weights not yet implemented. ",
+       "Use 'none', 'any_vs_ctrl', or 'composite'.", call. = FALSE)
+}
+
+#' CEM weight dispatcher.
+#'
+#' @param dt_d data.table. CEM-prepared data with stratum column.
+#' @param treat_cols Character vector of treatment column names.
+#' @param weight_type String. One of "none", "any_vs_ctrl", "composite", "qp".
+#' @return Numeric vector of weights, length = nrow(dt_d).
+gd_cem_weights <- function(dt_d, treat_cols, weight_type) {
+  switch(weight_type,
+    none        = gd_cem_weights_none(dt_d),
+    any_vs_ctrl = gd_cem_weights_any_ctrl(dt_d, treat_cols),
+    composite   = gd_cem_weights_composite(dt_d, treat_cols),
+    qp          = gd_cem_weights_qp(dt_d, treat_cols),
+    stop("gd_cem_weights: unknown weight_type '", weight_type,
+         "'. Options: none, any_vs_ctrl, composite, qp.", call. = FALSE))
+}
+
 #' Form CEM strata for multicategory treatment analysis.
 #'
 #' @description
@@ -1134,6 +1238,9 @@ gd_prep_multivar_hist <- function(dt_panel, L, history_cols, history_nbins,
 #' with stratum fixed effects:
 #'   feols(outcome ~ treat_PM + treat_PES + treat_gallery | stratum, data)
 #'
+#' If config$weight_type is set (one of "none", "any_vs_ctrl", "composite",
+#' "qp"), CEM weights are computed and attached as a "weight" column.
+#'
 #' @param config Named list with the following fields:
 #'   \itemize{
 #'     \item dt_panel: data.table with panel data
@@ -1146,6 +1253,8 @@ gd_prep_multivar_hist <- function(dt_panel, L, history_cols, history_nbins,
 #'     \item tid: string, time identifier column
 #'     \item covariate_cutpoints: named list of cutpoints for covariates (optional;
 #'       covariate names are derived from names(cutpoints))
+#'     \item weight_type: string, one of "none", "any_vs_ctrl", "composite",
+#'       "qp" (optional, default "none")
 #'   }
 #' @return Named list:
 #'   \item{data}{data.table with original columns plus stratum, hist_str, and
@@ -1166,6 +1275,7 @@ gd_cem_strata <- function(config) {
   tid                <- config$tid
   covariate_cutpoints <- config$covariate_cutpoints %||% list()
   covariate_cols       <- names(covariate_cutpoints)
+  weight_type        <- config$weight_type %||% "none"
 
   ## step 1: multivariate history preparation
   ## history columns: get lagged to construct hist_str
@@ -1200,7 +1310,10 @@ gd_cem_strata <- function(config) {
     list(n_control = sum(Reduce(`&`, lapply(.SD, `<=`, 0)))) # for how many people are all treat cols 0
   ), by = stratum, .SDcols = treatment_cols]
 
-  ## step 5: restore original column names
+  ## step 5: compute CEM weights
+  dt_prep[, weight := gd_cem_weights(dt_prep, treatment_cols, weight_type)]
+
+  ## step 6: restore original column names
   setnames(dt_prep, c("uid", "tid"), c(uid, tid))
 
   list(

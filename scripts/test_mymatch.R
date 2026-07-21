@@ -523,6 +523,7 @@ cem_configs <- list(
        history_nbins = c(5L, 5L), history_breaks = "quantile",
        uid = "PeopleID", tid = "year",
        covariate_cutpoints = list(BirthYear = 8, exn_all_cum_ihs = 8),
+       weight_type = "none",
        label = "quantile_5"),
   list(dt_panel = dt_big, L = 3L,
        treatment_cols = c("exn_pm", "exn_pi"),
@@ -530,6 +531,7 @@ cem_configs <- list(
        history_nbins = 5L, history_breaks = "equal",
        uid = "PeopleID", tid = "year",
        covariate_cutpoints = list(BirthYear = 8, exn_all_cum_ihs = 8),
+       weight_type = "any_vs_ctrl",
        label = "equal_5"),
   list(dt_panel = dt_big, L = 3L,
        treatment_cols = c("exn_pm", "exn_pi"),
@@ -537,6 +539,7 @@ cem_configs <- list(
        history_nbins = 5L, history_breaks = "none",
        uid = "PeopleID", tid = "year",
        covariate_cutpoints = list(),
+       weight_type = "composite",
        label = "none_no_cov")
 )
 
