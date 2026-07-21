@@ -37,6 +37,11 @@ cem_multitreat_weights <- function(dt_s, p_vec) {
   A <- matrix(0, K, n)
   for (k in seq_len(K))
     A[k, ] <- dt_s[[names(p_vec)[k]]] - p_vec[k]
+
+  ## Check if A has full row rank
+  if (qr(A)$rank < K)
+    return(rep(0, n))
+
   AAt_inv <- solve(A %*% t(A))
   w <- rep(1, n) - crossprod(A, AAt_inv %*% (A %*% rep(1, n)))
   as.numeric(w)
@@ -81,6 +86,9 @@ dtx <- r1$data[stratum_size > 1]
 
 
 treat_cols <- c("exn_pi", "exn_pm")
+## convert to binary: any exhibition > 0
+dtx[, (treat_cols) := lapply(.SD, function(x) as.integer(x > 0)), .SDcols = treat_cols]
+
 n_tk <- sapply(treat_cols, \(tc) sum(dtx[[tc]]))
 p    <- n_tk / nrow(dtx)                             ## target proportion per treatment
 names(p) <- treat_cols
@@ -89,3 +97,18 @@ print(p)
 dtx[, w := cem_multitreat_weights(.SD, p), stratum]
 
 
+## checks
+cat("\n=== Stratum sizes ===\n")
+print(dtx[, .N, by = stratum][order(N)])
+
+cat("\n=== Warnings ===\n")
+cat(sprintf("Rank-deficient strata (w=0): %d\n", dtx[w == 0, uniqueN(stratum)]))
+cat(sprintf("Negative weights: %d\n", sum(dtx$w < -1e-10)))
+cat(sprintf("Weight range: [%.4f, %.4f]\n", min(dtx$w), max(dtx$w)))
+
+cat("\n=== Ratio checks (first 5 strata) ===\n")
+print(dtx[w > 0, .(r1 = sum(w * (exn_pi > 0)) / sum(w * (exn_pi == 0)),
+                   r2 = sum(w * (exn_pm > 0)) / sum(w * (exn_pm == 0))), by = stratum][1:min(5, uniqueN(stratum))])
+
+
+ggplot(dtx, aes(x=w)) + geom_density()
