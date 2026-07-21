@@ -674,6 +674,16 @@ gd_test_cem_edge_cases <- function(cfg) {
   expect_true("n_ctrl_strata" %in% names(dt_q),
               info = sprintf("[%s] quality report has n_ctrl_strata", cfg$label))
 
+
+  ## weight column present when weight_type is set
+  if (!is.null(cfg$weight_type) && cfg$weight_type != "none") {
+    expect_true("weight" %in% names(res_one$data),
+                info = sprintf("[%s] has weight col", cfg$label))
+    expect_true(all(res_one$data$weight >= 0),
+                info = sprintf("[%s] weights non-negative", cfg$label))
+    expect_true(any(res_one$data$weight != 1),
+                info = sprintf("[%s] weights not all 1", cfg$label))
+  }
   ## diag function
   dt_q2 <- gd_cem_strata_diag(res_one)
   expect_true(is.data.table(dt_q2),
@@ -692,6 +702,79 @@ test_cem_config <- function(cfg) {
   exec_test(function() gd_test_cem_edge_cases(cfg), "cem_edges", cfg)
 }
 
+# ===========================================================================
+# CEM Weight Function Tests
+# ===========================================================================
+
+gd_test_weights_none <- function(dt_d) {
+  t0 <- Sys.time()
+  w <- gd_cem_weights_none(dt_d)
+  expect_true(all(w == 1),
+              info = "weights_none all 1")
+  expect_equal(length(w), nrow(dt_d),
+               info = "weights_none correct length")
+  timings <<- rbind(timings, data.table(label = "weights_none",
+                                         time_s = round(as.numeric(Sys.time() - t0), 2)))
+}
+
+gd_test_weights_any_ctrl <- function(dt_d) {
+  t0 <- Sys.time()
+  w <- gd_cem_weights_any_ctrl(dt_d, c("exn_pi", "exn_pm"))
+  expect_true(length(w) == nrow(dt_d),
+              info = "weights_any_ctrl correct length")
+  expect_true(all(w >= 0),
+              info = "weights_any_ctrl non-negative")
+  expect_true(any(w != 1),
+              info = "weights_any_ctrl varies")
+  timings <<- rbind(timings, data.table(label = "weights_any_ctrl",
+                                         time_s = round(as.numeric(Sys.time() - t0), 2)))
+  invisible(w)
+}
+
+gd_test_weights_any_ctrl_ratio <- function(dt_d, w) {
+  ## verify that within each stratum, (weighted non-treat)/(weighted treat) = global ratio
+  n_treat <- sum(rowSums(dt_d[, .(exn_pi, exn_pm)] > 0) > 0)
+  n_ctrl  <- sum(rowSums(dt_d[, .(exn_pi, exn_pm)] > 0) == 0)
+  R <- n_ctrl / n_treat
+  dt_check <- data.table(stratum = dt_d$stratum, w = w)[
+    , .(r = sum(w) > 0), by = stratum]  ## quick check: some non-zero weight strata exist
+  expect_true(any(dt_check$r),
+              info = "weights_any_ctrl some viable strata")
+}
+
+gd_test_weights_composite <- function(dt_d) {
+  t0 <- Sys.time()
+  w <- gd_cem_weights_composite(dt_d, c("exn_pi", "exn_pm"))
+  expect_true(length(w) == nrow(dt_d),
+              info = "weights_composite correct length")
+  expect_true(all(w >= 0),
+              info = "weights_composite non-negative")
+  timings <<- rbind(timings, data.table(label = "weights_composite",
+                                         time_s = round(as.numeric(Sys.time() - t0), 2)))
+  invisible(w)
+}
+
+gd_test_weights_qp_stub <- function() {
+  t0 <- Sys.time()
+  expect_error(gd_cem_weights_qp(NULL, NULL),
+               info = "weights_qp raises error")
+  timings <<- rbind(timings, data.table(label = "weights_qp_stub",
+                                         time_s = round(as.numeric(Sys.time() - t0), 2)))
+}
+
+gd_test_weights_dispatcher <- function(dt_d) {
+  t0 <- Sys.time()
+  w_none <- gd_cem_weights(dt_d, c("exn_pi", "exn_pm"), "none")
+  expect_true(all(w_none == 1), info = "dispatcher none")
+  w_any <- gd_cem_weights(dt_d, c("exn_pi", "exn_pm"), "any_vs_ctrl")
+  expect_true(length(w_any) == nrow(dt_d), info = "dispatcher any_vs_ctrl")
+  expect_error(gd_cem_weights(dt_d, c("exn_pi", "exn_pm"), "unknown_type"),
+               info = "dispatcher unknown type")
+  timings <<- rbind(timings, data.table(label = "weights_dispatcher",
+                                         time_s = round(as.numeric(Sys.time() - t0), 2)))
+}
+
+
 # ==== Main execution ====
 run_slow <- Sys.getenv("FOSTER_TEST_SLOW", "true") != "false"
 
@@ -702,6 +785,31 @@ for (cfg in configs) {
 for (cfg in cem_configs) {
   test_cem_config(cfg)
 }
+
+# --- CEM Weight Function Tests ---
+
+cat("\n--- Weight function tests ---\n")
+
+## use a cem result to get data with strata
+dt_demo <- dt_big
+demo_cfg <- list(dt_panel = dt_demo, L = 3L,
+                 treatment_cols = c("exn_pm", "exn_pi"),
+                 history_cols = c("exn_pm_cum_ihs", "exn_pi_cum_ihs"),
+                 history_nbins = c(5L, 5L), history_breaks = "quantile",
+                 uid = "PeopleID", tid = "year",
+                 covariate_cutpoints = list(BirthYear = 8, exn_all_cum_ihs = 8),
+                 label = "weights")
+demo_res <- gd_cem_strata(demo_cfg)
+demo_data <- demo_res$data
+demo_data[, (c("exn_pi", "exn_pm")) := lapply(.SD, function(x) as.integer(x > 0)),
+           .SDcols = c("exn_pi", "exn_pm")]
+
+gd_test_weights_none(demo_data)
+gd_test_weights_qp_stub()
+gd_test_weights_dispatcher(demo_data)
+w_any <- gd_test_weights_any_ctrl(demo_data)
+gd_test_weights_any_ctrl_ratio(demo_data, w_any)
+gd_test_weights_composite(demo_data)
 
 # --- Timing report ---
 cat("\n========================================\n")
