@@ -988,6 +988,49 @@ gd_smd_vr <- function(dt_cov, treat, weights) {
     setnames(c("cov", "smd_un", "vr_un", "smd_adj", "vr_adj"))
 }
 
+#' Fast eCDF (max and mean) for one covariate.
+#'
+#' Computes the Kolmogorov-Smirnov statistic (max eCDF difference) and
+#' mean eCDF difference between treated and control groups.
+#'
+#' @param x Numeric vector of covariate values.
+#' @param treat Logical or 0/1 vector of treatment indicators.
+#' @param w Numeric vector of weights (NULL = uniform).
+#' @return Named numeric: ecdf_max, ecdf_mean.
+gd_ecdf_one <- function(x, treat, w = NULL) {
+  n <- length(x)
+  if (is.null(w)) w <- rep(1, n)
+  ord <- order(x)
+  w_t <- sum(w[treat == 1])
+  w_c <- sum(w[treat == 0])
+  cum_w_t <- collapse::cumsum(w[ord] * treat[ord]) / w_t
+  cum_w_c <- collapse::fcumsum(w[ord] * (1 - treat[ord])) / w_c
+  diff <- abs(cum_w_t - cum_w_c)
+  c(ecdf_max = max(diff), ecdf_mean = mean(diff))
+}
+
+#' Fast eCDF statistics for multiple covariates.
+#'
+#' Computes unweighted and weighted eCDF max (KS) and eCDF mean for
+#' each covariate in a data.table. Mirrors the gd_smd_vr interface.
+#'
+#' @inheritParams gd_smd_vr
+#' @return data.table with columns: cov, ecdf_max_un, ecdf_mean_un,
+#'   ecdf_max_adj, ecdf_mean_adj.
+gd_ecdf <- function(dt_cov, treat, weights) {
+  dt_d <- as.data.table(dt_cov)
+  cov_names <- copy(names(dt_d))
+  is_t <- as.logical(treat)
+
+  rbindlist(lapply(cov_names, function(v) {
+    x <- dt_d[[v]]
+    un <- gd_ecdf_one(x, is_t, NULL)
+    adj <- gd_ecdf_one(x, is_t, weights)
+    data.table(cov = v,
+               ecdf_max_un = un["ecdf_max"], ecdf_mean_un = un["ecdf_mean"],
+               ecdf_max_adj = adj["ecdf_max"], ecdf_mean_adj = adj["ecdf_mean"])
+  }))
+}
 
 # =============================================================================
 # Multicategory CEM Stratum Construction
@@ -1376,6 +1419,7 @@ gd_cem_quality_treat_bal <- function(tc, dt_d, covariate_cols, stratum_col) {
   w_u <- rep(1, nrow(dt_d))
   l1_before <- gd_l1_med_both(dt_cov, treat_v, w_u)$before
   dt_smd_before <- gd_smd_vr(dt_cov, treat_v, w_u)
+  dt_ecdf_before <- gd_ecdf(dt_cov, treat_v, w_u)
 
   ## after: prune to strata with both k=1 and k=0, ATT weights
   dt_strat <- dt_d[, .(n1 = sum(get(tc) > 0), n0 = sum(get(tc) == 0)),
@@ -1390,8 +1434,15 @@ gd_cem_quality_treat_bal <- function(tc, dt_d, covariate_cols, stratum_col) {
                c(paste0("smd_", v, "_", tc, "_before"), paste0("vr_", v, "_", tc, "_before"),
                  paste0("smd_", v, "_", tc, "_after"), paste0("vr_", v, "_", tc, "_after")))
     })
+    l_ecdf <- lapply(covariate_cols, function(v) {
+      r_u <- dt_ecdf_before[cov == v]
+      setNames(c(round(r_u$ecdf_max_un, 4), round(r_u$ecdf_mean_un, 4), NA_real_, NA_real_),
+               c(paste0("ecdf_max_", v, "_", tc, "_before"), paste0("ecdf_mean_", v, "_", tc, "_before"),
+                 paste0("ecdf_max_", v, "_", tc, "_after"), paste0("ecdf_mean_", v, "_", tc, "_after")))
+    })
     return(c(setNames(round(l1_before, 4), paste0("L1_", tc, "_before")),
-             setNames(NA_real_, paste0("L1_", tc, "_after")), do.call(c, l_smd)))
+             setNames(NA_real_, paste0("L1_", tc, "_after")),
+             do.call(c, l_smd), do.call(c, l_ecdf)))
   }
 
   ## subset to viable strata, compute CEM ATT weights
@@ -1415,27 +1466,24 @@ gd_cem_quality_treat_bal <- function(tc, dt_d, covariate_cols, stratum_col) {
   
   ## cbind(dt_cov_after, treat_after)[, collapse::fmean(.SD, g=treat_after)]
   ## cbind(dt_cov_after, treat_after, w_after)[, collapse::fmean(.SD, g=treat_after, w = w_after)]
+  dt_ecdf_after <- gd_ecdf(dt_cov_after, treat_after, w_after)
 
   ## flatten SMD/VR columns
-  ## l_smd <- lapply(covariate_cols, function(v) {
-  ##   r_u <- dt_smd_before[cov == v]
-  ##   r_w <- dt_smd_after[cov == v]
-  ##   setNames(c(round(r_u$smd_un, 4), round(r_u$vr_un, 4),
-  ##              round(r_w$smd_adj, 4), round(r_w$vr_adj, 4)),
-  ##            c(paste0("smd_", v, "_", tc, "_before"), paste0("vr_", v, "_", tc, "_before"),
-  ##              paste0("smd_", v, "_", tc, "_after"), paste0("vr_", v, "_", tc, "_after")))
-  ## })
-
   l_smd <- rbind(copy(dt_smd_before)[, src := "before"], copy(dt_smd_after)[, src := "after"]) %>%
     melt(id.vars = c("cov", "src"), measure.vars = setdiff(names(dt_smd_before), "cov"), variable.name = "mes") %>%
     .[(src == "before" & mes %in% c("smd_un", "vr_un")) | (src == "after" & mes %in% c("smd_adj", "vr_adj"))] %>% 
     .[, setNames(value, sprintf("%s_%s_%s_%s", sub("_.*", "", mes), cov, tc, src))]
-    
 
-  
-  c(setNames(l1_before, paste0("L1_", tc, "_before")),
-    setNames(l1_after, paste0("L1_", tc, "_after")),
-    l_smd)
+  ## flatten eCDF columns
+  l_ecdf <- rbind(copy(dt_ecdf_before)[, src := "before"], copy(dt_ecdf_after)[, src := "after"]) %>%
+    melt(id.vars = c("cov", "src"), measure.vars = setdiff(names(dt_ecdf_before), "cov"), variable.name = "mes") %>%
+    .[(src == "before" & mes %in% c("ecdf_max_un", "ecdf_mean_un")) |
+      (src == "after" & mes %in% c("ecdf_max_adj", "ecdf_mean_adj"))] %>%
+    .[, setNames(value, sprintf("%s_%s_%s_%s", sub("_[^_]+$", "", mes), cov, tc, src))]
+
+  c(setNames(round(l1_before, 4), paste0("L1_", tc, "_before")),
+    setNames(round(l1_after, 4), paste0("L1_", tc, "_after")),
+    l_smd, l_ecdf)
 
 }
 

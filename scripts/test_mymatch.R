@@ -706,6 +706,72 @@ test_cem_config <- function(cfg) {
 # CEM Weight Function Tests
 # ===========================================================================
 
+
+# ===========================================================================
+# eCDF Function Tests
+# ===========================================================================
+
+gd_test_ecdf_one <- function() {
+  t0 <- Sys.time()
+  set.seed(42)
+  x <- c(rnorm(50, 5, 1), rnorm(50, 4.5, 1.2))
+  t <- c(rep(1, 50), rep(0, 50))
+
+  r <- gd_ecdf_one(x, t)
+  expect_true(is.numeric(r), info = "ecdf_one returns numeric")
+  expect_equal(length(r), 2L, info = "ecdf_one returns max and mean")
+  expect_true(all(r >= 0 & r <= 1), info = "ecdf_one values in [0,1]")
+
+  ## weighted
+  w <- c(rep(1.2, 50), rep(0.8, 50))
+  rw <- gd_ecdf_one(x, t, w)
+  expect_true(all(rw >= 0 & rw <= 1), info = "ecdf_one weighted in [0,1]")
+
+  timings <<- rbind(timings, data.table(label = "ecdf_one",
+                                         time_s = round(as.numeric(Sys.time() - t0), 2)))
+}
+
+gd_test_ecdf_multi <- function() {
+  t0 <- Sys.time()
+  set.seed(42)
+  dt <- data.table(
+    x1 = c(rnorm(50, 5, 1), rnorm(50, 4.5, 1.2)),
+    x2 = c(rnorm(50, 10, 2), rnorm(50, 11, 1.8))
+  )
+  t <- c(rep(1, 50), rep(0, 50))
+
+  r <- gd_ecdf(dt, t, rep(1, 100))
+  expect_true(is.data.table(r), info = "ecdf returns data.table")
+  expect_equal(nrow(r), 2L, info = "ecdf one row per covariate")
+  expect_true(all(c("cov", "ecdf_max_un", "ecdf_mean_un", "ecdf_max_adj", "ecdf_mean_adj") %in% names(r)),
+              info = "ecdf column names")
+
+  timings <<- rbind(timings, data.table(label = "ecdf_multi",
+                                         time_s = round(as.numeric(Sys.time() - t0), 2)))
+}
+
+gd_test_ecdf_cobalt <- function() {
+  browser()
+  if (!requireNamespace("cobalt", quietly = TRUE)) return()
+  t0 <- Sys.time()
+  set.seed(42)
+
+  dt <- data.table(
+    treat = c(rep(1, 500), rep(0, 500)),
+    x1 = c(rnorm(500, 5, 1), rnorm(500, 4.5, 1.2)))
+
+  ## our
+  r_our <- gd_ecdf(dt[, .(x1)], dt$treat, rep(1, 1000))
+
+  ## cobalt
+  bt <- cobalt::bal.tab(treat ~ x1, data = dt, stats = c("ks.statistics"), un = TRUE)
+
+  expect_equal(r_our$ecdf_max_un[1], bt$Balance["x1", "KS.Un"], tolerance = 1e-6,
+               info = "ecdf matches cobalt KS")
+
+  timings <<- rbind(timings, data.table(label = "ecdf_cobalt",
+                                         time_s = round(as.numeric(Sys.time() - t0), 2)))
+}
 gd_test_weights_none <- function(dt_d) {
   t0 <- Sys.time()
   w <- gd_cem_weights_none(dt_d)
@@ -811,6 +877,10 @@ w_any <- gd_test_weights_any_ctrl(demo_data)
 gd_test_weights_any_ctrl_ratio(demo_data, w_any)
 gd_test_weights_composite(demo_data)
 
+# --- eCDF tests ---
+gd_test_ecdf_one()
+gd_test_ecdf_multi()
+gd_test_ecdf_cobalt()
 # --- Timing report ---
 cat("\n========================================\n")
 cat("          Timing Summary\n")
