@@ -3,9 +3,9 @@ library(MatchIt)
 library(cobalt)
 library(purrr)
 library(collapse, include.only = c("join", "funique", "set_collapse"))
-library(jtls)
+library(jtls, include.only = "vadt")
 
-`%||%` <- function(x, y) if (is.null(x)) y else x
+## `%||%` <- function(x, y) if (is.null(x)) y else x
 
 set_collapse(verbose = 0)
 
