@@ -808,9 +808,14 @@ c_cem1 <- list(dt_panel = dt_big, L = 3L,
        history_nbins = c(5L, 5L), history_breaks = "quantile",
        uid = "PeopleID", tid = "year",
        covariate_cutpoints = list(BirthYear = 8, exn_all_cum_ihs = 8),
-       label = "quantile_5")
+       label = "quantile_5", weight_type = "composite")
 
-test_cem_config(c_cem1)
+r_cem <- gd_cem_strata(c_cem1)
+dt_res_cem <- gd_cem_quality_report(r_cem) 
+gp_cem_quality(r_cem)
+
+
+
 
 
 ## * weight inspection

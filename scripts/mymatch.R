@@ -1563,3 +1563,105 @@ gd_cem_strata_diag <- function(cem_result) {
 
   invisible(dt_q)
 }
+
+
+#' Plot CEM quality report diagnostics.
+#'
+#' Produces a multi-panel ggplot showing before-after balance (SMD, VR, L1)
+#' for each treatment column and stratum coverage. Requires ggplot2 and patchwork.
+#'
+#' @param cem_result Named list from \code{gd_cem_strata}.
+#' @return A \code{patchwork} object with balance and coverage panels.
+gp_cem_quality <- function(cem_result) {
+  ## input validation
+  cfg <- cem_result$config
+  dt_q <- gd_cem_quality_report(cem_result)
+
+  tcs      <- cfg$treatment_cols
+  cov_names <- names(cfg$covariate_cutpoints)
+
+  ## build long-format balance data from single-row dt_q via CJ + map
+  dt_balance <- if (length(cov_names) > 0) {
+    CJ(stat = c("smd", "vr"), cov = cov_names,
+       tc = tcs, stage = c("before", "after"), sorted = FALSE) %>%
+      .[, col_nm := paste0(stat, "_", cov, "_", tc, "_", stage)] %>%
+      .[, val := as.numeric(map(col_nm, ~dt_q[[.x]]))] %>%
+      .[, col_nm := NULL] %>%
+      .[!is.na(val) & !is.nan(val)]
+  } else data.table(stat = character(), cov = character(), tc = character(), stage = character(), val = numeric())
+
+  ## L1 data (only if L1 columns exist in dt_q)
+  dt_l1 <- if (paste0("L1_", tcs[1], "_before") %in% names(dt_q)) {
+    CJ(tc = tcs, stage = c("before", "after"), sorted = FALSE) %>%
+      .[, val := as.numeric(map2(tc, stage, ~dt_q[[paste0("L1_", .x, "_", .y)]]))]
+  } else data.table(tc = character(), stage = character(), val = numeric())
+
+  ## coverage data
+  cov_n <- sapply(tcs, function(tc) as.numeric(dt_q[[paste0("n_strata_", tc)]] %||% 0))
+  dt_cov <- data.table(category = c(tcs, "none"),
+                       n = c(cov_n, as.numeric(dt_q$n_ctrl_strata %||% 0)))
+  dt_cov[, pct := n / dt_q$n_strata]
+
+  ## -- SMD Love plot --
+  dt_smd <- dt_balance[stat == "smd"]
+
+  if (nrow(dt_smd) == 0) {
+    p_smd <-  ggplot() + labs(title = "Standardized Mean Difference (no covariates)")
+  }
+
+  if (nrow(dt_smd > 0)) {
+
+    p_smd <- ggplot(dt_smd, aes(x = abs(val), y = cov, color = stage, shape = stage)) +
+      geom_point(size = 2.5) + # , position = position_dodge(width = 0.5)) +
+      geom_vline(xintercept = 0, linetype = "dotted", alpha = 0.5) +
+      ## geom_vline(xintercept = 0.1, linetype = "dashed", alpha = 0.5) +
+      facet_grid(tc~., scales = "free_y", switch = "y") +
+      labs(title = "Standardized Mean Difference", x = "|SMD|", y = NULL,
+           color = NULL, shape = NULL) +
+      theme(legend.position = "bottom", plot.title = element_text(hjust = 0.5),
+            strip.text.y.left = element_text(angle = 0))
+    
+  } 
+    
+
+  ## -- VR plot --
+  dt_vr <- dt_balance[stat == "vr"]
+  if (nrow(dt_vr) == 0) {
+    p_vr <- ggplot() + labs(title = "Variance Ratio (no covariates)") 
+  }
+
+  if (nrow(dt_vr) > 0) {
+
+    p_vr <- ggplot(dt_vr, aes(x = val, y = cov, color = stage, shape = stage)) +
+      geom_point(size = 2.5, position = position_dodge(width = 0.5)) +
+      geom_vline(xintercept = 1, linetype = "dashed", alpha = 0.5) +
+      facet_grid(tc~., scales = "free_y") +
+      labs(title = "Variance Ratio", x = "VR", y = NULL, color = NULL, shape = NULL) +
+      theme(legend.position = "bottom", plot.title = element_text(hjust = 0.5))
+    
+  } 
+
+  ## -- L1 bar plot --
+  p_l1 <- ggplot(dt_l1, aes(x = tc, y = val, fill = stage)) +
+    geom_col(position = "dodge", width = 0.6) +
+    labs(title = "Multivariate L1 Imbalance", x = NULL, y = "L1", fill = NULL) +
+    theme(legend.position = "bottom", plot.title = element_text(hjust = 0.5))
+
+  ## -- coverage pie --
+  p_cov <- ggplot(dt_cov, aes(x = category, y = pct, fill = category)) +
+    geom_col(show.legend = F) + # coord_polar(theta = "y") +
+    labs(title = "Stratum Coverage", fill = NULL) +
+    ## theme_void() +
+    theme(plot.title = element_text(hjust = 0.5)) +
+    geom_text(aes(label = sprintf("%.0f%%", 100 * pct)),
+              position = position_stack(vjust = 1))
+
+  patchwork::wrap_plots(p_smd, p_vr, p_l1, p_cov, ncol = 2) +
+  patchwork::plot_layout(guides = "collect") + 
+    patchwork::plot_annotation(
+      title = "CEM Strata Balance Diagnostics",
+      caption = sprintf("N prepped: %d | N strata: %d | Strata w/ controls: %d (%.0f%%)",
+                        dt_q$n_prepped, dt_q$n_strata,
+                        dt_q$n_ctrl_strata, 100 * dt_q$pct_ctrl_strata))
+
+}
