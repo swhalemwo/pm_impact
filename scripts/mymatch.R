@@ -680,7 +680,7 @@ gd_quality_report <- function(dt_prepared, dt_match, matchit_obj = NULL,
     as.data.table(lapply(params, function(x) {
       if (length(x) > 1) paste(x, collapse = ",") else x
     }))
-  } else data.table()
+  } else data.table(stat = character(), cov = character(), tc = character(), stage = character(), val = numeric())
 
   t2 <- Sys.time()
 
@@ -1347,13 +1347,15 @@ gd_cem_quality_treat_cov <- function(tc, dt_s) {
   )
 }
 
+
+
+
 #' Balance diagnostics for one treatment contrast (helper).
 #'
-#' Computes SMD, VR, and L1 before and after CEM pruning + weighting for a
-#' single treatment column. "Before" = full data, uniform weights, k=1 vs k=0.
-#' "After" = strata where both k=1 and k=0 exist, with ATT weights
-#' (treated=1, control=n_treat/n_control within stratum), following the
-#' CEM paper (Iacus, King, Porro 2012) and cobalt's multi-category approach.
+#' Computes SMD, VR, and L1 before and after weighting for a single
+#' treatment column. "Before" = full data, uniform weights, k=1 vs k=0.
+#' "After" = same data with unified CEM weights.
+#' Prunes to strata where both k=1 and k=0 exist for the after comparison.
 #'
 #' Returns NULL (skipped) if no covariates are specified.
 #'
@@ -1365,6 +1367,7 @@ gd_cem_quality_treat_cov <- function(tc, dt_s) {
 #'   smd/vr_{v}_{tc}_before/after, or NULL if no covariates.
 gd_cem_quality_treat_bal <- function(tc, dt_d, covariate_cols, stratum_col) {
   if (length(covariate_cols) == 0) return(NULL)
+  ## browser()
 
   treat_v <- as.integer(dt_d[[tc]] > 0)
   dt_cov <- dt_d[, covariate_cols, with = FALSE]
@@ -1395,10 +1398,11 @@ gd_cem_quality_treat_bal <- function(tc, dt_d, covariate_cols, stratum_col) {
   dt_after <- dt_d[after_idx]
   dt_strat_sz <- dt_after[, .(n1 = sum(get(tc) > 0), n0 = sum(get(tc) == 0)),
                            by = stratum_col]
+  mT <- sum(dt_strat_sz$n1)
+  mC <- sum(dt_strat_sz$n0)
   dt_after[dt_strat_sz, on = stratum_col, `:=`(.n1 = i.n1, .n0 = i.n0)]
-  dt_after[, .w := 1]
-  dt_after[get(tc) == 0, .w := .n1 / .n0]
-  dt_after[, c(".n1", ".n0") := NULL]
+  dt_after[treat_v[after_idx] == 1, .w := 1]
+  dt_after[treat_v[after_idx] == 0, .w := (mC / mT) * (.n1 / .n0)]
 
   w_after <- dt_after$.w
   treat_after <- treat_v[after_idx]
@@ -1406,6 +1410,11 @@ gd_cem_quality_treat_bal <- function(tc, dt_d, covariate_cols, stratum_col) {
 
   l1_after <- gd_l1_med_both(dt_cov_after, treat_after, w_after)$after
   dt_smd_after <- gd_smd_vr(dt_cov_after, treat_after, w_after)
+
+  ## gd_l1_med_both(dt_cov_after, treat_after, rep(1,len(treat_after)))$after
+  
+  ## cbind(dt_cov_after, treat_after)[, collapse::fmean(.SD, g=treat_after)]
+  ## cbind(dt_cov_after, treat_after, w_after)[, collapse::fmean(.SD, g=treat_after, w = w_after)]
 
   ## flatten SMD/VR columns
   ## l_smd <- lapply(covariate_cols, function(v) {
