@@ -3,8 +3,9 @@ library(MatchIt)
 library(cobalt)
 library(purrr)
 library(collapse, include.only = c("join", "funique", "set_collapse"))
+library(jtls, include.only = "vadt")
 
-`%||%` <- function(x, y) if (is.null(x)) y else x
+## `%||%` <- function(x, y) if (is.null(x)) y else x
 
 set_collapse(verbose = 0)
 
@@ -38,7 +39,7 @@ gd_match_history <- function(dt_panel, L, treatment_col, history_col,
   ## dt  
   dt_d <- md_prep_match(dt_panel, L, treatment_col, history_col, uid, tid)
   dt_matched <- data.table()
-  last_tier <- length(tiers)
+  
 
   for (tier_n in seq_along(tiers)) {
     tier_vars <- tiers[[tier_n]]
@@ -255,6 +256,21 @@ gd_build_dt_long <- function(dt_match, uid, tid) {
 }
 
 
+#' Extract breakpoints from a cutpoint specification for one covariate.
+#'
+#' @param v Covariate name.
+#' @param cutpoints Named list mapping covariate names to integer bins or numeric breaks.
+#' @param dt_ref Reference data.table containing the covariate column.
+#' @return Numeric vector of breakpoints.
+gd_extract_breaks <- function(v, cutpoints, dt_ref) {
+  cp <- cutpoints[[v]]
+  if (is.null(cp)) stop("gd_refine_matches: cutpoints must specify a value for ", v)
+  if (is.numeric(cp) && length(cp) == 1) {
+    seq(range(dt_ref[[v]], na.rm = TRUE)[1], range(dt_ref[[v]], na.rm = TRUE)[2],
+        length.out = cp + 1)[2:cp]
+  } else cp
+}
+
 #' Refine matches using Coarsened Exact Matching (CEM) — data.table version.
 #'
 #' @description
@@ -298,14 +314,9 @@ gd_refine_matches <- function(dt_match, dt_full,
 
 
   ## compute breaks for each covariate
-  l_breaks <- setNames(lapply(covariates, function(v) {
-    cp <- cutpoints[[v]]
-    if (is.null(cp)) stop("gd_refine_matches: cutpoints must specify a value for ", v)
-    if (is.numeric(cp) && length(cp) == 1) {
-      ## seq(range(dt_coarse[[v]], na.rm = TRUE)[1], range(dt_coarse[[v]], na.rm = TRUE)[2], length.out = cp + 1)
-      seq(range(dt_coarse[[v]], na.rm = TRUE)[1], range(dt_coarse[[v]], na.rm = TRUE)[2], length.out = cp + 1)[2:cp]
-    } else cp
-  }), covariates)
+  l_breaks <- setNames(lapply(covariates, gd_extract_breaks,
+                              cutpoints = cutpoints, dt_ref = dt_coarse),
+                       covariates)
 
   ## coarsen all covariates in one shot
   l_coarse_cols <- paste0(".coarse_", covariates)
@@ -594,6 +605,8 @@ gd_run_match_pipeline <- function(dt_panel, params, dt_full = dt_panel) {
 #' @param ... Named arguments. Each is a vector/list of alternatives.
 #' @return A list of config lists, one per parameter combination.
 gd_build_configs <- function(dt_panel, ...) {
+  ## CAUTION_OLD_FUNC
+
   l_args <- list(...)
 
   ## all params are alternatives — build indices for each
@@ -603,11 +616,8 @@ gd_build_configs <- function(dt_panel, ...) {
 
   ## convert each grid row to a config
   l_configs <- apply(dt_grid, 1, function(row) {
-    cfg <- list(dt_panel = dt_panel)
-    for (nm in names(l_args)) {
-      cfg[[nm]] <- l_args[[nm]][[row[[nm]]]]
-    }
-    cfg
+    c(list(dt_panel = dt_panel),
+      map(setNames(nm = names(l_args)), ~l_args[[.x]][[row[[.x]]]]))
   })
 
   l_configs
@@ -735,14 +745,14 @@ gd_quality_report_s1 <- function(dt_prepared, dt_match, params) {
 #' @param dt_smd data.table from gd_smd_vr with columns cov, smd_un, vr_un, smd_adj, vr_adj.
 #' @return Single-row data.table with four columns: smd/vr before/after.
 gd_bal_cols_cov <- function(v, dt_smd) {
-  row <- dt_smd[cov == v]
-  if (nrow(row) == 0) {
+  dt_row <- dt_smd[cov == v]
+  if (nrow(dt_row) == 0) {
     setNames(data.table(NA_real_, NA_real_, NA_real_, NA_real_),
              c(paste0("smd_", v, "_before"), paste0("vr_", v, "_before"),
                paste0("smd_", v, "_after"),  paste0("vr_", v, "_after")))
   } else {
-    setNames(data.table(round(row$smd_un, 4), round(row$vr_un, 4),
-                         round(row$smd_adj, 4), round(row$vr_adj, 4)),
+    setNames(data.table(round(dt_row$smd_un, 4), round(dt_row$vr_un, 4),
+                         round(dt_row$smd_adj, 4), round(dt_row$vr_adj, 4)),
              c(paste0("smd_", v, "_before"), paste0("vr_", v, "_before"),
                paste0("smd_", v, "_after"),  paste0("vr_", v, "_after")))
   }
@@ -823,8 +833,8 @@ gd_gen_coarsening <- function(dt_loc, cov_names, ranges, l1.min.bin, l1.max.bin,
       rightmost.closed = TRUE))
   })]
 
-  agg <- dt_loc[, .(wT = sum(.wt), wC = sum(.wc)), by = cut_cols]
-  l1_u <- sum(abs(agg$wT - agg$wC)) / 2
+  dt_agg <- dt_loc[, .(wT = sum(.wt), wC = sum(.wc)), by = cut_cols]
+  l1_u <- sum(abs(dt_agg$wT - dt_agg$wC)) / 2
 
   dt_loc[, (cut_cols) := NULL]
 
@@ -905,11 +915,11 @@ gd_l1_med_both <- function(dt_cov, treat, weights_after,
 
   dt_fixed <- data.table(bin = dt_fixed_cuts$bin_id,
                          .wu = w_u, .wo = w_o, .t = is_t)
-  agg_before <- dt_fixed[, .(wT = sum(.wu * .t), wC = sum(.wu * !.t)), by = bin]
-  agg_after  <- dt_fixed[, .(wT = sum(.wo * .t), wC = sum(.wo * !.t)), by = bin]
+  dt_agg_before <- dt_fixed[, .(wT = sum(.wu * .t), wC = sum(.wu * !.t)), by = bin]
+  dt_agg_after  <- dt_fixed[, .(wT = sum(.wo * .t), wC = sum(.wo * !.t)), by = bin]
 
-  list(before = sum(abs(agg_before$wT - agg_before$wC)) / 2,
-       after  = sum(abs(agg_after$wT  - agg_after$wC))  / 2)
+  list(before = sum(abs(dt_agg_before$wT - dt_agg_before$wC)) / 2,
+       after  = sum(abs(dt_agg_after$wT  - dt_agg_after$wC))  / 2)
 }
 
 
@@ -1083,7 +1093,7 @@ gd_hist_breaks_one <- function(dt_ref, hcol, nb) {
 #' @return data.table with coarsened history columns appended.
 gd_coarse_history <- function(dt_d, dt_ref, history_cols, coarse_cols,
                               nb_vec, history_breaks) {
-  dt_coarse_hist <- dt_d %>% copy
+  dt_coarse_hist <- copy(dt_d)
   
   dt_coarse_hist <- switch(history_breaks,
     none = dt_coarse_hist[, (coarse_cols) := lapply(history_cols, function(h) dt_coarse_hist[[h]])],
@@ -1547,17 +1557,15 @@ gd_cem_quality_report <- function(cem_result) {
   ## gd_cem_quality_treat_bal(cfg$treatment_cols[1], dt_d, cov_cols, "stratum")
 
   ## worst-case L1 across treatments (names include treatment suffix)
-
-  ## disgusting syntax -> rewrite
   l1_worst_before <- if (length(l_bal) > 0) {
-                       max(sapply(seq_along(l_bal),
-                                  function(i) l_bal[[i]][[paste0("L1_", cfg$treatment_cols[i], "_before")]]),
-                           na.rm = TRUE)
-                     } else NA_real_
+                       ## map2_dbl(l_bal, cfg$treatment_cols, ~.x[[paste0("L1_", .y, "_before")]]) %>% max(na.rm = TRUE)
+                       ## map2(l_bal, cfg$treatment_cols, ~print(sprintf("%s_%s", .x, .y))) %>% unlist %>% len
+                       vadt(unlist(l_bal))[grepl("L1", name) & grepl("_before", name), max(vlu)]
+  } else NA_real_
   l1_worst_after  <- if (length(l_bal) > 0) {
-                       max(sapply(seq_along(l_bal), function(i) l_bal[[i]][[paste0("L1_", cfg$treatment_cols[i],
-                                                                                   "_after")]]), na.rm = TRUE)
-                     } else NA_real_
+                       ## map2_dbl(l_bal, cfg$treatment_cols, ~.x[[paste0("L1_", .y, "_after")]]) %>% max(na.rm = TRUE)
+                       vadt(unlist(l_bal))[grepl("L1", name) & grepl("_after", name), max(vlu)]
+  } else NA_real_
 
   ## build output
   l_out <- c(
@@ -1663,6 +1671,7 @@ gp_cem_quality <- function(cem_result) {
   } else data.table(tc = character(), stage = character(), val = numeric())
 
   ## coverage data
+  ## cov_n <- map_dbl(tcs, ~as.numeric(dt_q[[paste0("n_strata_", .x)]] %||% 0))
   cov_n <- sapply(tcs, function(tc) as.numeric(dt_q[[paste0("n_strata_", tc)]] %||% 0))
   dt_cov <- data.table(category = c(tcs, "none"),
                        n = c(cov_n, as.numeric(dt_q$n_ctrl_strata %||% 0)))
