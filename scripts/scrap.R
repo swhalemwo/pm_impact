@@ -814,7 +814,7 @@ r_cem <- gd_cem_strata(c_cem1)
 dt_res_cem <- gd_cem_quality_report(r_cem) 
 gp_cem_quality(r_cem)
 
-
+r_cem$data[weight < 5 & !(exn_pm == 0 & exn_pi == 0)] %>% ggplot(aes(x=weight, color = interaction(exn_pm > 0, exn_pi > 0))) + geom_density()
 
 
 
