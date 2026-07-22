@@ -1671,7 +1671,8 @@ gp_cem_quality <- function(cem_result) {
   } else data.table(tc = character(), stage = character(), val = numeric())
 
   ## coverage data
-  cov_n <- map_dbl(tcs, ~as.numeric(dt_q[[paste0("n_strata_", .x)]] %||% 0))
+  ## cov_n <- map_dbl(tcs, ~as.numeric(dt_q[[paste0("n_strata_", .x)]] %||% 0))
+  cov_n <- sapply(tcs, function(tc) as.numeric(dt_q[[paste0("n_strata_", tc)]] %||% 0))
   dt_cov <- data.table(category = c(tcs, "none"),
                        n = c(cov_n, as.numeric(dt_q$n_ctrl_strata %||% 0)))
   dt_cov[, pct := n / dt_q$n_strata]
