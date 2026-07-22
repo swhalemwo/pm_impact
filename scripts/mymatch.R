@@ -998,14 +998,23 @@ gd_smd_vr <- function(dt_cov, treat, weights) {
 #' @param w Numeric vector of weights (NULL = uniform).
 #' @return Named numeric: ecdf_max, ecdf_mean.
 gd_ecdf_one <- function(x, treat, w = NULL) {
+  #' compute eCDF max (KS) and mean for one covariate
+  #' evaluates at unique x values (handles ties correctly)
   n <- length(x)
   if (is.null(w)) w <- rep(1, n)
   ord <- order(x)
   w_t <- sum(w[treat == 1])
   w_c <- sum(w[treat == 0])
-  cum_w_t <- collapse::cumsum(w[ord] * treat[ord]) / w_t
-  cum_w_c <- collapse::fcumsum(w[ord] * (1 - treat[ord])) / w_c
-  diff <- abs(cum_w_t - cum_w_c)
+
+  ## cumulative sums at each observation in sorted order
+  cum_w_t <- base::cumsum(w[ord] * treat[ord]) / w_t
+  cum_w_c <- base::cumsum(w[ord] * (1 - treat[ord])) / w_c
+
+  ## evaluate only at last occurrence of each unique x value
+  ## (handles ties: all tied obs contribute simultaneously)
+  last_idx <- !duplicated(x[ord], fromLast = TRUE)
+  diff <- abs(cum_w_t[last_idx] - cum_w_c[last_idx])
+
   c(ecdf_max = max(diff), ecdf_mean = mean(diff))
 }
 

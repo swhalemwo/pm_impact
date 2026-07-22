@@ -751,7 +751,7 @@ gd_test_ecdf_multi <- function() {
 }
 
 gd_test_ecdf_cobalt <- function() {
-  browser()
+  ## browser()
   if (!requireNamespace("cobalt", quietly = TRUE)) return()
   t0 <- Sys.time()
   set.seed(42)
@@ -772,6 +772,64 @@ gd_test_ecdf_cobalt <- function() {
   timings <<- rbind(timings, data.table(label = "ecdf_cobalt",
                                          time_s = round(as.numeric(Sys.time() - t0), 2)))
 }
+
+gd_test_ecdf_in_report <- function() {
+  t0 <- Sys.time()
+  cfg <- list(dt_panel = dt, L = 3L,
+              treatment_cols = c("exn_pm", "exn_pi"),
+              history_cols = c("exn_pm_cum_ihs", "exn_pi_cum_ihs"),
+              history_nbins = c(5L, 5L), history_breaks = "quantile",
+              uid = "PeopleID", tid = "year",
+              covariate_cutpoints = list(BirthYear = 8, exn_all_cum_ihs = 8))
+  res <- gd_cem_strata(cfg)
+  dt_d <- res$data
+  dt_q <- gd_cem_quality_report(res)
+
+  expect_true(any(grepl("^ecdf_max_", names(dt_q))),
+              info = "quality report has ecdf_max columns")
+  expect_true(any(grepl("^ecdf_mean_", names(dt_q))),
+              info = "quality report has ecdf_mean columns")
+
+  ## compare eCDF against cobalt::bal.tab on real data (unweighted + weighted)
+  ## Use quick = FALSE to ensure KS statistics are computed.
+  set.seed(42)
+  idx <- sample(nrow(dt_d), 10000)
+  dt_sub <- copy(dt_d)[idx]
+  for (tci in cfg$treatment_cols)
+    dt_sub[, (tci) := fifelse(get(tci) > 0, 1L, 0L)]
+  w_rand <- pmax(rnorm(10000, mean = 1, sd = 0.3), 0)
+
+  for (tc in cfg$treatment_cols) {
+    treat_v <- dt_sub[[tc]]
+    cov_cols <- names(cfg$covariate_cutpoints)
+
+    ## unweighted
+    bt_u <- bal.tab(as.formula(paste(tc, "~", paste(cov_cols, collapse = " + "))),
+                     data = dt_sub, stats = "ks", quick = FALSE)
+    r_u <- gd_ecdf(dt_sub[, ..cov_cols], treat_v, rep(1, nrow(dt_sub)))
+    for (cv in cov_cols) {
+      expect_equal(r_u[cov == cv, ecdf_max_un], bt_u$Balance[cv, "KS.Un"],
+                   tolerance = 1e-10,
+                   info = sprintf("[%s] %s KS.Un matches cobalt (unweighted)", tc, cv))
+    }
+
+    ## weighted with random weights
+    bt_w <- bal.tab(as.formula(paste(tc, "~", paste(cov_cols, collapse = " + "))),
+                     data = dt_sub, weights = w_rand, stats = "ks", quick = FALSE)
+    r_w <- gd_ecdf(dt_sub[, ..cov_cols], treat_v, w_rand)
+    for (cv in cov_cols) {
+      expect_equal(r_w[cov == cv, ecdf_max_adj], bt_w$Balance[cv, "KS.Adj"],
+                   tolerance = 1e-10,
+                   info = sprintf("[%s] %s KS.Adj matches cobalt (weighted)", tc, cv))
+    }
+
+    
+  }
+
+  timings <<- rbind(timings, data.table(label = "ecdf_in_report",
+                                         time_s = round(as.numeric(Sys.time() - t0), 2)))
+}
+
 gd_test_weights_none <- function(dt_d) {
   t0 <- Sys.time()
   w <- gd_cem_weights_none(dt_d)
@@ -881,6 +939,9 @@ gd_test_weights_composite(demo_data)
 gd_test_ecdf_one()
 gd_test_ecdf_multi()
 gd_test_ecdf_cobalt()
+gd_test_ecdf_in_report()
+
+
 # --- Timing report ---
 cat("\n========================================\n")
 cat("          Timing Summary\n")
