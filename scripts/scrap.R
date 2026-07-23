@@ -814,7 +814,21 @@ r_cem <- gd_cem_strata(c_cem1)
 dt_res_cem <- gd_cem_quality_report(r_cem) 
 gp_cem_quality(r_cem)
 
+
+## many zero weights... concerning? 
 r_cem$data[weight < 5 & !(exn_pm == 0 & exn_pi == 0)] %>% ggplot(aes(x=weight, color = interaction(exn_pm > 0, exn_pi > 0))) + geom_density()
+
+
+## manually inspect density to assess balance
+r_cem$data %>% ggplot(aes(x=BirthYear, color = interaction(as.integer(exn_pm>0),
+                                                           as.integer(exn_pi>0)))) + geom_density()
+
+r_cem$config$dt_panel %>% ggplot(aes(x=BirthYear, color = interaction(as.integer(exn_pm>0),
+                                                           as.integer(exn_pi>0)))) + geom_density()
+
+r_cem$data %>% .[, exn_pm_bin := as.integer(exn_pm > 0)] %>% 
+ggplot(aes(x=exn_pm_cum_ihs, color = factor(exn_pm_bin))) + geom_density()
+                                                    
 
 
 
