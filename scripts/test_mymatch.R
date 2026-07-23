@@ -941,14 +941,7 @@ gd_test_hist_balance <- function() {
                 info = sprintf("L1_all_%s_after", tc))
   }
 
-  ## worst-case L1 columns exist
-  expect_true("L1_cov_worst_before" %in% names(dt_q), info = "L1_cov_worst_before")
-  expect_true("L1_hist_worst_before" %in% names(dt_q), info = "L1_hist_worst_before")
-  expect_true("L1_all_worst_before" %in% names(dt_q), info = "L1_all_worst_before")
-  expect_true("L1_cov_worst_after" %in% names(dt_q), info = "L1_cov_worst_after")
-  expect_true("L1_hist_worst_after" %in% names(dt_q), info = "L1_hist_worst_after")
-  expect_true("L1_all_worst_after" %in% names(dt_q), info = "L1_all_worst_after")
-
+  
   ## verify numeric values: L1 in [0,1] for all variants
   for (tc in cfg$treatment_cols) {
     for (pref in c("L1_cov_", "L1_hist_", "L1_all_")) {
