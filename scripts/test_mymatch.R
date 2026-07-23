@@ -898,6 +898,91 @@ gd_test_weights_dispatcher <- function(dt_d) {
                                          time_s = round(as.numeric(Sys.time() - t0), 2)))
 }
 
+# --- History variable balance tests ---
+
+gd_test_hist_balance <- function() {
+  ## verify that balance diagnostics on history variables appear in quality report
+  t0 <- Sys.time()
+
+  cfg <- list(dt_panel = dt_big, L = 3L,
+              treatment_cols = c("exn_pm", "exn_pi"),
+              history_cols = c("exn_pm_cum_ihs", "exn_pi_cum_ihs"),
+              history_nbins = c(5L, 5L), history_breaks = "quantile",
+              uid = "PeopleID", tid = "year",
+              covariate_cutpoints = list(BirthYear = 8, exn_all_cum_ihs = 8))
+  res <- gd_cem_strata(cfg)
+  dt_q <- gd_cem_quality_report(res)
+
+  ## balance columns for history variables should exist
+  for (hc in cfg$history_cols) {
+    expect_true(any(grepl(paste0("^smd_", hc, "_"), names(dt_q))),
+                info = sprintf("smd column for history var %s", hc))
+    expect_true(any(grepl(paste0("^vr_", hc, "_"), names(dt_q))),
+                info = sprintf("vr column for history var %s", hc))
+    expect_true(any(grepl(paste0("^ecdf_max_", hc, "_"), names(dt_q))),
+                info = sprintf("ecdf_max column for history var %s", hc))
+    expect_true(any(grepl(paste0("^ecdf_mean_", hc, "_"), names(dt_q))),
+                info = sprintf("ecdf_mean column for history var %s", hc))
+  }
+
+  ## three L1 variants exist per treatment
+  for (tc in cfg$treatment_cols) {
+    expect_true(paste0("L1_cov_", tc, "_before") %in% names(dt_q),
+                info = sprintf("L1_cov_%s_before", tc))
+    expect_true(paste0("L1_cov_", tc, "_after") %in% names(dt_q),
+                info = sprintf("L1_cov_%s_after", tc))
+    expect_true(paste0("L1_hist_", tc, "_before") %in% names(dt_q),
+                info = sprintf("L1_hist_%s_before", tc))
+    expect_true(paste0("L1_hist_", tc, "_after") %in% names(dt_q),
+                info = sprintf("L1_hist_%s_after", tc))
+    expect_true(paste0("L1_all_", tc, "_before") %in% names(dt_q),
+                info = sprintf("L1_all_%s_before", tc))
+    expect_true(paste0("L1_all_", tc, "_after") %in% names(dt_q),
+                info = sprintf("L1_all_%s_after", tc))
+  }
+
+  ## worst-case L1 columns exist
+  expect_true("L1_cov_worst_before" %in% names(dt_q), info = "L1_cov_worst_before")
+  expect_true("L1_hist_worst_before" %in% names(dt_q), info = "L1_hist_worst_before")
+  expect_true("L1_all_worst_before" %in% names(dt_q), info = "L1_all_worst_before")
+  expect_true("L1_cov_worst_after" %in% names(dt_q), info = "L1_cov_worst_after")
+  expect_true("L1_hist_worst_after" %in% names(dt_q), info = "L1_hist_worst_after")
+  expect_true("L1_all_worst_after" %in% names(dt_q), info = "L1_all_worst_after")
+
+  ## verify numeric values: L1 in [0,1] for all variants
+  for (tc in cfg$treatment_cols) {
+    for (pref in c("L1_cov_", "L1_hist_", "L1_all_")) {
+      val_b <- dt_q[[paste0(pref, tc, "_before")]]
+      val_a <- dt_q[[paste0(pref, tc, "_after")]]
+      if (!is.na(val_b)) expect_true(val_b >= 0 && val_b <= 1,
+                                      info = sprintf("%s%s_before in [0,1]", pref, tc))
+      if (!is.na(val_a)) expect_true(val_a >= 0 && val_a <= 1,
+                                      info = sprintf("%s%s_after in [0,1]", pref, tc))
+    }
+  }
+
+  ## history-only config (no covariates) still computes L1_hist and per-variable diagnostics
+  cfg_hist_only <- list(dt_panel = dt_big, L = 3L,
+                        treatment_cols = c("exn_pm"),
+                        history_cols = c("exn_pm_cum_ihs"),
+                        history_nbins = 5L, history_breaks = "quantile",
+                        uid = "PeopleID", tid = "year",
+                        covariate_cutpoints = list())
+  res_ho <- gd_cem_strata(cfg_hist_only)
+  dt_q_ho <- gd_cem_quality_report(res_ho)
+  expect_true(paste0("L1_hist_", cfg_hist_only$treatment_cols[1], "_before") %in% names(dt_q_ho),
+              info = "hist-only: L1_hist exists")
+  expect_true(paste0("L1_cov_", cfg_hist_only$treatment_cols[1], "_before") %in% names(dt_q_ho),
+              info = "hist-only: L1_cov is NA but column exists")
+  expect_true(is.na(dt_q_ho[[paste0("L1_cov_", cfg_hist_only$treatment_cols[1], "_before")]]),
+              info = "hist-only: L1_cov is NA")
+  expect_true(any(grepl("^smd_exn_pm_cum_ihs_", names(dt_q_ho))),
+              info = "hist-only: smd for history var exists")
+
+  timings <<- rbind(timings, data.table(label = "hist_balance",
+                                         time_s = round(as.numeric(Sys.time() - t0), 2)))
+}
+
 
 # ==== Main execution ====
 run_slow <- Sys.getenv("FOSTER_TEST_SLOW", "true") != "false"
@@ -940,6 +1025,9 @@ gd_test_ecdf_one()
 gd_test_ecdf_multi()
 gd_test_ecdf_cobalt()
 gd_test_ecdf_in_report()
+
+# --- History variable balance tests ---
+gd_test_hist_balance()
 
 
 # --- Timing report ---
