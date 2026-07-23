@@ -1500,6 +1500,22 @@ gd_bal_stage_nas <- function(all_cols, cov_cols, hist_cols, tc, stage) {
     .[, .(variable, measure, treatment, stage, value)]
 }
 
+#' Balance diagnostics for one treatment contrast (helper).
+#'
+#' Computes SMD, VR, and L1 before and after weighting for a single
+#' treatment column. "Before" = full data, uniform weights, k=1 vs k=0.
+#' "After" = same data with unified CEM weights.
+#' Prunes to strata where both k=1 and k=0 exist for the after comparison.
+#'
+#' Returns NULL (skipped) if no covariates are specified.
+#'
+#' @param tc String. Treatment column name.
+#' @param dt_d data.table. CEM-prepared data (from gd_cem_strata).
+#' @param covariate_cols Character vector of covariate names.
+#' @param history_cols Character vector of treatment history cols
+#' @param stratum_col String. Column name of stratum assignment.
+#' @return data.table with L1_{tc}_before/after and per-covariate
+#'   smd/vr_{v}_{tc}_before/after, or NULL if no covariates.
 gd_cem_quality_treat_bal <- function(tc, dt_d, covariate_cols, history_cols, stratum_col) {
 
   all_balance_cols <- c(covariate_cols, history_cols)
