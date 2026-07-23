@@ -1428,26 +1428,88 @@ gd_cem_quality_treat_cov <- function(tc, dt_s) {
 #' @param stratum_col String. Column name of stratum assignment.
 #' @return Named numeric vector with L1_{tc}_before/after and per-covariate
 #'   smd/vr_{v}_{tc}_before/after, or NULL if no covariates.
+#' Compute all balance metrics for one (data, weights, stage) combination.
+#'
+#' Returns a long data.table with columns: variable, measure, treatment, stage, value.
+#' For L1, variable is "cov"/"hist"/"all"; for per-variable metrics it's the column name.
+#'
+#' @param dt_d data.table containing balance variables.
+#' @param all_cols Character vector. All variable names for per-variable SMD/VR/eCDF.
+#' @param cov_cols Character vector. Covariate column names (for L1_cov).
+#' @param hist_cols Character vector. History column names (for L1_hist).
+#' @param treat_v Integer treatment vector (0/1).
+#' @param weights Numeric weight vector.
+#' @param tc String. Treatment column name.
+#' @param stage String. "before" or "after".
+#' @return Long data.table with columns (variable, measure, treatment, stage, value).
+gd_bal_stage <- function(dt_d, all_cols, cov_cols, hist_cols,
+                          treat_v, weights, tc, stage) {
+
+  dt_all <- if (length(all_cols) > 0) dt_d[, ..all_cols] else data.table()
+
+  if (length(all_cols) == 0) {
+    return(data.table(variable = character(), measure = character(),
+                       treatment = character(), stage = character(),
+                       value = numeric()))
+  }
+
+  ## suffix for gd_smd_vr / gd_ecdf output: "un" for before, "adj" for after
+  sfx <- if (stage == "before") "un" else "adj"
+
+  ## per-variable SMD and VR
+  dt_smd <- gd_smd_vr(dt_all, treat_v, weights)
+  dt_out_smd <- melt(dt_smd[, .(cov, smd = get(paste0("smd_", sfx)),
+                                 vr = get(paste0("vr_", sfx)))],
+                      id.vars = "cov", variable.name = "measure",
+                      value.name = "value") %>%
+    setnames("cov", "variable")
+
+  ## per-variable eCDF
+  dt_ecdf <- gd_ecdf(dt_all, treat_v, weights)
+  dt_out_ecdf <- melt(dt_ecdf[, .(cov, ecdf_max = get(paste0("ecdf_max_", sfx)),
+                                   ecdf_mean = get(paste0("ecdf_mean_", sfx)))],
+                       id.vars = "cov", variable.name = "measure",
+                       value.name = "value") %>%
+    setnames("cov", "variable")
+
+  ## L1 variants — always include all three, NA if no columns
+  dt_l1 <- data.table(
+    variable = c("cov", "hist", "all"),
+    measure = "L1",
+    value = c(if (length(cov_cols) > 0) gd_l1_med_both(dt_d[, ..cov_cols], treat_v, weights)[[stage]] else NA_real_,
+              if (length(hist_cols) > 0) gd_l1_med_both(dt_d[, ..hist_cols], treat_v, weights)[[stage]] else NA_real_,
+              gd_l1_med_both(dt_all, treat_v, weights)[[stage]])
+  )
+
+  rbind(dt_out_smd, dt_out_ecdf, dt_l1, fill = F) %>%
+    .[, `:=`(treatment = tc, stage = stage)] %>%
+    .[, .(variable, measure, treatment, stage, value)]
+
+}
+
+
+#' Skeleton balance data.table for "no viable strata" case.
+#'
+#' @inheritParams gd_bal_stage
+#' @return Long data.table with all values NA.
+gd_bal_stage_nas <- function(all_cols, cov_cols, hist_cols, tc, stage) {
+  per_var <- CJ(variable = all_cols, measure = c("smd", "vr", "ecdf_max", "ecdf_mean"))
+  l1 <- data.table(variable = c("cov", "hist", "all"), measure = "L1")
+  rbind(per_var, l1, fill = TRUE) %>%
+    .[, `:=`(treatment = tc, stage = stage, value = NA_real_)] %>%
+    .[, .(variable, measure, treatment, stage, value)]
+}
+
 gd_cem_quality_treat_bal <- function(tc, dt_d, covariate_cols, history_cols, stratum_col) {
 
   all_balance_cols <- c(covariate_cols, history_cols)
-  if (length(all_balance_cols) == 0) return(NULL)
+  if (length(all_balance_cols) == 0) return(data.table())
 
   treat_v <- as.integer(dt_d[[tc]] > 0)
 
-  ## separate data for L1 subset computations
-  dt_cov <- if (length(covariate_cols) > 0) dt_d[, covariate_cols, with = FALSE] else NULL
-  dt_hist <- if (length(history_cols) > 0) dt_d[, history_cols, with = FALSE] else NULL
-  dt_all <- dt_d[, all_balance_cols, with = FALSE]
-
   ## before: full data, uniform weights
-  w_u <- rep(1, nrow(dt_d))
-
-  l1_cov_before <- if (!is.null(dt_cov)) gd_l1_med_both(dt_cov, treat_v, w_u)$before else NA_real_
-  l1_hist_before <- if (!is.null(dt_hist)) gd_l1_med_both(dt_hist, treat_v, w_u)$before else NA_real_
-  l1_all_before <- gd_l1_med_both(dt_all, treat_v, w_u)$before
-  dt_smd_before <- gd_smd_vr(dt_all, treat_v, w_u)
-  dt_ecdf_before <- gd_ecdf(dt_all, treat_v, w_u)
+  dt_before <- gd_bal_stage(dt_d, all_balance_cols, covariate_cols, history_cols,
+                             treat_v, rep(1, nrow(dt_d)), tc, "before")
 
   ## after: prune to strata with both k=1 and k=0, ATT weights
   dt_strat <- dt_d[, .(n1 = sum(get(tc) > 0), n0 = sum(get(tc) == 0)),
@@ -1455,71 +1517,19 @@ gd_cem_quality_treat_bal <- function(tc, dt_d, covariate_cols, history_cols, str
   viable_strata <- dt_strat[n1 > 0 & n0 > 0, get(stratum_col)]
   after_idx <- dt_d[[stratum_col]] %in% viable_strata
 
-  if (sum(after_idx) == 0) {
-    l_smd <- lapply(all_balance_cols, function(v) {
-      r_u <- dt_smd_before[cov == v]
-      setNames(c(round(r_u$smd_un, 4), round(r_u$vr_un, 4), NA_real_, NA_real_),
-               c(paste0("smd_", v, "_", tc, "_before"), paste0("vr_", v, "_", tc, "_before"),
-                 paste0("smd_", v, "_", tc, "_after"), paste0("vr_", v, "_", tc, "_after")))
-    })
-    l_ecdf <- lapply(all_balance_cols, function(v) {
-      r_u <- dt_ecdf_before[cov == v]
-      setNames(c(round(r_u$ecdf_max_un, 4), round(r_u$ecdf_mean_un, 4), NA_real_, NA_real_),
-               c(paste0("ecdf_max_", v, "_", tc, "_before"), paste0("ecdf_mean_", v, "_", tc, "_before"),
-                 paste0("ecdf_max_", v, "_", tc, "_after"), paste0("ecdf_mean_", v, "_", tc, "_after")))
-    })
-    return(c(setNames(round(l1_cov_before, 4), paste0("L1_cov_", tc, "_before")),
-             setNames(round(l1_hist_before, 4), paste0("L1_hist_", tc, "_before")),
-             setNames(round(l1_all_before, 4), paste0("L1_all_", tc, "_before")),
-             setNames(NA_real_, paste0("L1_cov_", tc, "_after")),
-             setNames(NA_real_, paste0("L1_hist_", tc, "_after")),
-             setNames(NA_real_, paste0("L1_all_", tc, "_after")),
-             do.call(c, l_smd), do.call(c, l_ecdf)))
+  dt_after <- if (sum(after_idx) == 0) {
+    gd_bal_stage_nas(all_balance_cols, covariate_cols, history_cols, tc, "after")
+  } else {
+    dt_att <- dt_d[after_idx]
+    dt_sz <- dt_att[, .(n1 = sum(get(tc) > 0), n0 = sum(get(tc) == 0)), by = stratum_col]
+    mT <- sum(dt_sz$n1); mC <- sum(dt_sz$n0)
+    dt_att[dt_sz, on = stratum_col, `:=`(.n1 = i.n1, .n0 = i.n0)]
+    w <- dt_att[, fifelse(treat_v[after_idx] == 1, 1, (mC / mT) * (.n1 / .n0))]
+    gd_bal_stage(dt_att, all_balance_cols, covariate_cols, history_cols,
+                 treat_v[after_idx], w, tc, "after")
   }
 
-  ## subset to viable strata, compute CEM ATT weights
-  dt_after <- dt_d[after_idx]
-  dt_strat_sz <- dt_after[, .(n1 = sum(get(tc) > 0), n0 = sum(get(tc) == 0)),
-                           by = stratum_col]
-  mT <- sum(dt_strat_sz$n1)
-  mC <- sum(dt_strat_sz$n0)
-  dt_after[dt_strat_sz, on = stratum_col, `:=`(.n1 = i.n1, .n0 = i.n0)]
-  dt_after[treat_v[after_idx] == 1, .w := 1]
-  dt_after[treat_v[after_idx] == 0, .w := (mC / mT) * (.n1 / .n0)]
-
-  w_after <- dt_after$.w
-  treat_after <- treat_v[after_idx]
-  dt_all_after <- dt_all[after_idx]
-  dt_cov_after <- if (!is.null(dt_cov)) dt_cov[after_idx] else NULL
-  dt_hist_after <- if (!is.null(dt_hist)) dt_hist[after_idx] else NULL
-
-  l1_cov_after <- if (!is.null(dt_cov_after)) gd_l1_med_both(dt_cov_after, treat_after, w_after)$after else NA_real_
-  l1_hist_after <- if (!is.null(dt_hist_after)) gd_l1_med_both(dt_hist_after, treat_after, w_after)$after else NA_real_
-  l1_all_after <- gd_l1_med_both(dt_all_after, treat_after, w_after)$after
-  dt_smd_after <- gd_smd_vr(dt_all_after, treat_after, w_after)
-  dt_ecdf_after <- gd_ecdf(dt_all_after, treat_after, w_after)
-
-  ## flatten SMD/VR columns
-  l_smd <- rbind(copy(dt_smd_before)[, src := "before"], copy(dt_smd_after)[, src := "after"]) %>%
-    melt(id.vars = c("cov", "src"), measure.vars = setdiff(names(dt_smd_before), "cov"), variable.name = "mes") %>%
-    .[(src == "before" & mes %in% c("smd_un", "vr_un")) | (src == "after" & mes %in% c("smd_adj", "vr_adj"))] %>% 
-    .[, setNames(value, sprintf("%s_%s_%s_%s", sub("_.*", "", mes), cov, tc, src))]
-
-  ## flatten eCDF columns
-  l_ecdf <- rbind(copy(dt_ecdf_before)[, src := "before"], copy(dt_ecdf_after)[, src := "after"]) %>%
-    melt(id.vars = c("cov", "src"), measure.vars = setdiff(names(dt_ecdf_before), "cov"), variable.name = "mes") %>%
-    .[(src == "before" & mes %in% c("ecdf_max_un", "ecdf_mean_un")) |
-      (src == "after" & mes %in% c("ecdf_max_adj", "ecdf_mean_adj"))] %>%
-    .[, setNames(value, sprintf("%s_%s_%s_%s", sub("_[^_]+$", "", mes), cov, tc, src))]
-
-  c(setNames(round(l1_cov_before, 4), paste0("L1_cov_", tc, "_before")),
-    setNames(round(l1_hist_before, 4), paste0("L1_hist_", tc, "_before")),
-    setNames(round(l1_all_before, 4), paste0("L1_all_", tc, "_before")),
-    setNames(round(l1_cov_after, 4), paste0("L1_cov_", tc, "_after")),
-    setNames(round(l1_hist_after, 4), paste0("L1_hist_", tc, "_after")),
-    setNames(round(l1_all_after, 4), paste0("L1_all_", tc, "_after")),
-    l_smd, l_ecdf)
-
+  rbind(dt_before, dt_after)
 }
 
 
@@ -1573,25 +1583,16 @@ gd_cem_quality_report <- function(cem_result) {
                  stratum_col = "stratum")
            } else list()
 
-  ## keep this for debugging
+  ## keep this for debugging, do not delete this
   ## gd_cem_quality_treat_bal("exn_pm", dt_d = dt_d, covariate_cols = cov_cols, history_cols = hist_cols, stratum_col = "stratum")
+    
+  ## combine long balance data.tables and build flat columns
+  dt_bal <- if (length(l_bal) > 0) rbindlist(l_bal) else data.table()
 
-
-  ## worst-case L1 across treatments for each subset
-  pick_worst_l1 <- function(pat) {
-    if (length(l_bal) > 0) {
-      vals <- as.numeric(unlist(l_bal))[grepl(pat, names(unlist(l_bal)))]
-      vals <- vals[!is.na(vals)]
-      if (length(vals) > 0) max(vals) else NA_real_
-    } else NA_real_
-  }
-
-  l1_cov_worst_before <- pick_worst_l1("^L1_cov_.+_before$")
-  l1_cov_worst_after  <- pick_worst_l1("^L1_cov_.+_after$")
-  l1_hist_worst_before <- pick_worst_l1("^L1_hist_.+_before$")
-  l1_hist_worst_after  <- pick_worst_l1("^L1_hist_.+_after$")
-  l1_all_worst_before <- pick_worst_l1("^L1_all_.+_before$")
-  l1_all_worst_after  <- pick_worst_l1("^L1_all_.+_after$")
+  l_bal_flat <- if (nrow(dt_bal) > 0) {
+    dt_bal[, col := sprintf("%s_%s_%s_%s", measure, variable, treatment, stage)]
+    as.list(setNames(dt_bal$value, dt_bal$col))
+  } else list()
 
   ## build output
   l_out <- c(
@@ -1606,15 +1607,10 @@ gd_cem_quality_report <- function(cem_result) {
          strata_max_size    = max(dt_s$n_total),
          n_hist_str        = uniqueN(dt_d$hist_str)),
     as.list(unlist(l_cov)),
-    as.list(unlist(l_bal)),
-    list(L1_cov_worst_before = l1_cov_worst_before,
-         L1_cov_worst_after  = l1_cov_worst_after,
-         L1_hist_worst_before = l1_hist_worst_before,
-         L1_hist_worst_after  = l1_hist_worst_after,
-         L1_all_worst_before = l1_all_worst_before,
-         L1_all_worst_after  = l1_all_worst_after,
-         n_ctrl_strata   = n_ctrl_strata,
-         pct_ctrl_strata = round(n_ctrl_strata / nrow(dt_s), 4))
+    l_bal_flat,
+    list(
+      n_ctrl_strata   = n_ctrl_strata,
+      pct_ctrl_strata = round(n_ctrl_strata / nrow(dt_s), 4))
   )
 
   as.data.table(l_out)
