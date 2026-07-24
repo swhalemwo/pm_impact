@@ -875,3 +875,65 @@ dt[, sum(w), .(treat, stratum)]
 ## hmm the weights are only for controls anyways.. and often i won't have any controls... 
 
 ## think how this can be expanded to multiple treatment cols
+
+## * benchmarking
+## question: how expensive is moving data into and out of C (collapse)
+## idea: running loops/maps is slow because of requirement to move data to collapse and back to R
+## theory: keeping more stuff in collapse will increase speed
+## test: different amount of rows and cols
+
+library(microbenchmark)
+
+dt_big_dup <- map(1:10, ~dt_big) %>% rbindlist
+
+dt_yug <- map(1:50, ~dt_big) %>% rbindlist
+
+dt_bench <- microbenchmark(
+    single = dt_big[, collapse::fmean(exn_pm_cum, g = PeopleID)],
+    mult =  dt_big[, collapse::fmean(.SD, g = PeopleID),
+                   .SDcols = c("exn_pm_cum", "exn_pi_cum", "exn_pm_cum_ihs", "exn_pi_cum_ihs")],
+    all = dt_big[, collapse::fmean(.SD, g = PeopleID), .SDcols = collapse::num_vars(dt_big, return = "names")],
+    single_dup = dt_big_dup[, collapse::fmean(exn_pm_cum, g = PeopleID)],
+    mult_dup =  dt_big_dup[, collapse::fmean(.SD, g = PeopleID),
+                   .SDcols = c("exn_pm_cum", "exn_pi_cum", "exn_pm_cum_ihs", "exn_pi_cum_ihs")],
+    all_dup = dt_big_dup[, collapse::fmean(.SD, g = PeopleID),
+                         .SDcols = collapse::num_vars(dt_big, return = "names")],
+    single_yug = dt_yug[, collapse::fmean(exn_pm_cum, g = PeopleID)],
+    mult_yug =  dt_yug[, collapse::fmean(.SD, g = PeopleID),
+                   .SDcols = c("exn_pm_cum", "exn_pi_cum", "exn_pm_cum_ihs", "exn_pi_cum_ihs")],
+    all_yug = dt_yug[, collapse::fmean(.SD, g = PeopleID), .SDcols = collapse::num_vars(dt_big, return = "names")],
+    times = 20)
+
+## results
+## + Unit: milliseconds
+##        expr       min        lq      mean    median        uq        max neval   cld
+##      single  2.366411  2.421342  2.525588  2.544428  2.581145   2.828557    50 a    
+##        mult  3.876872  3.967331  4.256892  4.088374  4.160908   9.332238    50 a    
+##         all  8.530757  8.582639  9.294016  8.730555  8.849160  20.366635    50  b   
+##  single_dup 12.654747 12.844385 13.814596 13.491791 13.688410  23.974125    50   c  
+##    mult_dup 25.580467 25.906255 27.327870 26.541200 26.836766  37.465952    50    d 
+##     all_dup 69.942579 70.991292 74.509336 71.563935 72.848706 164.584789    50     e
+ ## single_yug  73.176851  73.388959  78.715957  74.438535  76.338418 115.908775    20     e  
+ ##   mult_yug 137.121166 138.109065 141.405213 139.274065 140.992090 162.678472    20      f 
+ ##    all_yug 360.097136 360.654044 368.378474 361.921855 372.813254 399.816087    20       g
+
+
+## both scale better than linear, but columns scale better: 15x data takes only 3.7x for small data and 5.8x for big data
+## 10 times the rows take 5.4x for small, 8.2x for large
+## hmm the bigger the data, the less clear the benefit? 
+
+dt_bench2 <- dt_bench %>% adt %>% .[, .(time = mean(time)/1e6), expr] %>%
+.[, `:=`(width = str_extract(expr, "single|mult|all"),
+         length = str_extract(expr, "yug|dup"))] %>%
+    .[is.na(length), length := "smol"] %>%
+    .[, length := factor(length, levels = c("smol", "dup", "yug"))] %>% 
+    .[order(length, -width)] %>%
+    .[J(length = c("smol", "dup", "yug"), mult = c(1,10,50)), on = "length"]
+
+join(dt_bench2, dt_bench2[width == "single", .(length, time_single = time)], on = "length") %>%
+join(dt_bench2[length == "smol", .(width, time_smol = time)], on = "width") %>%
+.[, r_width := time/time_smol] %>%
+.[, r_prop := 1-(r_width/mult)]
+
+## not really actually, or rather depends on number of columns: stronger improvements with single/few columns (~40% speedup) than with all columns (15) (~20% speedup)
+
