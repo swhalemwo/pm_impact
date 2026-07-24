@@ -831,6 +831,52 @@ ggplot(aes(x=exn_pm_cum_ihs, color = factor(exn_pm_bin))) + geom_density()
                                                     
 
 
+## pre-trend figure
+dt_lags <- cbind(r_cem$config$dt_panel[, .(year)],
+      collapse::L(r_cem$config$dt_panel, by = ~PeopleID, n=1:3, cols = "exn_pi"))
+
+join(r_cem$data, dt_lags, on = c("PeopleID", "year")) %>% 
+.[, map(.SD, ~mean(.x, na.rm = T)), exn_pm_bin, .SDcols = paste0("L", 1:3, ".exn_pi")]
+
+
+join(r_cem$data, dt_lags, on = c("PeopleID", "year")) %>%
+.[year > 2015] %>% 
+.[, c(list(N = .N), map(.SD, ~weighted.mean(.x, na.rm = T, weight = weight))), .(exn_pm_bin, stratum),
+  .SDcols = paste0("L", 1:3, ".exn_pi")] %>% print(n=10) %>% 
+.[, N_treat := uniqueN(exn_pm_bin), stratum] %>%
+.[N_treat > 1] %>% na.omit %>% 
+.[order(stratum, exn_pm_bin)] %>% print(n=20) %>%
+melt(id.vars = c("stratum", "exn_pm_bin"), measure.vars = paste0("L", 1:3, ".exn_pi")) %>%
+dcast(stratum + variable ~ exn_pm_bin) %>%
+.[, ratio := `0`/`1`] %>%
+.[!is.infinite(ratio) & !is.na(ratio)] %>% print(n=10) %>% 
+.[, .(value = mean(ratio)), variable]
+
+ggplot(aes(x
+
+dcast(stratum ~ exn_pm_bin, value.var = paste0("L", 1:3, ".exn_pi")) %>%
+.[, r_l1 := 
+
+
+## huh there's something super wrong with career data
+## exn_pi_cum_ihs is zero for sooooooo many.. 
+
+join(r_cem$data[stratum == "2016_2_2_2_1_1_1_8_2", .(PeopleID, year)], dt_big, on = c("PeopleID", "year")) %>%
+print(n=120) %>% summary
+
+dt_big[exn_pi_cum_ihs == 0]
+
+## hmm maybe it's just that strata? 2016_2_2_2_1_1_1_8_2 mean 2016, cat2 on hist1, cat1 on hist1, cat8 on birthyear (80s), cat 2 on all_ihs 
+dt_big[PeopleID == 362685, .(year, exn_all_cum_ihs)]
+
+gd_pre_trend_balance(r_cem, dt_big, outcome_vars = c("exn_pi", "exn_pm"), max_lags = 5) %>% gp_pre_trend
+
+
+
+
+
+
+
 
 ## * weight inspection
 
