@@ -1804,3 +1804,168 @@ gp_cem_quality <- function(cem_result) {
                         dt_q$n_ctrl_strata, 100 * dt_q$pct_ctrl_strata))
 
 }
+
+# =============================================================================
+# Pre-treatment Trend Balance Diagnostics
+# =============================================================================
+# These functions check the parallel pre-trends assumption for DiD. The idea:
+# within viable strata (both treated and control), we compare treated vs
+# control on outcome variables at each pre-treatment relative year r.
+# 
+# Even if cumulative histories match (via coarsened hist_str), per-year
+# outcome trajectories might diverge — e.g. two artists could reach the
+# same cumulative count by very different paths (a gradual ramp vs a
+# sudden spike). Checking per-year outcome balance reveals this.
+#
+# The CEM ATT weights ensure we're computing a within-stratum comparison,
+# aggregated across strata. This is the same logic as gd_cem_quality_treat_bal,
+# but on pre-treatment outcome years rather than contemporaneous covariates.
+
+#' Compute pre-treatment balance for one treatment contrast and one relative year.
+#'
+#' Identifies viable strata (both treated and control exist) for a single
+#' treatment column, computes within-stratum ATT weights, merges outcome
+#' values at the lagged year, and returns before/after balance via
+#' \code{gd_bal_stage}. This is a standalone helper so that each \code{(tc, r)}
+#' combination can be debugged or tested in isolation.
+#'
+#' @param tc String. Treatment column name (defines the contrast).
+#' @param r Negative integer. Pre-treatment year offset (\code{-1}, \code{-2}, ...).
+#' @param dt_d data.table. CEM result data (from \code{cem_result$data}).
+#'   Must have \code{cfg$uid}, \code{cfg$tid}, and \code{stratum} columns.
+#' @param dt_full data.table. Full panel for merging outcome values.
+#' @param outcome_vars Character vector. Outcome column names to check.
+#' @param cfg Config list from \code{cem_result$config}.
+#' @return A long data.table with columns (variable, measure, treatment,
+#'   stage, value, relative_year), or empty if no viable data.
+gd_pre_trend_one <- function(tc, r, dt_d, dt_full, outcome_vars, cfg) {
+
+  ## identify viable strata (both treated and control)
+  treat_v <- as.integer(dt_d[[tc]] > 0)
+  if (sum(treat_v) == 0) return(data.table())
+
+  dt_strat <- dt_d[, .(n1 = sum(get(tc) > 0), n0 = sum(get(tc) == 0)),
+                    by = "stratum"]
+  viable_strata <- dt_strat[n1 > 0 & n0 > 0, stratum]
+  viable_idx <- dt_d$stratum %in% viable_strata
+  if (!any(viable_idx)) return(data.table())
+
+  ## subset to viable obs and compute CEM ATT weights
+  dt_v <- dt_d[viable_idx]
+  t_v <- treat_v[viable_idx]
+
+  dt_sz <- dt_v[, .(n1 = sum(get(tc) > 0), n0 = sum(get(tc) == 0)),
+                 by = "stratum"]
+  mT <- sum(dt_sz$n1)
+  mC <- sum(dt_sz$n0)
+  dt_v[dt_sz, on = "stratum", `:=`(.n1 = i.n1, .n0 = i.n0)]
+  w_att <- dt_v[, fifelse(t_v == 1, 1, (mC / mT) * (.n1 / .n0))]
+
+  ## merge outcome values at the lagged year
+  dt_lookup <- data.table(
+    lookup_uid  = dt_v[[cfg$uid]],
+    lookup_year = as.integer(dt_v[[cfg$tid]] + r),
+    treat       = t_v,
+    weight      = w_att
+  )
+  setnames(dt_lookup,
+           old = c("lookup_uid", "lookup_year"),
+           new = c(cfg$uid, "year"))
+
+  dt_outcome <- merge(
+    dt_lookup,
+    dt_full[, c(cfg$uid, "year", outcome_vars), with = FALSE],
+    by = c(cfg$uid, "year"),
+    all.x = TRUE
+  )
+
+  ## drop obs with missing outcomes (artist too young for this lag)
+  dt_outcome <- collapse::na_omit(dt_outcome, cols = outcome_vars)
+  if (nrow(dt_outcome) == 0) return(data.table())
+
+  ## compute before (uniform) and after (CEM ATT) balance
+  w_u <- rep(1, nrow(dt_outcome))
+  dt_before <- gd_bal_stage(dt_outcome, outcome_vars, character(), character(),
+                             dt_outcome$treat, w_u, tc, "before")
+  dt_after  <- gd_bal_stage(dt_outcome, outcome_vars, character(), character(),
+                             dt_outcome$treat, dt_outcome$weight, tc, "after")
+
+  rbind(dt_before, dt_after)[, relative_year := r]
+}
+
+
+#' Compute pre-treatment outcome balance across treatments and years.
+#'
+#' Produces a flat grid of all (treatment_contrast, relative_year) combos
+#' and calls \code{gd_pre_trend_one} for each.  The result is a single long
+#' data.table ready for \code{gp_pre_trend}.
+#'
+#' @inheritParams gd_pre_trend_one
+#' @param cem_result List returned by \code{gd_cem_strata}.
+#' @param max_lags Integer. Number of pre-treatment years to check.
+#'   Defaults to the config's \code{L}.
+#' @return Long data.table with columns (variable, measure, treatment,
+#'   relative_year, stage, value).
+gd_pre_trend_balance <- function(cem_result, dt_full, outcome_vars = NULL,
+                                  max_lags = NULL) {
+
+  cfg <- cem_result$config
+  dt_d <- cem_result$data
+
+  if (is.null(max_lags))    max_lags    <- cfg$L
+  if (is.null(outcome_vars)) outcome_vars <- cfg$treatment_cols
+
+  ## build a flat grid of all (treatment_contrast, relative_year) combos
+  dt_grid <- CJ(tc = cfg$treatment_cols, r = -seq_len(max_lags), sorted = FALSE)
+
+  ## DEBUG
+  ## gd_pre_trend_one("exn_pm", -1, dt_d, dt_full, outcome_vars, cfg) %>% print(n=80)
+
+  rbindlist(map2(dt_grid$tc, dt_grid$r, ~gd_pre_trend_one(.x, .y, dt_d, dt_full,
+                                                           outcome_vars, cfg)),
+            fill = TRUE)
+}
+
+
+#' Plot pre-treatment trend balance.
+#'
+#' Produces a faceted plot of SMD by relative year for each outcome variable
+#' and treatment contrast. A flat line near zero suggests parallel pre-trends.
+#' Lines moving away from zero as \code{|r|} increases suggest pre-treatment
+#' divergence.
+#'
+#' @param dt_pre_bal Long data.table from \code{gd_pre_trend_balance}.
+#' @param n_col Number of facet columns (default 2).
+#' @return A \code{patchwork} or \code{ggplot} object.
+gp_pre_trend <- function(dt_pre_bal, n_col = 2) {
+
+  ## only plot SMD — the most interpretable metric for trends
+  dt_smd <- dt_pre_bal[measure == "smd" & !is.na(value)]
+
+  if (nrow(dt_smd) == 0) {
+    return(ggplot() + labs(title = "Pre-trend Balance (no data)"))
+  }
+
+  ## plot SMD by relative year, one panel per (treatment, variable) combo
+  ggplot(dt_smd, aes(x = relative_year, y = value,
+                      color = stage, group = stage,
+                      shape = stage)) +
+    geom_line() +
+    geom_point(size = 2) +
+    geom_hline(yintercept = 0, linetype = "dashed", alpha = 0.5) +
+    ## reference: |SMD| < 0.1 is the conventional threshold
+    geom_hline(yintercept = c(-0.1, 0.1), linetype = "dotted",
+               alpha = 0.3, linewidth = 0.5) +
+    ## facet_wrap(treatment ~ variable, ncol = n_col, scales = "free_y") +
+    facet_grid(treatment ~ variable, scales = "free_y") +
+    scale_x_continuous(breaks = scales::pretty_breaks()) +
+    labs(title = "Pre-treatment Outcome Balance by Relative Year",
+         subtitle = "SMD between treated and control, by year before treatment",
+         x = "Years before treatment",
+         y = "Standardized Mean Difference",
+         color = NULL, shape = NULL) +
+    theme(legend.position = "bottom",
+          plot.title = element_text(hjust = 0.5),
+          plot.subtitle = element_text(hjust = 0.5, size = 9))
+
+}

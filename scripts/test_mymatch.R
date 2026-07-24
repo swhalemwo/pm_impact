@@ -977,7 +977,74 @@ gd_test_hist_balance <- function() {
 }
 
 
+# --- Pre-treatment trend balance tests ---
+
+
+#' Test pre-treatment trend balance function.
+gd_test_pre_trend_balance <- function() {
+  t0 <- Sys.time()
+
+  ## run a CEM stratum config to get a result object
+  cfg <- list(dt_panel = dt_big, L = 3L,
+              treatment_cols = c("exn_pm", "exn_pi"),
+              history_cols = c("exn_pm_cum_ihs", "exn_pi_cum_ihs"),
+              history_nbins = c(5L, 5L), history_breaks = "quantile",
+              uid = "PeopleID", tid = "year",
+              covariate_cutpoints = list(BirthYear = 8, exn_all_cum_ihs = 8))
+  res <- gd_cem_strata(cfg)
+
+  ## use treatment_cols as outcome_vars (checking pre-treatment on the
+  ## treatment indicators themselves — were future-treated artists already
+  ## different on these outcomes in prior years?)
+  dt_pre <- gd_pre_trend_balance(res, dt_big,
+                                 outcome_vars = cfg$treatment_cols,
+                                 max_lags = 2L)
+
+  ## basic structure
+  expect_true(is.data.table(dt_pre),
+              info = "pre_trend is data.table")
+  expect_true(nrow(dt_pre) > 0,
+              info = "pre_trend non-empty")
+  expect_true(all(c("variable", "measure", "treatment",
+                     "relative_year", "stage", "value") %in% names(dt_pre)),
+              info = "pre_trend columns")
+
+  ## both stages present
+  expect_true(all(c("before", "after") %in% dt_pre$stage),
+              info = "pre_trend has before and after")
+
+  ## all relative years present
+  expect_true(setequal(unique(dt_pre$relative_year), c(-1L, -2L)),
+              info = "pre_trend expected relative years")
+
+  ## multiple treatments
+  expect_true(all(cfg$treatment_cols %in% dt_pre$treatment),
+              info = "pre_trend both treatments")
+
+  ## SMD values are numeric and finite
+  expect_true(all(is.finite(dt_pre[measure == "smd" & !is.na(value), value])),
+              info = "pre_trend SMD finite")
+
+  ## after matching, |SMD| should generally be smaller than before
+  dt_smd <- dt_pre[measure == "smd" & !is.na(value)]
+  before_abs <- dt_smd[stage == "before", abs(value)]
+  after_abs  <- dt_smd[stage == "after", abs(value)]
+  if (length(before_abs) > 0 && length(after_abs) > 0) {
+    expect_true(mean(before_abs) > mean(after_abs) * 0.8,  ## allow some slack
+                info = "pre_trend matching reduces |SMD| on average")
+  }
+
+  ## measure types present
+  expected_measures <- c("smd", "vr", "ecdf_max", "ecdf_mean", "L1")
+  expect_true(all(expected_measures %in% dt_pre$measure),
+              info = "pre_trend measure types")
+
+  timings <<- rbind(timings, data.table(label = "pre_trend_balance",
+                                         time_s = round(as.numeric(Sys.time() - t0), 2)))
+}
 # ==== Main execution ====
+
+
 run_slow <- Sys.getenv("FOSTER_TEST_SLOW", "true") != "false"
 
 for (cfg in configs) {
@@ -1021,6 +1088,9 @@ gd_test_ecdf_in_report()
 
 # --- History variable balance tests ---
 gd_test_hist_balance()
+# --- Pre-treatment trend balance tests ---
+gd_test_pre_trend_balance()
+
 
 
 # --- Timing report ---

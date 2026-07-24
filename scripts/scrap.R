@@ -869,7 +869,10 @@ dt_big[exn_pi_cum_ihs == 0]
 ## hmm maybe it's just that strata? 2016_2_2_2_1_1_1_8_2 mean 2016, cat2 on hist1, cat1 on hist1, cat8 on birthyear (80s), cat 2 on all_ihs 
 dt_big[PeopleID == 362685, .(year, exn_all_cum_ihs)]
 
-gd_pre_trend_balance(r_cem, dt_big, outcome_vars = c("exn_pi", "exn_pm"), max_lags = 5) %>% gp_pre_trend
+dt_pretrend_bal <- gd_pre_trend_balance(r_cem, dt_big, outcome_vars = c("exn_pi", "exn_pm", "BirthYear"),
+                                        max_lags = 3)
+
+gp_pre_trend(dt_pretrend_bal)
 
 
 
