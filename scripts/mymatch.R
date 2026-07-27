@@ -2000,11 +2000,11 @@ gp_pre_trend <- function(dt_pre_bal, n_col = 2) {
 #' @param cem_result List returned by \code{gd_cem_strata}. The config must
 #'   contain \code{outcome_cols} and \code{dt_panel}.
 #' @return The same \code{cem_result} list with additional lead columns in
-#'   \code{$data}. Returned invisibly (modified by reference).
+#'   \code{$data}. 
 gd_add_outcome_next <- function(cem_result) {
 
   cfg <- cem_result$config
-  dt_d <- cem_result$data 
+  dt_d <- cem_result$data %>% copy
 
   dt_full <- cem_result$config$dt_panel
   outcome_cols <- cfg$outcome_cols
@@ -2034,6 +2034,42 @@ gd_add_outcome_next <- function(cem_result) {
     dt_d[, (new_cols) := dt_merged[, .SD, .SDcols = vars_k]]
   }
 
-  ## return invisibly (modified by reference)
-  invisible(cem_result)
+
+  ## add differences
+  
+  l_outcome_lagged <- paste0(names(outcome_cols), "_l1")
+
+  ## set up which values to look up
+  dt_lkup <- data.table(uid_lkp = dt_d[[cfg$uid]], yr_lkp = as.integer(dt_d[[cfg$tid]] - 1)) %>%
+    setnames(old = c("uid_lkp", "yr_lkp"), new = c(cfg$uid, "year"))
+
+  ## get the actual values
+  dt_lag1 <- merge(dt_lkup, dt_full[, c(cfg$uid, "year", names(outcome_cols)), with = FALSE],
+        by = c(cfg$uid, "year"), all.x = TRUE)
+    
+  ## assign back
+  dt_d[, (l_outcome_lagged) := dt_lag1[, .SD, .SDcols = names(outcome_cols)]]
+
+  ## inspect
+  ## dt_d[exn_pi_cum > 50]
+  ## l_col_lead <- expand.grid(lead = 1:3, col = names(outcome_cols)) %>% adt %>% .[, paste0(col, "_n", lead)]
+  ## dt_d[PeopleID == 44, .SD, .SDcols = c("PeopleID", "year", names(outcome_cols), l_outcome_lagged, l_col_lead)]
+  ## looks good
+
+  ## construct columns.. tbh could use them for everything.... but whatever man 
+  l_col_n <- imap(outcome_cols, ~paste0(.y, "_n",1:.x)) %>% unlist
+  l_col_d <- imap(outcome_cols, ~paste0(.y, "_d",1:.x)) %>% unlist
+  l_col_l1 <- imap(outcome_cols, ~rep(paste0(.y, "_l1"), times = .x)) %>% unlist
+  
+  dt_d[, (l_col_d) := map2(l_col_n, l_col_l1, ~get(.x) - get(.y))]
+
+  ## dt_d[PeopleID == 44, .SD, .SDcols = c("PeopleID", "year", names(outcome_cols), l_outcome_lagged, l_col_lead,
+  ##                                       l_col_d)] %>% view_xl
+  ## looks good
+
+
+  cem_result$data <- dt_d
+  
+  return(cem_result)
+
 }
