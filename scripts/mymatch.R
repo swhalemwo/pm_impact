@@ -1975,3 +1975,66 @@ gp_pre_trend <- function(dt_pre_bal, n_col = 2) {
           plot.subtitle = element_text(hjust = 0.5, size = 9))
 
 }
+
+# =============================================================================
+# Outcome Lead Columns (for DiD estimation)
+# =============================================================================
+# These functions augment CEM strata data with future (lead) outcome values.
+# For each observation in cem_result$data, we merge the outcome value at
+# year + k for k = 1, 2, ... to create columns like exn_pi_n1, exn_pi_n2, etc.
+# These can then be used as dependent variables in a DiD model:
+#   feols(exn_pi_n1 ~ treat_PM | stratum, data, weights = ~weight)
+
+#' Add lead outcome columns to a CEM result for DiD estimation.
+#'
+#' For each observation in \code{cem_result$data}, merges outcome values at
+#' \code{year + k} from the full panel and names them \code{{var}_n{k}}.
+#' Observations beyond the panel (e.g. last year with no \code{year + 3} row)
+#' get \code{NA} — these are dropped automatically by \code{feols}.
+#'
+#' @param cem_result List returned by \code{gd_cem_strata}. Must have a
+#'   \code{$data} slot and a \code{$config} with \code{uid} and \code{tid}.
+#' @param dt_full Full panel data.table containing at least the \code{uid},
+#'   \code{tid}, and \code{outcome_vars} columns.
+#' @param outcome_cols Named list mapping outcome variable names (strings) to
+#'   the number of lead years (integers).  E.g. \code{list(exn_pi = 3, exn_pm = 3)}
+#'   creates columns \code{exn_pi_n1}, \code{exn_pi_n2}, \code{exn_pi_n3},
+#'   \code{exn_pm_n1}, \code{exn_pm_n2}, \code{exn_pm_n3}.
+#' @return The same \code{cem_result} list with additional lead columns in
+#'   \code{$data}. The list is returned invisibly (modified by reference).
+gd_add_outcome_next <- function(cem_result) { # , dt_full, outcome_cols) {
+
+  cfg <- cem_result$config
+  dt_d <- cem_result$data 
+
+  dt_full <- cem_result$config$dt_panel
+  outcome_cols <- cfg$outcome_cols
+
+  ## maximum number of lead years across all outcomes
+  max_k <- max(as.integer(outcome_cols))
+
+  ## iterate over k = 1..max_k, merging outcome values at year + k
+  for (k in seq_len(max_k)) {
+
+    ## which outcomes need this lead?
+    vars_k <- names(outcome_cols)[as.integer(outcome_cols) >= k]
+    if (length(vars_k) == 0) next
+
+    ## build lookup: (uid, year + k) for the merge
+    dt_lookup <- data.table(uid_lkp = dt_d[[cfg$uid]],
+                            yr_lkp  = as.integer(dt_d[[cfg$tid]] + k)) %>% 
+      setnames(old = c("uid_lkp", "yr_lkp"), new = c(cfg$uid, "year"))
+
+    ## merge with full panel to get outcome values k years ahead
+    dt_merged <- merge(dt_lookup, dt_full[, c(cfg$uid, "year", vars_k), with = FALSE],
+      by = c(cfg$uid, "year"), all.x = TRUE)
+
+    ## assign lead columns back to dt_d
+    new_cols <- paste0(vars_k, "_n", k)
+    ## dt_d[, (new_cols) := dt_merged[, ..vars_k]]
+    dt_d[, (new_cols) := dt_merged[, .SD, .SDcols = vars_k]]
+  }
+
+  ## return invisibly (modified by reference)
+  invisible(cem_result)
+}

@@ -808,7 +808,8 @@ c_cem1 <- list(dt_panel = dt_big, L = 3L,
        history_nbins = c(5L, 5L), history_breaks = "quantile",
        uid = "PeopleID", tid = "year",
        covariate_cutpoints = list(BirthYear = 8, exn_all_cum_ihs = 8),
-       label = "quantile_5", weight_type = "composite")
+       label = "quantile_5", weight_type = "composite",
+       outcome_cols = list(exn_pi = 3, exn_pm = 3))
 
 r_cem <- gd_cem_strata(c_cem1)
 dt_res_cem <- gd_cem_quality_report(r_cem) 
@@ -1017,3 +1018,9 @@ join(dt_bench2[length == "smol", .(width, time_smol = time)], on = "width") %>%
 
 ## not really actually, or rather depends on number of columns: stronger improvements with single/few columns (~40% speedup) than with all columns (15) (~20% speedup)
 
+## * DiD investigation
+
+
+
+r_cem_wdv <- gd_add_outcome_next(r_cem)
+r_cem_wdv$data 
