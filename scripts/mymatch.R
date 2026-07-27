@@ -1419,19 +1419,11 @@ gd_cem_quality_treat_cov <- function(tc, dt_s) {
 #' treatment column. "Before" = full data, uniform weights, k=1 vs k=0.
 #' "After" = same data with unified CEM weights.
 #' Prunes to strata where both k=1 and k=0 exist for the after comparison.
-#'
-#' Returns NULL (skipped) if no covariates are specified.
-#'
-#' @param tc String. Treatment column name.
-#' @param dt_d data.table. CEM-prepared data (from gd_cem_strata).
-#' @param covariate_cols Character vector of covariate names.
-#' @param stratum_col String. Column name of stratum assignment.
-#' @return Named numeric vector with L1_{tc}_before/after and per-covariate
-#'   smd/vr_{v}_{tc}_before/after, or NULL if no covariates.
-#' Compute all balance metrics for one (data, weights, stage) combination.
-#'
+#' 
 #' Returns a long data.table with columns: variable, measure, treatment, stage, value.
 #' For L1, variable is "cov"/"hist"/"all"; for per-variable metrics it's the column name.
+#' When \code{b_full = FALSE}, only SMD is computed (skips VR, eCDF, L1) — this is
+#' substantially faster and sufficient for trend diagnostics.
 #'
 #' @param dt_d data.table containing balance variables.
 #' @param all_cols Character vector. All variable names for per-variable SMD/VR/eCDF.
