@@ -1988,21 +1988,20 @@ gp_pre_trend <- function(dt_pre_bal, n_col = 2) {
 #' Add lead outcome columns to a CEM result for DiD estimation.
 #'
 #' For each observation in \code{cem_result$data}, merges outcome values at
-#' \code{year + k} from the full panel and names them \code{{var}_n{k}}.
-#' Observations beyond the panel (e.g. last year with no \code{year + 3} row)
-#' get \code{NA} — these are dropped automatically by \code{feols}.
+#' \code{year + k} from the full panel (\code{cem_result$config$dt_panel}) and
+#' names them \code{{var}_n{k}}. Observations beyond the panel (e.g. last year
+#' with no \code{year + 3} row) get \code{NA} — dropped automatically by
+#' \code{feols}.
 #'
-#' @param cem_result List returned by \code{gd_cem_strata}. Must have a
-#'   \code{$data} slot and a \code{$config} with \code{uid} and \code{tid}.
-#' @param dt_full Full panel data.table containing at least the \code{uid},
-#'   \code{tid}, and \code{outcome_vars} columns.
-#' @param outcome_cols Named list mapping outcome variable names (strings) to
-#'   the number of lead years (integers).  E.g. \code{list(exn_pi = 3, exn_pm = 3)}
-#'   creates columns \code{exn_pi_n1}, \code{exn_pi_n2}, \code{exn_pi_n3},
-#'   \code{exn_pm_n1}, \code{exn_pm_n2}, \code{exn_pm_n3}.
+#' Requires \code{cem_result$config$outcome_cols} — a named list mapping outcome
+#' variable names to the number of lead years, e.g.
+#' \code{list(exn_pi = 3, exn_pm = 3)}.
+#'
+#' @param cem_result List returned by \code{gd_cem_strata}. The config must
+#'   contain \code{outcome_cols} and \code{dt_panel}.
 #' @return The same \code{cem_result} list with additional lead columns in
-#'   \code{$data}. The list is returned invisibly (modified by reference).
-gd_add_outcome_next <- function(cem_result) { # , dt_full, outcome_cols) {
+#'   \code{$data}. Returned invisibly (modified by reference).
+gd_add_outcome_next <- function(cem_result) {
 
   cfg <- cem_result$config
   dt_d <- cem_result$data 

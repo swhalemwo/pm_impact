@@ -524,6 +524,7 @@ cem_configs <- list(
        uid = "PeopleID", tid = "year",
        covariate_cutpoints = list(BirthYear = 8, exn_all_cum_ihs = 8),
        weight_type = "none",
+       outcome_cols = list(exn_pi = 3, exn_pm = 3),
        label = "quantile_5"),
   list(dt_panel = dt_big, L = 3L,
        treatment_cols = c("exn_pm", "exn_pi"),
@@ -532,6 +533,7 @@ cem_configs <- list(
        uid = "PeopleID", tid = "year",
        covariate_cutpoints = list(BirthYear = 8, exn_all_cum_ihs = 8),
        weight_type = "any_vs_ctrl",
+       outcome_cols = list(exn_pi = 3, exn_pm = 3),
        label = "equal_5"),
   list(dt_panel = dt_big, L = 3L,
        treatment_cols = c("exn_pm", "exn_pi"),
@@ -540,6 +542,7 @@ cem_configs <- list(
        uid = "PeopleID", tid = "year",
        covariate_cutpoints = list(),
        weight_type = "composite",
+       outcome_cols = list(exn_pi = 3, exn_pm = 3),
        label = "none_no_cov")
 )
 
@@ -1041,7 +1044,67 @@ gd_test_pre_trend_balance <- function() {
   timings <<- rbind(timings, data.table(label = "pre_trend_balance",
                                          time_s = round(as.numeric(Sys.time() - t0), 2)))
 }
-# ==== Main execution ====
+
+# --- Outcome lead columns tests ---
+
+gd_test_outcome_next <- function() {
+  t0 <- Sys.time()
+
+  ## run a CEM stratum config
+  cfg <- list(dt_panel = dt_big, L = 3L,
+              treatment_cols = c("exn_pm", "exn_pi"),
+              history_cols = c("exn_pm_cum_ihs", "exn_pi_cum_ihs"),
+              history_nbins = c(5L, 5L), history_breaks = "quantile",
+              uid = "PeopleID", tid = "year",
+              covariate_cutpoints = list(BirthYear = 8, exn_all_cum_ihs = 8),
+              outcome_cols = list(exn_pi = 3, exn_pm = 3))
+  res <- gd_cem_strata(cfg)
+  dt_d <- res$data
+
+  ## verify no lead columns before
+  expect_false(any(grepl("_n[0-9]+$", names(dt_d))),
+               info = "outcome_next: no lead cols before")
+
+  ## add leads (reads outcome_cols from config, dt_panel from config)
+  gd_add_outcome_next(res)
+  dt_d2 <- res$data
+
+  ## new columns exist
+  expected_n <- c("exn_pi_n1", "exn_pi_n2", "exn_pi_n3",
+                  "exn_pm_n1", "exn_pm_n2", "exn_pm_n3")
+  for (cn in expected_n) {
+    expect_true(cn %in% names(dt_d2),
+                info = sprintf("outcome_next: %s exists", cn))
+  }
+
+  ## new columns are numeric
+  for (cn in expected_n) {
+    expect_true(is.numeric(dt_d2[[cn]]),
+                info = sprintf("outcome_next: %s numeric", cn))
+  }
+
+  ## original columns preserved
+  expect_true(all(names(dt_d) %in% names(dt_d2)),
+              info = "outcome_next: original cols preserved")
+
+  ## some non-missing values (not all are NA at panel boundaries)
+  for (cn in expected_n) {
+    expect_true(sum(!is.na(dt_d2[[cn]])) > 0,
+                info = sprintf("outcome_next: %s has non-NA values", cn))
+  }
+
+  ## n1 less missing than n3 (more artists have year+1 than year+3)
+  expect_true(sum(!is.na(dt_d2[[expected_n[1]]])) >=
+              sum(!is.na(dt_d2[[expected_n[3]]])),
+              info = "outcome_next: n1 >= n3 non-NA")
+
+  ## result returned invisibly (same object)
+  expect_true(is.list(res) && all(c("data", "strata_summary", "config") %in% names(res)),
+              info = "outcome_next: result structure intact")
+
+  timings <<- rbind(timings, data.table(label = "outcome_next",
+                                         time_s = round(as.numeric(Sys.time() - t0), 2)))
+}
 
 
 run_slow <- Sys.getenv("FOSTER_TEST_SLOW", "true") != "false"
@@ -1090,6 +1153,8 @@ gd_test_hist_balance()
 # --- Pre-treatment trend balance tests ---
 gd_test_pre_trend_balance()
 
+# --- Outcome lead columns tests ---
+gd_test_outcome_next()
 
 
 # --- Timing report ---
