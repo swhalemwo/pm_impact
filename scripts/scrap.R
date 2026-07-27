@@ -1020,7 +1020,41 @@ join(dt_bench2[length == "smol", .(width, time_smol = time)], on = "width") %>%
 
 ## * DiD investigation
 
-
+library(fixest)
 
 r_cem_wdv <- gd_add_outcome_next(r_cem)
-r_cem_wdv$data 
+r_cem_wdv$data
+
+## basic combined
+feols(c(exn_pi_d1, exn_pi_d2, exn_pi_d3) ~ exn_pi + exn_pm | stratum, r_cem_wdv$data)
+
+## single 
+feols(c(exn_pi_d1, exn_pi_d2, exn_pi_d3) ~ exn_pm | stratum, r_cem_wdv$data)
+feols(c(exn_pi_d1, exn_pi_d2, exn_pi_d3) ~ exn_pi | stratum, r_cem_wdv$data)
+
+## binary
+feols(c(exn_pi_d1, exn_pi_d2, exn_pi_d3) ~ as.integer(exn_pm > 0) + as.integer(exn_pi > 0) | stratum, r_cem_wdv$data)
+
+## no stratum
+feols(c(exn_pi_d1, exn_pi_d2, exn_pi_d3) ~ exn_pi + exn_pm, r_cem_wdv$data)
+
+## interaction
+feols(c(exn_pi_d1, exn_pi_d2, exn_pi_d3) ~ exn_pi*Gender + exn_pm*Gender | stratum, r_cem_wdv$data)
+## some effects 
+
+feols(c(exn_pi_d1, exn_pi_d2, exn_pi_d3) ~ exn_pi + exn_pm | stratum, r_cem_wdv$data, weights = ~weight)
+
+
+## check strata variation
+
+collapse::varying(r_cem_wdv$data,  ~stratum)
+
+c_cem1
+
+r_cem_wdv$data[PeopleID == 44] %>% view_xl
+
+r_cem_wdv$config$dt_panel[PeopleID == 44]
+
+## need someone who starts after 2000 but has many exhbs
+
+
