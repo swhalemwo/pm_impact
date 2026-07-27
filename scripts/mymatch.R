@@ -1433,9 +1433,11 @@ gd_cem_quality_treat_cov <- function(tc, dt_s) {
 #' @param weights Numeric weight vector.
 #' @param tc String. Treatment column name.
 #' @param stage String. "before" or "after".
+#' @param b_full Logical. If TRUE (default), compute all metrics (SMD, VR, eCDF,
+#'   L1). If FALSE, compute SMD only — skips the expensive L1 random coarsenings.
 #' @return Long data.table with columns (variable, measure, treatment, stage, value).
 gd_bal_stage <- function(dt_d, all_cols, cov_cols, hist_cols,
-                          treat_v, weights, tc, stage) {
+                          treat_v, weights, tc, stage, b_full = TRUE) {
 
   dt_all <- if (length(all_cols) > 0) dt_d[, ..all_cols] else data.table()
 
@@ -1448,13 +1450,25 @@ gd_bal_stage <- function(dt_d, all_cols, cov_cols, hist_cols,
   ## suffix for gd_smd_vr / gd_ecdf output: "un" for before, "adj" for after
   sfx <- if (stage == "before") "un" else "adj"
 
-  ## per-variable SMD and VR
+  ## per-variable SMD (always computed)
   dt_smd <- gd_smd_vr(dt_all, treat_v, weights)
-  dt_out_smd <- melt(dt_smd[, .(cov, smd = get(paste0("smd_", sfx)),
-                                 vr = get(paste0("vr_", sfx)))],
+  ## prep return object if b_full == F
+  dt_out_smd <- melt(dt_smd[, .(cov, smd = get(paste0("smd_", sfx)))],
                       id.vars = "cov", variable.name = "measure",
                       value.name = "value") %>%
     setnames("cov", "variable")
+
+  ## optional: VR, eCDF, L1 (expensive — skip when b_full = FALSE)
+  if (!b_full) {
+    return(dt_out_smd[, `:=`(treatment = tc, stage = stage)][,
+      .(variable, measure, treatment, stage, value)])
+  }
+
+  dt_smd_full <- melt(dt_smd[, .(cov, vr = get(paste0("vr_", sfx)))],
+                       id.vars = "cov", variable.name = "measure",
+                       value.name = "value") %>%
+    setnames("cov", "variable")
+  dt_out_smd <- rbind(dt_out_smd, dt_smd_full)
 
   ## per-variable eCDF
   dt_ecdf <- gd_ecdf(dt_all, treat_v, weights)
@@ -1875,12 +1889,12 @@ gd_pre_trend_one <- function(tc, r, dt_d, dt_full, outcome_vars, cfg) {
   dt_outcome <- collapse::na_omit(dt_outcome, cols = outcome_vars)
   if (nrow(dt_outcome) == 0) return(data.table())
 
-  ## compute before (uniform) and after (CEM ATT) balance
+  ## compute before (uniform) and after (CEM ATT) balance — only SMD needed
   w_u <- rep(1, nrow(dt_outcome))
   dt_before <- gd_bal_stage(dt_outcome, outcome_vars, character(), character(),
-                             dt_outcome$treat, w_u, tc, "before")
+                             dt_outcome$treat, w_u, tc, "before", b_full = FALSE)
   dt_after  <- gd_bal_stage(dt_outcome, outcome_vars, character(), character(),
-                             dt_outcome$treat, dt_outcome$weight, tc, "after")
+                             dt_outcome$treat, dt_outcome$weight, tc, "after", b_full = FALSE)
 
   rbind(dt_before, dt_after)[, relative_year := r]
 }

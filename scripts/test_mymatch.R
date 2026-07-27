@@ -1034,10 +1034,9 @@ gd_test_pre_trend_balance <- function() {
                 info = "pre_trend matching reduces |SMD| on average")
   }
 
-  ## measure types present
-  expected_measures <- c("smd", "vr", "ecdf_max", "ecdf_mean", "L1")
-  expect_true(all(expected_measures %in% dt_pre$measure),
-              info = "pre_trend measure types")
+  ## only SMD is computed (b_full = FALSE in gd_pre_trend_one -> skips VR/eCDF/L1)
+  expect_true(setequal(unique(dt_pre$measure), "smd"),
+              info = "pre_trend only SMD measures")
 
   timings <<- rbind(timings, data.table(label = "pre_trend_balance",
                                          time_s = round(as.numeric(Sys.time() - t0), 2)))
