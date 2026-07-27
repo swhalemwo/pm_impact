@@ -875,8 +875,39 @@ dt_pretrend_bal <- gd_pre_trend_balance(r_cem, dt_big, outcome_vars = c("exn_pi"
 gp_pre_trend(dt_pretrend_bal)
 
 
+## ** finer coarsening
+
+c_cem_finer <- list(dt_panel = dt_big, L = 3L,
+       treatment_cols = c("exn_pm", "exn_pi"),
+       history_cols = c("exn_pm_cum_ihs", "exn_pi_cum_ihs"),
+       history_nbins = c(10L, 10L), history_breaks = "quantile",
+       uid = "PeopleID", tid = "year",
+       covariate_cutpoints = list(BirthYear = 10, exn_all_cum_ihs = 10),
+       label = "finer", weight_type = "composite")
 
 
+r_cem_finer <- gd_cem_strata(c_cem_finer)
+dt_res_cem_finer <- gd_cem_quality_report(r_cem_finer) 
+
+p_cem1 <- gp_cem_quality(r_cem)
+
+p_cem_finer <- gp_cem_quality(r_cem_finer)
+X11()
+p_cem_finer
+
+
+## ** even finer
+
+c_cem_sieve <- list(dt_panel = dt_big, L = 6L,
+       treatment_cols = c("exn_pm", "exn_pi"),
+       history_cols = c("exn_pm_cum_ihs", "exn_pi_cum_ihs"),
+       history_nbins = c(10L, 10L), history_breaks = "quantile",
+       uid = "PeopleID", tid = "year",
+       covariate_cutpoints = list(BirthYear = 10, exn_all_cum_ihs = 10),
+       label = "finer", weight_type = "composite")
+
+r_cem_sieve <- gd_cem_strata(c_cem_sieve)
+p_cem_sieve <- gp_cem_quality(r_cem_sieve)
 
 
 
