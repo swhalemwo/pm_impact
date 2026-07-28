@@ -884,7 +884,8 @@ c_cem_finer <- list(dt_panel = dt_big, L = 3L,
        history_nbins = c(10L, 10L), history_breaks = "quantile",
        uid = "PeopleID", tid = "year",
        covariate_cutpoints = list(BirthYear = 10, exn_all_cum_ihs = 10),
-       label = "finer", weight_type = "composite")
+       label = "finer", weight_type = "composite",
+       outcome_cols = list(exn_pi = 3, exn_pm = 3))
 
 
 r_cem_finer <- gd_cem_strata(c_cem_finer)
@@ -905,7 +906,8 @@ c_cem_sieve <- list(dt_panel = dt_big, L = 6L,
        history_nbins = c(10L, 10L), history_breaks = "quantile",
        uid = "PeopleID", tid = "year",
        covariate_cutpoints = list(BirthYear = 10, exn_all_cum_ihs = 10),
-       label = "finer", weight_type = "composite")
+       label = "finer", weight_type = "composite",
+       outcome_cols = list(exn_pi = 6, exn_pm = 6))
 
 r_cem_sieve <- gd_cem_strata(c_cem_sieve)
 p_cem_sieve <- gp_cem_quality(r_cem_sieve)
@@ -1081,6 +1083,20 @@ gd_coef_did(r_did1) %>% gp_coef_did
 r_cem_wdv$data[stratum == stratum[[5]], .(PeopleID, exn_pi, exn_pi_d0, exn_pi_d1, exn_pi_l1, exn_pi_dm1)]
 
 r_cem_wdv$data[, .(exn_pi, exn_pi_d0, exn_pi_d1, exn_pi_l1, exn_pi_dm1)] %>% cor(use = "complete.obs")
+
+## ** finer
+r_cem_finer_wdv <- gd_add_outcome_next(r_cem_finer)
+r_did_finer <- feols(gf_did("pi", -3:3, c("exn_pi", "exn_pm", "BirthYear")), r_cem_finer_wdv$data)
+
+gd_coef_did(r_did_finer) %>% gp_coef_did
+
+
+## ** sieve
+
+r_cem_sieve_wdv <- gd_add_outcome_next(r_cem_sieve)
+r_did_sieve <- feols(gf_did("pi", -6:6, c("exn_pi", "exn_pm", "BirthYear")), r_cem_sieve_wdv$data)
+gd_coef_did(r_did_sieve) %>% gp_coef_did
+
 
 ## check strata variation
 
