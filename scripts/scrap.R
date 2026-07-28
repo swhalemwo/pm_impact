@@ -1044,6 +1044,13 @@ feols(c(exn_pi_d1, exn_pi_d2, exn_pi_d3) ~ exn_pi*Gender + exn_pm*Gender | strat
 
 feols(c(exn_pi_d1, exn_pi_d2, exn_pi_d3) ~ exn_pi + exn_pm | stratum, r_cem_wdv$data, weights = ~weight)
 
+## only strata with both PM and PI
+feols(c(exn_pi_d1, exn_pi_d2, exn_pi_d3) ~ exn_pi + exn_pm | stratum,
+      join(r_cem_wdv$data, 
+           r_cem_wdv$strata_summary[n_exn_pm > 0 & n_exn_pi > 0 & n_control > 0], on = "stratum", how = "right",
+           multiple = T))
+
+
 
 ## check strata variation
 
