@@ -1057,6 +1057,16 @@ r_cem_wdv$config$dt_panel[PeopleID == 44]
 
 ## need someone who starts after 2000 but has many exhbs
 
+r_cem_wdv$data[, .SD[min(exn_pi_cum) == 0 & max(exn_pi_cum) > 50], PeopleID] %>%
+.[, .(max_exn_pi_cum = max(exn_pi_cum)), PeopleID]
+
+## 6855
+r_cem_wdv$data[PeopleID == 6855, .(PeopleID, year, exn_pi, exn_pi_cum, exn_pi_l1, exn_pi_n1, exn_pi_n2, exn_pi_n3,
+                                   exn_pi_d1, exn_pi_d2, exn_pi_d3, h2_c, L1.h2_c, L2.h2_c, stratum)] %>% view_xl
+
+
+r_cem_wdv$data[, .(mean_pi_d3 = mean(exn_pi_d3, na.rm = T), .N), exn_pm][order(exn_pm)]
+r_cem_wdv$data[, .(mean_pi_d3 = mean(exn_pi_d3, na.rm = T), .N), exn_pi][order(exn_pi)]
 gp_strata_dist(r_cem_finer)
 X11()
 gp_strata_dist(r_cem)
