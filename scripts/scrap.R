@@ -1074,7 +1074,14 @@ r_cem_wdv$data[PeopleID == 6855, .(PeopleID, year, exn_pi, exn_pi_cum, exn_pi_l1
 
 r_cem_wdv$data[, .(mean_pi_d3 = mean(exn_pi_d3, na.rm = T), .N), exn_pm][order(exn_pm)]
 r_cem_wdv$data[, .(mean_pi_d3 = mean(exn_pi_d3, na.rm = T), .N), exn_pi][order(exn_pi)]
+
+
+
+## * inspect strata distribution
 gp_strata_dist(r_cem_finer)
 X11()
 gp_strata_dist(r_cem)
+
+
+
 

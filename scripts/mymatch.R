@@ -2035,8 +2035,7 @@ gd_add_outcome_next <- function(cem_result) {
   }
 
 
-  ## add differences
-  
+  ## add differences from l1 (t+F - l1)
   l_outcome_lagged <- paste0(names(outcome_cols), "_l1")
 
   ## set up which values to look up
