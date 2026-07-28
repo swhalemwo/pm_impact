@@ -1057,4 +1057,7 @@ r_cem_wdv$config$dt_panel[PeopleID == 44]
 
 ## need someone who starts after 2000 but has many exhbs
 
+gp_strata_dist(r_cem_finer)
+X11()
+gp_strata_dist(r_cem)
 

@@ -2067,9 +2067,28 @@ gd_add_outcome_next <- function(cem_result) {
   ##                                       l_col_d)] %>% view_xl
   ## looks good
 
+  
+
+
 
   cem_result$data <- dt_d
   
   return(cem_result)
+
+}
+
+
+gp_strata_dist <- function(r_cem) {
+  #' visualize strata size/composition distribution
+
+  r_cem$strata_summary %>% melt(measure.vars = c("n_total", "n_exn_pm", "n_exn_pi", "n_control")) %>%
+    .[, value_grp := cut(value, breaks = c(0, 2,6, l_asinh_breaks[l_asinh_breaks > 0]),
+                         include.lowest = T, right = F)] %>%
+    .[, .N, .(value_grp, variable)] %>%
+    .[, lbl_perc := (100*N/sum(N)), variable] %>% 
+    ggplot(aes(x = value_grp, y = N, color = variable, group = variable, label = round(lbl_perc,1))) +
+    geom_line() +
+    geom_point() + 
+    geom_text_repel()
 
 }

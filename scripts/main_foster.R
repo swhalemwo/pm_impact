@@ -32,7 +32,7 @@ refresh_pipeline <- function() {
     message("Pipeline refreshed.")
 }
 
-l_asinh_breaks <- c(0, 10^(0:10), 3*10^(0:10)) %>% c(., -1*.) %>% sort # breaks for asinh ggplots
+l_asinh_breaks <- c(0, 10^(0:10), 3*10^(0:10)) %>% c(., -1*.) %>% sort %>% unique# breaks for asinh ggplots
 
 DIR_PROJ <- "~/Dropbox/phd/papers/foster/"
 c_dirs <- gc_dirs(dir_proj = DIR_PROJ)
