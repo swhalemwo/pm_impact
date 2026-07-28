@@ -1051,6 +1051,36 @@ feols(c(exn_pi_d1, exn_pi_d2, exn_pi_d3) ~ exn_pi + exn_pm | stratum,
            multiple = T))
 
 
+## past values
+feols(c(exn_pi_dm3, exn_pi_dm2, exn_pi_dm1, exn_pi_d1, exn_pi_d2, exn_pi_d3) ~ exn_pi + exn_pm | stratum, r_cem_wdv$data)
+## huh concerning: yuge main effects.. ok that was coding error.. but still not zero
+
+r_cem_wdv$data[PeopleID == 6855, .(PeopleID, year, exn_pi, exn_pi_cum, exn_pi_l1, exn_pi_n1, exn_pi_n2, exn_pi_n3,
+                                   exn_pi_l1, exn_pi_l2, exn_pi_l3, exn_pi_dm1, exn_pi_dm2, exn_pi_dm3,
+                                   exn_pi_d0, exn_pi_d1, exn_pi_d2, exn_pi_d3, h2_c, L1.h2_c, L2.h2_c, stratum)] %>% view_xl
+
+
+dt_coef <- feols(c(exn_pi_dm3, exn_pi_dm2, exn_pi_dm1, exn_pi_d0, exn_pi_d1, exn_pi_d2, exn_pi_d3) ~ exn_pi + exn_pm | stratum, r_cem_wdv$data) %>% map(tidy) %>% rbindlist(idcol = "mdl")
+
+dt_coef <- feols(c(exn_pi_dm3, exn_pi_dm2, exn_pi_dm1, exn_pi_d0, exn_pi_d1, exn_pi_d2, exn_pi_d3) ~ exn_pi + exn_pm, r_cem_wdv$data) %>% map(tidy) %>% rbindlist(idcol = "mdl")
+
+r_did1 <- feols(gf_did("pi", -3:3, c("exn_pi", "exn_pm", "BirthYear")), r_cem_wdv$data)
+
+
+  
+gd_coef_did(r_did1)
+
+
+gd_coef_did(r_did1) %>% gp_coef_did
+
+
+
+
+
+
+r_cem_wdv$data[stratum == stratum[[5]], .(PeopleID, exn_pi, exn_pi_d0, exn_pi_d1, exn_pi_l1, exn_pi_dm1)]
+
+r_cem_wdv$data[, .(exn_pi, exn_pi_d0, exn_pi_d1, exn_pi_l1, exn_pi_dm1)] %>% cor(use = "complete.obs")
 
 ## check strata variation
 
