@@ -2058,7 +2058,10 @@ gd_add_outcome_next <- function(cem_result) {
 
 }
 
-
+#' visualize strata size distribution and composition:
+#' get number of strata with for cut/grouped number of total size, controls, people who have PM,
+#' people who have PI
+#' @param r_cem result from gd_cem_strata
 gp_strata_dist <- function(r_cem) {
   #' visualize strata size/composition distribution
 
