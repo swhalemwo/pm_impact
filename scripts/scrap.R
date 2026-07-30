@@ -1091,12 +1091,24 @@ r_did_finer <- feols(gf_did("pi", -3:3, c("exn_pi", "exn_pm", "BirthYear")), r_c
 gd_coef_did(r_did_finer) %>% gp_coef_did
 
 
+r_did_finer_intr <- feols(gf_did("pi", -3:3, c("exn_pi*exn_pm", "BirthYear")), r_cem_finer_wdv$data)
+
+r_cem_finer_wdv$data[, `:=`(exn_pm_bin = as.integer(exn_pm > 0), exn_pi_bin = as.integer(exn_pi > 0))]
+
+r_did_finer_bin <- feols(gf_did("pi", -3:3, c("exn_pi_bin", "exn_pm_bin")), r_cem_finer_wdv$data)
+
+gd_coef_did(r_did_finer_bin) %>% gp_coef_did
+
 ## ** sieve
 
 r_cem_sieve_wdv <- gd_add_outcome_next(r_cem_sieve)
 r_did_sieve <- feols(gf_did("pi", -6:6, c("exn_pi", "exn_pm", "BirthYear")), r_cem_sieve_wdv$data)
 gd_coef_did(r_did_sieve) %>% gp_coef_did
 
+r_cem_sieve_wdv$strata_summary[n_exn_pm > 1 & n_exn_pi > 1 & n_control > 1 & n_total < 10]
+
+r_cem_sieve_wdv$data[stratum == "2015_2_2_2_2_2_2_8_8_8_8_8_8_4_9",
+                 .(PeopleID, year, exn_pi, exn_pm, exn_pi_d1)]
 
 ## check strata variation
 
