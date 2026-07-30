@@ -345,6 +345,7 @@ dt_test <- dt_atyear_foster[, .SD, .SDcols = c("PeopleID", "year", "Gender", "ex
 fwrite(dt_test, "dt_test.csv")
     
 dt_test <- fread("dt_test.csv")
+dt_smol <- fread("dt_test_smol.csv")
 
 ## make some smol data.frame for testing purposes
 l_at_wpm <- dt_test[exn_pm > 0, unique(PeopleID)] # artist which have at least one PM exhb
@@ -1143,3 +1144,68 @@ gp_strata_dist(r_cem)
 
 
 
+## * check weights
+library(fixest)
+library(texreg)
+
+dt_smol[, treat := as.integer(exn_pm > 0)]
+
+r_match2 <- matchit(treat ~ BirthYear + exn_all_cum_ihs + as.factor(year),
+                    data = dt_smol,
+                    method = "cem",
+                    cutpoints = list(BirthYear = 8, exn_all_cum_ihs = 8))
+
+
+## r_match2$subclass %>% table
+
+## ggplot(data.table(x= r_match2$weights), aes(x=x)) + geom_density() +
+## scale_x_continuous(trans = scales::asinh_trans(), breaks = l_asinh_breaks)
+
+dt_smol[, `:=`(weight = r_match2$weights, subclass = r_match2$subclass)]
+
+r_base <- feols(exn_pi_cum_ihs ~ treat, dt_smol) # basic, pointless
+r_mi <- feols(exn_pi_cum_ihs ~ treat, dt_smol, weights = ~weight) # CEM matchit approach
+r_fe <- feols(exn_pi_cum_ihs ~ treat | subclass, dt_smol) # FE approach
+r_fe_ww <- feols(exn_pi_cum_ihs ~ treat | subclass, dt_smol, weights = ~weight) # both, still has weights tho
+
+## collapse::varying(dt_smol, ~subclass)
+
+screenreg(list(r_base, r_mi, r_fe, r_fe_ww), digits = 5)
+
+## see if we can get some manual weights
+
+## ** split
+
+library(broom)
+r_split <- feols(exn_pi_cum_ihs ~ treat, dt_smol, split = ~subclass)
+dt_res <- map(r_split, tidy) %>% rbindlist(idcol = "subclass")
+dt_res[, subclass2 := gsub("sample.var: subclass; sample: ", "", subclass) %>% as.integer]
+
+dt_res[term == "treat", mean(estimate)]
+
+dt_smol[, uniqueN(subclass)]
+dt_res[term == "treat"]
+dt_res[, max(subclass2)]
+dt_smol[, max(as.integer(as.character(subclass)))]
+dt_smol[, .(subclass = as.integer(subclass))] %>% na.omit %>% .[, max(subclass)]
+
+dt_smol[, mean(weight), subclass]
+
+join(dt_res, dt_smol[, .N, subclass][, prop := N/sum(N)], on = c(subclass2 = "subclass")) %>%
+.[term == "treat", .(mean = mean(estimate), mean_w = weighted.mean(estimate,  w = prop))] %>% adf
+
+## mean      mean_w
+## 0.9356543 0.4394662
+
+
+## ** varying slopes
+
+r_slop <- feols(exn_pi_cum_ihs ~  1 | subclass[treat], dt_smol)
+r_slop2 <- fixef(r_slop)
+
+r_slop2$subclass %>% mean # 2.02
+r_slop2$"subclass[[treat]]" %>% mean # 0.9356
+(r_slop2$subclass + r_slop2$"subclass[[treat]]") %>% mean  # 2.959
+
+
+## splitting and varying slopes produce the same results
