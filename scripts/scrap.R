@@ -1105,6 +1105,7 @@ r_did1_reduc_intr <- feols(gf_did("pi", -3:3, c("exn_pi*exn_pm", "BirthYear")), 
 ## strat don't overlap: dt_reduc[, .N, n_treat_cbns] all 3, dt_reduc_inter [, .N, n_treat_cbns] all 4
 
 
+
 r_did1_reduc_intr2 <- feols(gf_did("pi", -3:3, c("exn_pi","exn_pm", "BirthYear")), r_cem_wdv$data[dt_reduc_intr, on = "stratum"])
 ## model without interactions vary similar to with interaction
 
@@ -1117,7 +1118,32 @@ r_cem_wdv$data[dt_reduc_intr, on = "stratum"][, .(PeopleID, year, stratum, exn_p
 
 ## lm(y ~ treat, data.table(treat = c(1, rep(0,50)), y = c(3, rep(1, 50))))
 
+## but if I don't care about interactions: can i yoink all people that get both pm and pi, but still keep those in strata with n_treat_cbns ==4 that have none, or 1?
+## probably... : if i assume units are independent, dropping some should be ok
 
+dt_treatmrg <- r_cem_wdv$data[r_cem$strata_summary[n_treat_cbns %in% c(3,4)], on = "stratum"] %>%
+.[, nbr_treats := rowSums(sign(.SD)), .SDcols = r_cem$config$treatment_cols] %>%
+    .[nbr_treats != 2]
+
+r_treatmrg <- feols(gf_did("pm", -3:3, c("exn_pi", "exn_pm", "BirthYear")), dt_treatmrg)
+gd_coef_did(r_treatmrg) %>% gp_coef_did # HUH
+## effects super smol, AND pi has negative effect
+## also paralle trends violation 
+
+## but wait even more: is even my single estimation solid? in d ~ exn_pi + exn_pm, exn_pi is effect assuming exn_pm doesn't change
+## when exn_pi changes, exn_pm is always zero.. so probably? but check
+## need single mutually exclusive treatment factor.. don't think that works with continuous.. assume binary for now
+
+
+r_cem_wdv$data[, c("exn_pi_bin", "exn_pm_bin") := sign(.SD), .SDcols = c("exn_pi", "exn_pm")] %>%
+.[, treat_cbn := collapse::finteraction(exn_pi_bin, exn_pm_bin)]
+
+r_did_bin_base <- feols(gf_did("pi", -3:3, c("exn_pi_bin", "exn_pm_bin", "BirthYear")), r_cem_wdv$data[dt_reduc, on = "stratum"])
+r_did_bin_cbns <- feols(gf_did("pi", -3:3, c("treat_cbn", "BirthYear")), r_cem_wdv$data[dt_reduc, on = "stratum"] %>% droplevels)
+
+gd_coef_did(r_did_bin_base) %>% gp_coef_did
+gd_coef_did(r_did_bin_cbns) %>% gp_coef_did # no work 
+## but coefs/GOF are the same -> LGTM
 
 
 r_cem_wdv$data[stratum == stratum[[5]], .(PeopleID, exn_pi, exn_pi_d0, exn_pi_d1, exn_pi_l1, exn_pi_dm1)]
