@@ -1069,6 +1069,7 @@ dt_coef <- feols(c(exn_pi_dm3, exn_pi_dm2, exn_pi_dm1, exn_pi_d0, exn_pi_d1, exn
 
 r_did1 <- feols(gf_did("pi", -3:3, c("exn_pi", "exn_pm", "BirthYear")), r_cem_wdv$data)
 
+## on reduced dataset
 r_did1_reduc <- feols(gf_did("pi", -3:3, c("exn_pi", "exn_pm", "BirthYear")), r_cem_wdv$data[dt_reduc, on = "stratum"])
 
   
@@ -1078,6 +1079,43 @@ gd_coef_did(r_did1)
 gd_coef_did(r_did1) %>% gp_coef_did
 gd_coef_did(r_did1_reduc) %>% gp_coef_did # huh looks better
 
+
+
+## reduced dataset with interaction
+
+## don't want strata with only isolated treatments
+## but not sure if that means that the only filter is that there is treatment.. might be more or less
+dt_reduc_intr <- r_cem$strata_summary[n_control > 0] %>%
+    ## .[n_exn_pm + n_exn_pi + n_control == n_total] %>% # no overlap between treatments in individual
+    .[n_exn_pm != 0 & n_exn_pi != 0] # every treatment there (overlap between all conditions)
+## hmm i really don't like how this is redefining the population... 
+
+## i think that means i need all treatment combinations..
+dt_reduc_intr <- r_cem$strata_summary[n_treat_cbns == 4]
+
+
+r_did1_reduc_intr <- feols(gf_did("pi", -3:3, c("exn_pi*exn_pm", "BirthYear")), r_cem_wdv$data[dt_reduc_intr, on = "stratum"])
+## very interesting: sample size is actually larger now (48k vs 33k), even tho it's less strata (900 vs 1.3k)
+## quite big difference before treatment: people who only get PM get more PI
+## interaction pretty much 0
+## but now main effects (when 0 other treatment) both negative
+## seems like different sample compositions matter a lot:
+## even tho interactions itself are 0, the need to be able to estimate them selects a completely different subset
+## which then leads to much different results
+## strat don't overlap: dt_reduc[, .N, n_treat_cbns] all 3, dt_reduc_inter [, .N, n_treat_cbns] all 4
+
+
+r_did1_reduc_intr2 <- feols(gf_did("pi", -3:3, c("exn_pi","exn_pm", "BirthYear")), r_cem_wdv$data[dt_reduc_intr, on = "stratum"])
+## model without interactions vary similar to with interaction
+
+gd_coef_did(r_did1_reduc_intr2) %>% gp_coef_did
+
+r_cem_wdv$data[dt_reduc_intr, on = "stratum"][, .(PeopleID, year, stratum, exn_pi, exn_pm)] %>% print(n=80)
+
+## r_cem_wdv$data[dt_reduc, on = "stratum"][, cor.test(exn_pm, exn_pi)$estimate, stratum]
+
+
+## lm(y ~ treat, data.table(treat = c(1, rep(0,50)), y = c(3, rep(1, 50))))
 
 
 
@@ -1221,9 +1259,13 @@ r_slop2$"subclass[[treat]]" %>% mean # 0.9356
 
 ## * comparing options
 
-dt_reduc <- r_cem$strata_summary[n_control > 0] %>%
-    .[n_exn_pm + n_exn_pi + n_control == n_total] %>% # no overlap between treatments in individual
+dt_reduc <- r_cem$strata_summary[n_controls > 0] %>%
+    .[n_exn_pm + n_exn_pi + n_controls == n_total] %>% # no overlap between treatments in individual
     .[n_exn_pm != 0 & n_exn_pi != 0] # every treatment there (overlap between all conditions)
+
+
+
+
 
 colSums(dt_reduc[, .SD, .SDcols = patterns("^n_")])
 ## reduces with only pi and pm: reduces dt_big: 230k to 33k rows (14%), 24k strata to 1.3k 5%)
