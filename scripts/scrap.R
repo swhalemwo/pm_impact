@@ -1069,13 +1069,14 @@ dt_coef <- feols(c(exn_pi_dm3, exn_pi_dm2, exn_pi_dm1, exn_pi_d0, exn_pi_d1, exn
 
 r_did1 <- feols(gf_did("pi", -3:3, c("exn_pi", "exn_pm", "BirthYear")), r_cem_wdv$data)
 
+r_did1_reduc <- feols(gf_did("pi", -3:3, c("exn_pi", "exn_pm", "BirthYear")), r_cem_wdv$data[dt_reduc, on = "stratum"])
 
   
 gd_coef_did(r_did1)
 
 
 gd_coef_did(r_did1) %>% gp_coef_did
-
+gd_coef_did(r_did1_reduc) %>% gp_coef_did # huh looks better
 
 
 
