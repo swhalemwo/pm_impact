@@ -1163,14 +1163,22 @@ r_match2 <- matchit(treat ~ BirthYear + exn_all_cum_ihs + as.factor(year),
 
 dt_smol[, `:=`(weight = r_match2$weights, subclass = r_match2$subclass)]
 
-r_base <- feols(exn_pi_cum_ihs ~ treat, dt_smol) # basic, pointless
+r_base <- feols(exn_pi_cum_ihs ~ treat, dt_smol[!is.na(subclass)]) # basic, pointless
 r_mi <- feols(exn_pi_cum_ihs ~ treat, dt_smol, weights = ~weight) # CEM matchit approach
 r_fe <- feols(exn_pi_cum_ihs ~ treat | subclass, dt_smol) # FE approach
 r_fe_ww <- feols(exn_pi_cum_ihs ~ treat | subclass, dt_smol, weights = ~weight) # both, still has weights tho
+## r_twfe <- feols(exn_pi_cum_ihs ~ treat | PeopleID + year, dt_smol)
+## r_twfe_smol <- feols(exn_pi_cum_ihs ~ treat | PeopleID + year, dt_smol[!is.na(subclass)])
 
 ## collapse::varying(dt_smol, ~subclass)
 
-screenreg(list(r_base, r_mi, r_fe, r_fe_ww), digits = 5)
+screenreg(list(r_base = r_base, r_mi = r_mi, r_fe = r_fe, r_fe_ww = r_fe_ww
+               ## r_twfe = r_twfe, r_twfe2 = r_twfe_smol # TWFE check needs comparison with real DV rather diff DV
+               ), digits = 5)
+
+
+
+## dt_smol[is.na(subclass), max(weight)]
 
 ## see if we can get some manual weights
 
