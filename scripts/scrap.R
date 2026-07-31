@@ -1209,3 +1209,27 @@ r_slop2$"subclass[[treat]]" %>% mean # 0.9356
 
 
 ## splitting and varying slopes produce the same results
+
+## * comparing options
+
+dt_reduc <- r_cem$strata_summary[n_control > 0] %>%
+    .[n_exn_pm + n_exn_pi + n_control == n_total] %>% # no overlap between treatments in individual
+    .[n_exn_pm != 0 & n_exn_pi != 0] # every treatment there (overlap between all conditions)
+
+colSums(dt_reduc[, .SD, .SDcols = patterns("^n_")])
+## reduces with only pi and pm: reduces dt_big: 230k to 33k rows (14%), 24k strata to 1.3k 5%)
+
+l_cov_vrbls <- c("exn_pi_cum_ihs", "exn_pm_cum_ihs", "exn_all_cum_ihs", "BirthYear")
+
+## look at variable ranges: how much does reduc differ from reduced
+rbind(
+    dt_big[, .SD, .SDcols = l_cov_vrbls][, src := "org"], 
+    r_cem$data[dt_reduc, .SD, on = "stratum", .SDcols = l_cov_vrbls][, src := "reduc"]) %>%
+melt(id.vars = "src") %>%
+ggplot(aes(x=value, color = src)) + geom_density() + facet_wrap(~variable, scale = "free")
+## huh actually less than expected... less coverage of established artists (probably not many with 0 exhbs to serve as controls) but doesn't seem super broken 
+
+
+## * estimation
+
+
