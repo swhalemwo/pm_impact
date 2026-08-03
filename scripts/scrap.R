@@ -1221,13 +1221,49 @@ gd_coef_did(r_did_finer_bin) %>% gp_coef_did
 ## ** sieve
 
 r_cem_sieve_wdv <- gd_add_outcome_next(r_cem_sieve)
-r_did_sieve <- feols(gf_did("pi", -6:6, c("exn_pi", "exn_pm", "BirthYear")), r_cem_sieve_wdv$data)
+
+
+## filter down: only single treatment, all strata have all treatments and controls
+dt_sieve_wdv <- r_cem_sieve_wdv$data %>%
+    .[r_cem_sieve$strata_summary[n_controls > 0 & n_exn_pm > 0 & n_exn_pi > 0], on = "stratum"] %>% 
+    .[, nbr_treats := rowSums(sign(.SD)), .SDcols = r_cem_sieve_wdv$config$treatment_cols] %>%
+    ## insp(.[, .N, nbr_treats]) %>% 
+    .[nbr_treats != 2]
+
+r_did_sieve <- feols(gf_did("pi", -6:6, c("exn_pi", "exn_pm", "BirthYear")), dt_sieve_wdv)
 gd_coef_did(r_did_sieve) %>% gp_coef_did
 
 r_cem_sieve_wdv$strata_summary[n_exn_pm > 1 & n_exn_pi > 1 & n_control > 1 & n_total < 10]
 
 r_cem_sieve_wdv$data[stratum == "2015_2_2_2_2_2_2_8_8_8_8_8_8_4_9",
                  .(PeopleID, year, exn_pi, exn_pm, exn_pi_d1)]
+
+## sieve + parametric
+
+r_did_sieve <- feols(gf_did("pi", -6:6, c("exn_pi", "exn_pm", "BirthYear", "exn_all_cum_ihs", "Gender")), dt_sieve_wdv)
+gd_coef_did(r_did_sieve) %>% gp_coef_did
+
+# huh can almost get the pre-trends to 0
+
+dt_sieve_wdv[PeopleID == 2232, .SD, .SDcols = c("year", "exn_pi", "exn_pi_n1", "exn_pi_n2", "exn_pi_n3",
+                                               "exn_pi_l1", "exn_pi_l2", "exn_pi_l3",
+                                               "exn_pi_dm3", "exn_pi_dm2", "exn_pi_dm1", "exn_pi_d1",
+                                               "exn_pi_d2", "exn_pi_d3")] %>% t
+dt_big[PeopleID == 2232, .(year, exn_pi)] %>% print(n=80)
+
+## what's the interpretation of the declining cum coefs
+## before tp0: the more cumulative exhibition you have at t=0, the more pi you have received in the past 
+## hmm this true pretty much by definition since prior pi are part of cum
+## negative after tp0: the more cum you have at tp=0, the less PI you receive????
+## e.g. artist A (ctrl): 3 cum vs artist B: (2 cum): AT A more PI received in past (makes sense),
+## but why A less PI than B in future? very mysterious
+## maybe some funny interaction with the treatments? suppression? dropouts included?
+## also persists when only using exn_all_cum_ihs, not actual treatments
+
+r_did_sieve2 <- feols(gf_did("pi", -6:6, c("exn_all_cum_ihs")), dt_sieve_wdv)
+gd_coef_did(r_did_sieve2) %>% gp_coef_did
+
+
 
 ## check strata variation
 
@@ -1360,8 +1396,40 @@ ggplot(aes(x=value, color = src)) + geom_density() + facet_wrap(~variable, scale
 ## huh actually less than expected... less coverage of established artists (probably not many with 0 exhbs to serve as controls) but doesn't seem super broken 
 
 
-## * estimation
+## * see if it's possible to get parametric adjustment of full data to get pre-treatment parallel trends 
 
+## specify variables so broadly that everything gets binned together
+c_cem_broad <- list(dt_panel = dt_big, L = 6L,
+       treatment_cols = c("exn_pm", "exn_pi"),
+       history_cols = c("exn_pm_cum_ihs", "exn_pi_cum_ihs"),
+       history_nbins = c(1L, 1L),
+       history_breaks = "quantile",
+       uid = "PeopleID", tid = "year",
+       covariate_cutpoints = list(),
+       label = "quantile_5", weight_type = "composite",
+       outcome_cols = list(exn_pi = 6, exn_pm = 6))
+r_cem_broad <- gd_cem_strata(c_cem_broad)
+## r_cem_broad$strata_summary[, sum(n_total)]
+
+# r_cem_broad$data %>% names
+
+r_broad_wdv <- gd_add_outcome_next(r_cem_broad)
+
+## yoink out people with multiple treatments
+dt_broad_smol <- r_broad_wdv$data %>%
+.[, nbr_treats := rowSums(sign(.SD)), .SDcols = r_cem$config$treatment_cols] %>%
+insp(.[, .N, nbr_treats]) %>%
+.[nbr_treats != 2]
+
+
+
+## add more IVs to model
+r_did_broad <- feols(gf_did("pi", -5:5, c("exn_pi", "exn_pm", "BirthYear", "BirthYear", "career_year", "Gender", "exn_all_cum_ihs")), dt_broad_smol)
+gd_coef_did(r_did_broad) %>% gp_coef_did
+
+## hmm exn_all_s5 produces weird results
+## but can't get the pre-treatment coefs of pi and pm to 0
+## tbh doesn't even work with blocking on sieve.. 
 
 
 
