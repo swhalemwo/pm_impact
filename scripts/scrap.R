@@ -1122,8 +1122,12 @@ r_cem_wdv$data[dt_reduc_intr, on = "stratum"][, .(PeopleID, year, stratum, exn_p
 ## probably... : if i assume units are independent, dropping some should be ok
 
 dt_treatmrg <- r_cem_wdv$data[r_cem$strata_summary[n_treat_cbns %in% c(3,4)], on = "stratum"] %>%
-.[, nbr_treats := rowSums(sign(.SD)), .SDcols = r_cem$config$treatment_cols] %>%
+    .[, nbr_treats := rowSums(sign(.SD)), .SDcols = r_cem$config$treatment_cols] %>%
     .[nbr_treats != 2]
+
+
+
+    
 
 r_treatmrg <- feols(gf_did("pm", -3:3, c("exn_pi", "exn_pm", "BirthYear")), dt_treatmrg)
 gd_coef_did(r_treatmrg) %>% gp_coef_did # HUH
@@ -1308,5 +1312,54 @@ ggplot(aes(x=value, color = src)) + geom_density() + facet_wrap(~variable, scale
 
 
 ## * estimation
+
+
+
+
+## * insp testing
+
+pse <- function(x, ...) {
+    
+
+    return(x)
+}
+
+
+
+dt_treatmrg %T>% \(x) (x[, .N, Gender])
+dt_treatmrg[, .N, Gender]
+
+dt_treatmrg %T>% {print(.[, .N, Gender])} %>%
+.[Gender == "Male"]
+
+x <- dt_treatmrg %>% insp(.[, .N, Gender]) %>% 
+.[Gender == "Male"]
+
+## x <- dt_treatmrg %>% print(.[, .(year, PeopleID)], n=20) %>% 
+## .[Gender == "Male"]
+
+
+dt_treatmrg %T>% {print(.[year == 2015, .N])} %>%
+.[Gender == "Male"]
+
+
+
+
+
+dt_treatmrg %T>% (\(z) print(z[, .N, Gender])) %>%
+.[Gender == "Male"]
+
+
+rnorm(200) %>%
+matrix(ncol = 2) %T>%
+plot %>% # plot usually does not return anything. 
+colSums
+
+
+dt %>% [, .N, grp] %>% .[grp %in% c(1,2)]
+
+x <- dt_treatmrg %>% print(adt(.[, .N, Gender])
+
+
 
 
