@@ -88,6 +88,55 @@ ggplot(dt_topred, aes(x=exn_all_cum, y = eff1)) + geom_point()
 ## rs1 figure
 ggplot(dt_topred, aes(x=exn_all_cum, y = eff2, color = exn_all_s5)) + geom_point()
 
+## * insp testing
+
+pse <- function(x, ...) {
+    
+
+    return(x)
+}
+
+
+
+dt_treatmrg %T>% \(x) (x[, .N, Gender])
+dt_treatmrg[, .N, Gender]
+
+dt_treatmrg %T>% {print(.[, .N, Gender])} %>%
+.[Gender == "Male"]
+
+x <- dt_treatmrg %>% insp(.[, .N, Gender]) %>% 
+.[Gender == "Male"]
+
+## x <- dt_treatmrg %>% print(.[, .(year, PeopleID)], n=20) %>% 
+## .[Gender == "Male"]
+
+
+dt_treatmrg %T>% {print(.[year == 2015, .N])} %>%
+.[Gender == "Male"]
+
+
+
+
+
+dt_treatmrg %T>% (\(z) print(z[, .N, Gender])) %>%
+.[Gender == "Male"]
+
+
+rnorm(200) %>%
+matrix(ncol = 2) %T>%
+plot %>% # plot usually does not return anything. 
+colSums
+
+
+dt %>% [, .N, grp] %>% .[grp %in% c(1,2)]
+
+x <- dt_treatmrg %>% print(adt(.[, .N, Gender])
+
+
+
+
+
+
 
 
 ## * survival model -> yeet
@@ -1312,53 +1361,6 @@ ggplot(aes(x=value, color = src)) + geom_density() + facet_wrap(~variable, scale
 
 
 ## * estimation
-
-
-
-
-## * insp testing
-
-pse <- function(x, ...) {
-    
-
-    return(x)
-}
-
-
-
-dt_treatmrg %T>% \(x) (x[, .N, Gender])
-dt_treatmrg[, .N, Gender]
-
-dt_treatmrg %T>% {print(.[, .N, Gender])} %>%
-.[Gender == "Male"]
-
-x <- dt_treatmrg %>% insp(.[, .N, Gender]) %>% 
-.[Gender == "Male"]
-
-## x <- dt_treatmrg %>% print(.[, .(year, PeopleID)], n=20) %>% 
-## .[Gender == "Male"]
-
-
-dt_treatmrg %T>% {print(.[year == 2015, .N])} %>%
-.[Gender == "Male"]
-
-
-
-
-
-dt_treatmrg %T>% (\(z) print(z[, .N, Gender])) %>%
-.[Gender == "Male"]
-
-
-rnorm(200) %>%
-matrix(ncol = 2) %T>%
-plot %>% # plot usually does not return anything. 
-colSums
-
-
-dt %>% [, .N, grp] %>% .[grp %in% c(1,2)]
-
-x <- dt_treatmrg %>% print(adt(.[, .N, Gender])
 
 
 
