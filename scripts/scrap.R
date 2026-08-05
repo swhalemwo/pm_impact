@@ -1417,7 +1417,7 @@ r_broad_wdv <- gd_add_outcome_next(r_cem_broad)
 
 ## yoink out people with multiple treatments
 dt_broad_smol <- r_broad_wdv$data %>%
-.[, nbr_treats := rowSums(sign(.SD)), .SDcols = r_cem$config$treatment_cols] %>%
+.[, nbr_treats := rowSums(sign(.SD)), .SDcols = r_cem_broad$config$treatment_cols] %>%
 insp(.[, .N, nbr_treats]) %>%
 .[nbr_treats != 2]
 
@@ -1432,4 +1432,10 @@ gd_coef_did(r_did_broad) %>% gp_coef_did
 ## tbh doesn't even work with blocking on sieve.. 
 
 
+feols(exn_pi_d1 ~ exn_pi + exn_pm | year,  r_broad_wdv$data)
 
+feols(exn_pi_l3 ~ exn_pi + exn_pm | PeopleID + year,  r_broad_wdv$data)
+feols(exn_pi_l3 ~ exn_pi + exn_pm | PeopleID + year,  dt_broad_smol)
+feols(exn_pi_l3 ~ exn_pi * exn_pm | PeopleID + year,  dt_broad_smol)
+
+feols(exn_pi_l3 ~ exn_pi + exn_pm + exn_all_cum_ihs  | PeopleID + year,  dt_broad_smol)
