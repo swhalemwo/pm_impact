@@ -1295,14 +1295,29 @@ gd_strata_summary <- function(dt_prep, treatment_cols) {
 
   ## dtx <- data.table(id = c(1,2,3,4,5), x = c(0,3,0,0,2), y = c(4,0,0,0,1))
   
-  ## get number of treatment combinations, pure controls per strata, and strata size
-  dt_treatcbns <- cbind(
+  ## prep data: construct treatment combination
+  dt_prep <- cbind(
+    ## sign(dt_prep[, ..treatment_cols])[, treatment_cbn := factor(paste0("ct", collapse::finteraction(.SD)))],
     sign(dt_prep[, ..treatment_cols])[, treatment_cbn := collapse::finteraction(.SD)],
     dt_prep[, .(stratum)]) %>%
-    .[, control0 := rowSums(.SD), .SDcols = treatment_cols] %>% 
-    .[, .(n_total = .N, 
-          n_controls = collapse::fsum(control0==0),
-          n_treat_cbns = collapse::fnunique(treatment_cbn)), stratum]
+    .[, control0 := rowSums(.SD), .SDcols = treatment_cols]
+
+  ## update levels for more comfy columns: ct: composite treatment
+  levels(dt_prep$treatment_cbn) <- paste0("ct_", levels(dt_prep$treatment_cbn))
+
+  
+  ## get number of treatment combinations, pure controls per strata, and strata size
+  dt_treatcbns <- dt_prep[, .N, .(treatment_cbn, stratum)] %>% 
+    dcast(stratum ~ treatment_cbn, value.var = "N", fill = 0) %>% 
+    .[, `:=`(n_total = rowSums(.SD),
+             n_controls = get(paste0("ct_", paste0(rep(0, len(treatment_cols)), collapse = "."))),
+             n_treat_cbns = rowSums(sign(.SD))
+             ), .SDcols = patterns("^ct")]
+
+  ## get number of treatment combinations, pure controls per strata, and strata size
+  ## dt_treatcbns <- dt_prep[, .(n_total = .N, 
+  ##         n_controls = collapse::fsum(control0==0),
+  ##         n_treat_cbns = collapse::fnunique(treatment_cbn)), stratum]
   
 
   ## dt_prep[stratum == "2005_3_3_3_4_4_4_1_5", .SD, .SDcols= treatment_cols]
@@ -1315,25 +1330,13 @@ gd_strata_summary <- function(dt_prep, treatment_cols) {
     setnames(old = treatment_cols, new = paste0("n_", treatment_cols))
   
 
-  ## dt_prep1 <- dt_prep[, c(
-  ## list(n_total = .N),
-  ## setNames(lapply(treatment_cols, function(tc) sum(get(tc) > 0)),
-  ##          paste0("n_", treatment_cols)),
-  ## setNames(map(.SD, ~sum(.x > 0)), paste0("n_", treatment_cols)),
-  ## colSums(sign(.SD)),
-  ## list(n_treat_cbns = .SD[.SD != 0]
-  ## list(n_control2 = sum(rowSums(.SD) == 0))
-  ## list(n_control = sum(Reduce(`&`, lapply(.SD, `<=`, 0)))) # for how many people are all treat cols 0
-  ## ), by = stratum, .SDcols = treatment_cols]
-
-  ## dt_strata_prep2 <- join(dt_prep1, dt_treatcbns, on = "stratum")
-
+  ## combine dts
   dt_strata_summary <- join(dt_treatcbns, dt_treatcnts, on = "stratum")
 
-  ## dt_strata_summary[n_exn_pi != n2_exn_pi]
-  ## dt_strata_summary[n_control2 != n_controls]
+  ## dt_strata_summary[n_exn_pi != ct_0.1]
 
-  ## dt_strata_summary[, .N, n_treat_cbns]
+  ## dt_strata_summary[ct_0.0 != 0 & ct_0.1 & ct_1.0]
+  
   return(dt_strata_summary)
 }
 
