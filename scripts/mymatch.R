@@ -1291,51 +1291,50 @@ gd_cem_weights <- function(dt_d, treat_cols, weight_type) {
 #' @param treatment_cols
 #' 
 gd_strata_summary <- function(dt_prep, treatment_cols) {
-    ## browser()
+  ## browser()
 
-    ## dtx <- data.table(id = c(1,2,3,4,5), x = c(0,3,0,0,2), y = c(4,0,0,0,1))
-    
-    ## sign(dtx[, .SD, SDcols = )
+  ## dtx <- data.table(id = c(1,2,3,4,5), x = c(0,3,0,0,2), y = c(4,0,0,0,1))
+  
+  ## get number of treatment combinations, pure controls per strata, and strata size
+  dt_treatcbns <- cbind(
+    sign(dt_prep[, ..treatment_cols])[, treatment_cbn := collapse::finteraction(.SD)],
+    dt_prep[, .(stratum)]) %>%
+    .[, control0 := rowSums(.SD), .SDcols = treatment_cols] %>% 
+    .[, .(n_total = .N, 
+          n_controls = collapse::fsum(control0==0),
+          n_treat_cbns = collapse::fnunique(treatment_cbn)), stratum]
+  
 
-    ## get number of treatment combinations, pure controls per strata, and strata size
-    dt_treatcbns <- cbind(
-        sign(dt_prep[, ..treatment_cols])[, treatment_cbn := collapse::finteraction(.SD)],
-        dt_prep[, .(stratum)]) %>%
-        .[, control0 := rowSums(.SD), .SDcols = treatment_cols] %>% 
-        .[, .(n_total = .N, 
-              n_controls = collapse::fsum(control0==0),
-              n_treat_cbns = collapse::fnunique(treatment_cbn)), stratum]
-         
+  ## dt_prep[stratum == "2005_3_3_3_4_4_4_1_5", .SD, .SDcols= treatment_cols]
+  ## dt_prep1[n_control2 != n_control]
 
-    ## dt_prep[stratum == "2005_3_3_3_4_4_4_1_5", .SD, .SDcols= treatment_cols]
-    ## dt_prep1[n_control2 != n_control]
+  ## see how many people get each treatment (overlap possible)
+  dt_treatcnts <- dt_prep[, sign(.SD), .SDcols = treatment_cols] %>% adf %>% 
+    collapse::fsum(g = dt_prep$stratum) %>%
+    adt(keep.rownames = "stratum") %>%
+    setnames(old = treatment_cols, new = paste0("n_", treatment_cols))
+  
 
-    ## see how many people get each treatment (overlap possible)
-    dt_treatcnts <- dt_prep[, sign(.SD), .SDcols = treatment_cols] %>% adf %>% collapse::fsum(g = dt_prep$stratum) %>%
-        adt(keep.rownames = "stratum") %>%
-        setnames(old = treatment_cols, new = paste0("n_", treatment_cols))
-        
+  ## dt_prep1 <- dt_prep[, c(
+  ## list(n_total = .N),
+  ## setNames(lapply(treatment_cols, function(tc) sum(get(tc) > 0)),
+  ##          paste0("n_", treatment_cols)),
+  ## setNames(map(.SD, ~sum(.x > 0)), paste0("n_", treatment_cols)),
+  ## colSums(sign(.SD)),
+  ## list(n_treat_cbns = .SD[.SD != 0]
+  ## list(n_control2 = sum(rowSums(.SD) == 0))
+  ## list(n_control = sum(Reduce(`&`, lapply(.SD, `<=`, 0)))) # for how many people are all treat cols 0
+  ## ), by = stratum, .SDcols = treatment_cols]
 
-    ## dt_prep1 <- dt_prep[, c(
-        ## list(n_total = .N),
-        ## setNames(lapply(treatment_cols, function(tc) sum(get(tc) > 0)),
-        ##          paste0("n_", treatment_cols)),
-        ## setNames(map(.SD, ~sum(.x > 0)), paste0("n_", treatment_cols)),
-        ## colSums(sign(.SD)),
-        ## list(n_treat_cbns = .SD[.SD != 0]
-        ## list(n_control2 = sum(rowSums(.SD) == 0))
-        ## list(n_control = sum(Reduce(`&`, lapply(.SD, `<=`, 0)))) # for how many people are all treat cols 0
-    ## ), by = stratum, .SDcols = treatment_cols]
+  ## dt_strata_prep2 <- join(dt_prep1, dt_treatcbns, on = "stratum")
 
-    ## dt_strata_prep2 <- join(dt_prep1, dt_treatcbns, on = "stratum")
+  dt_strata_summary <- join(dt_treatcbns, dt_treatcnts, on = "stratum")
 
-    dt_strata_summary <- join(dt_treatcbns, dt_treatcnts, on = "stratum")
+  ## dt_strata_summary[n_exn_pi != n2_exn_pi]
+  ## dt_strata_summary[n_control2 != n_controls]
 
-    ## dt_strata_summary[n_exn_pi != n2_exn_pi]
-    ## dt_strata_summary[n_control2 != n_controls]
-
-    ## dt_strata_summary[, .N, n_treat_cbns]
-    return(dt_strata_summary)
+  ## dt_strata_summary[, .N, n_treat_cbns]
+  return(dt_strata_summary)
 }
 
 
