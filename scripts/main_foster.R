@@ -137,6 +137,7 @@ dt_atyear_raw <- gd_atyear_raw(dt_af_exhbs, dt_af_people, dt_af_links_exhb_ppl, 
 ## calculate some before/after steps
 dt_atyear_foster <- gd_atyear_foster(dt_atyear_raw, c_datargs$baby)
 
+## fwrite(dt_atyear_foster, "~/Dropbox/phd/papers/foster/misc/dt_atyear_foster.csv")
 
 if (b_min_mdls) { 
 

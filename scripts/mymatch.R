@@ -2169,8 +2169,9 @@ gd_coef_did <- function(rx) {
 #' visualize dt_coef_did
 #' @param dt_coef_did data.table of did coefs produced by gd_coef_did
 gp_coef_did <- function(dt_coef_did) {
+  
   dt_coef_did %>%
-    .[grepl("^exn_", term)] %>% 
+    .[grepl("exn_", term)] %>% 
     ggplot(aes(x=tp, y = estimate, color = term,
                     ymin = estimate - 1.96*std.error, ymax = estimate + 1.96*std.error)) +
     geom_point() + geom_errorbar()
