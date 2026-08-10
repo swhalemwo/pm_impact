@@ -1,10 +1,4 @@
-library(data.table)
-library(MatchIt)
-library(cobalt)
-library(purrr)
-library(collapse, include.only = c("join", "funique", "set_collapse"))
-library(jtls, include.only = "vadt")
-library(stringr)
+source("scripts/libs_base.R")
 
 ## `%||%` <- function(x, y) if (is.null(x)) y else x
 

@@ -1,8 +1,8 @@
 options(width = 115)
 
+source("scripts/libs_base.R")
+
 library(pmdata)    # for private museum data
-library(jtls)      # custom funcs for tables/figure/number management
-library(purrr)     # comfy mapping
 library(fixest)    # for fast FE estimation
 library(texreg)    # for plotting
 library(survival)  # survival models
@@ -13,12 +13,10 @@ library(igraph)    # for flow graph calculations
 library(splines)   # for fancy convoluted regression models
 library(marginaleffects) # for good predictions
 library(Hmisc, include.only = "latexTranslate") # for dealing with nasty names
-library(collapse, include.only = c("fcumsum", "funique", "join", ".c"))     # for fast cumsum in data prep
 library(scales, include.only = "label_number") # comfy suffix labels (e.g. 2K, 2B )for ranges across magnitudes
 library(broom, include.only = "tidy") # model extracting
 library(MASS, include.only = "kde2d")
 library(zeallot)   # destructuring assingment, comfy but not very necessary
-library(stringr)   # string manip? i guess
 library(ggrepel)   # plotting
 library(sf) # locating toti
 library(rnaturalearth) # locating toti
