@@ -1310,7 +1310,7 @@ gd_strata_summary <- function(dt_prep, treatment_cols) {
   dt_treatcbns <- dt_prep[, .N, .(treatment_cbn, stratum)] %>% 
     dcast(stratum ~ treatment_cbn, value.var = "N", fill = 0) %>% 
     .[, `:=`(n_total = rowSums(.SD),
-             n_controls = get(paste0("ct_", paste0(rep(0, len(treatment_cols)), collapse = "."))),
+             n_control = get(paste0("ct_", paste0(rep(0, len(treatment_cols)), collapse = "."))),
              n_treat_cbns = rowSums(sign(.SD))
              ), .SDcols = patterns("^ct")]
 

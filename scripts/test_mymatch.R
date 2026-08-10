@@ -1066,7 +1066,9 @@ gd_test_outcome_next <- function() {
                info = "outcome_next: no lead cols before")
 
   ## add leads (reads outcome_cols from config, dt_panel from config)
-  gd_add_outcome_next(res)
+  ## gd_add_outcome_next returns a modified copy (no by-reference mutation),
+  ## so capture the return value
+  res <- gd_add_outcome_next(res)
   dt_d2 <- res$data
 
   ## new columns exist
