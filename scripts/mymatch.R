@@ -2176,3 +2176,96 @@ gp_coef_did <- function(dt_coef_did) {
                     ymin = estimate - 1.96*std.error, ymax = estimate + 1.96*std.error)) +
     geom_point() + geom_errorbar()
 }
+
+
+gl_treat_cols <- function(r_cem, treat_type ="binary") {
+  #' get treatment columns
+  #' either get only single contrast (vs control) or full composite
+  ## assume each treatment is binary: set up binary treatment
+  l_bin_cols <- map(r_cem$config$treatment_cols, ~c(0,1)) %>% setNames(r_cem$config$treatment_cols)
+
+  ## expand into complete treatment dt
+  dt_treats <- expand.grid(l_bin_cols) %>% adt %>% 
+    .[, nbr_treats := rowSums(.SD)] %>% 
+    .[, treat_name := paste0("ct_", collapse::finteraction(.SD)), .SDcols = r_cem$config$treatment_cols]
+    
+  ## get the relevant columns, 
+  if (treat_type == "binary") {
+    ## here: control + single treatment
+    l_rel_treat_cols <- dt_treats[nbr_treats %in% c(0,1), treat_name]
+  } else if (treat_type == "composite") {
+    ## here: composite treatment (treatment + all interactions)
+    l_rel_treat_cols <- dt_treats[, treat_name]
+  }
+
+  return(l_rel_treat_cols)
+}
+
+
+gd_cem_stracov <- function(r_cem, treat_type = "binary") {
+  #' add strata coverage objects to CEM object
+
+  l_rel_treat_cols <- gl_treat_cols(r_cem, treat_type = treat_type)
+
+  ## add covrg column to strata summary
+  r_cem$strata_summary[, rel_combs_single_treat := rowSums(sign(.SD)), .SDcols = l_rel_treat_cols]
+
+  ## filter down to covered strata
+  dt_strata_covrd <- r_cem$strata_summary[rel_combs_single_treat == len(l_rel_treat_cols)]
+
+  
+  ## get treatment of actual units
+  r_cem$data[, treat := collapse::finteraction(sign(.SD)), .SDcols = r_cem$config$treatment_cols]
+  levels(r_cem$data$treat) <- paste0("ct_", levels(r_cem$data$treat))
+
+  dt_reduc <- r_cem$data[dt_strata_covrd, on = "stratum"] %>% 
+    .[treat %in% l_rel_treat_cols]
+
+  ## add objects back to main CEM objects
+  c(r_cem, 
+    list(dt_strata_covrd = dt_strata_covrd,
+         dt_reduc = dt_reduc))
+
+}
+
+
+gd_strata_covrg <- function(r_cem) {
+  #' get indicators how much data can be used
+  
+  ## get coverage of treatments/events
+  l_treatcols <- r_cem$config$treatment_cols
+  
+  dt_treat_covrg <- rbind(
+    r_cem$data[, colSums(.SD), .SDcols = l_treatcols] %>% vadt %>% .[, `:=`(time = "before", ttype = "all")],
+    r_cem$data[, colSums(sign(.SD)), .SDcols = l_treatcols] %>% vadt %>% .[, `:=`(time = "before", ttype="sign")],
+    r_cem$dt_reduc[, colSums(.SD), .SDcols =l_treatcols] %>% vadt %>% .[, `:=`(time = "after", ttype = "all")],
+    r_cem$dt_reduc[, colSums(sign(.SD)), .SDcols = l_treatcols] %>% vadt %>% .[, `:=`(time="after", ttype="sign")]) 
+
+  dt_treat_covrg[, stat := paste0("trt_", name, "_", ttype)]
+
+  ## see how many observations get yeeted by default for being composite treatments
+  dt_comptreat <- r_cem$data[, .(nbr_treat_unq = rowSums(sign(.SD)), nbr_treats_ttl = rowSums(.SD)), 
+                             .SDcols = l_treatcols] %>% 
+    .[nbr_treat_unq > 1, .(people = .N, treatments = sum(nbr_treats_ttl), treatunq = sum(nbr_treat_unq))] %>% 
+    melt(measure.vars = names(.), variable.name = "stat", value.name = "before") %>% 
+    .[, `:=`(stat = paste0("n_comptreat_", stat), after = 0)] # FIXME: wrong for composite treatments
+
+  ## get coverage of people, strata, units, combine with coverage
+  dt_sum <- tribble(~stat,~time,~vlu,
+                    "strata_cnt", "before", r_cem$strata_summary[, .N],
+                    "strata_cnt", "after", r_cem$dt_strata_covrd[, .N],
+                    "people_cnt", "before", r_cem$data[, uniqueN(PeopleID)],
+                    "people_cnt", "after", r_cem$dt_reduc[, uniqueN(PeopleID)],
+                    "units_cnt", "before", r_cem$data[, .N],
+                    "units_cnt", "after", r_cem$dt_reduc[, .N],
+                    "treatsttl_cnt", "before", r_cem$data[, sum(.SD), .SDcols = l_treatcols], 
+                    "treatsttl_cnt", "after", r_cem$dt_reduc[, sum(.SD), .SDcols = l_treatcols]) %>% adt %>% 
+            rbind(dt_treat_covrg[, .(stat, time, vlu)]) %>% 
+    dcast(stat ~ time, value.var = "vlu") %>% 
+    rbind(dt_comptreat)
+    
+  
+  dt_sum[, perc_after := 100*(after/before)]
+
+  return(dt_sum)
+}
