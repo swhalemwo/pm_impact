@@ -2341,7 +2341,9 @@ gp_coef_dm_stack <- function(dt_coef_dm_stack) {
            ymin = estimate - 1.96*std.error, ymax = estimate + 1.96*std.error))  +
   geom_point(position = position_dodge(width = 0.6)) +  
   geom_errorbar(position = position_dodge(width = 0.6)) +
-    facet_wrap(~dvrbl)
+    facet_wrap(~dvrbl, scales = "free") +
+    geom_hline(yintercept = 0, linetype = "dashed") +
+    theme(legend.position = "bottom")  
 }
 
 gl_cem_proc <- function(cfgx) {
@@ -2443,5 +2445,20 @@ gd_wald_fstack <- function(r_stack, r_cem) {
   ## some more inspection.. bit weird, the difference doesn't look so large
 
   rbind(dt_wald_all, dt_wald_iv, dt_wald_dv)
+
+}
+
+
+gf_did2 <- function(l_dvs, l_tps, l_iv) {
+  #' can use weights
+  #' estimate DVs of multiple forms in one go -> allows still single pass
+
+  l_tps2 <- l_tps[l_tps != 0]
+
+  dt_combs <- expand.grid(dv = l_dvs, tp = l_tps2) %>% adt %>% 
+    .[, dv_fmt := ifelse(tp > 0, sprintf("%s_d%s", dv, tp), sprintf("%s_dm%s", dv, abs(tp)))]
+
+  sprintf("c(%s) ~ %s | stratum", paste0(dt_combs[, dv_fmt], collapse = ","), 
+          paste0(l_iv, collapse = " + ")) %>% as.formula
 
 }
