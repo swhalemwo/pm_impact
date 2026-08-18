@@ -2282,3 +2282,116 @@ gd_strata_covrg <- function(r_cem) {
 
   return(dt_sum)
 }
+
+
+gd_coef_dm_stack <- function(r_stack) {
+  #' get the coefs from a stacked model 
+
+  tidy(r_stack) %>% adt %>%
+    .[, c("treat_bin", "treat", "dvrbl") := tstrsplit(term, ":")] %>%
+    .[, `:=`(treat = gsub("^contrast", "", treat), dvrbl = gsub("\\d", "", gsub("dvrbl", "", dvrbl)),
+             tp = -1*as.integer(str_extract(dvrbl, "\\d")))]
+}
+
+gp_coef_dm_stack <- function(dt_coef_dm_stack) {
+  #' plot coefs from a stacked model (for quick inspection)
+  ggplot(dt_coef_dm_stack, aes(x=factor(tp), y = estimate, color = treat, 
+           ymin = estimate - 1.96*std.error, ymax = estimate + 1.96*std.error))  +
+  geom_point(position = position_dodge(width = 0.6)) +  
+  geom_errorbar(position = position_dodge(width = 0.6)) +
+    facet_wrap(~dvrbl)
+}
+
+gl_cem_proc <- function(cfgx) {
+  #' process an entire CEM config
+
+  r_cemx <- gd_cem_strata(cfgx) # get strata
+  r_cemx_wdv <- gd_add_outcome_next(r_cemx) # add outcomes
+  r_cemx_stracov <- gd_cem_stracov(r_cemx_wdv) # reduce to covered strata
+
+  dt_stack <- gd_cem_stack(r_cemx_stracov) # stack for estimation
+  r_stack <- feols(dv ~ treat_bin:contrast:dvrbl | contrast^stratum^dvrbl, dt_stack, cluster = ~PeopleID, lean = F)
+
+  dt_covrg <- gd_strata_covrg(r_cemx_stracov) # assess coverage
+  dt_wald <- gd_wald_fstack(r_stack, r_cemx_stracov)
+  dt_coefs_stack <- gd_coef_dm_stack(r_stack)
+  
+
+  c(r_cemx_stracov, list(dt_coefs_stack = dt_coefs_stack, dt_covrg = dt_covrg, dt_wald = dt_wald))
+
+
+}
+
+
+gd_cem_stack <- function(r_cemx) {
+  #' stack the combinations of treatments, outcomes, timeperiods into one super long dt
+  #' then estimate ATT with 3-way interacted variables and 3-way (interacted) FE: treat:contrast:dvrbl
+  #' assumes binary treatment
+
+  dt_stack <- map(r_cemx$config$treatment_cols,
+                  ~r_cemx$dt_reduc[treat_chr == .x | treat_chr == "crol"] %>%
+                    .[, `:=`(contrast = factor(.x), treat_bin = fifelse(treat_chr == "crol", 0, 1))]) %>% rbindlist
+
+  l_vrbls_treat <- imap(r_cemx$config$outcome_cols, ~paste0(.y, "_d", 1:.x)) %>% unlist %>% unname
+  l_vrbls_pretreat <- imap(r_cemx$config$outcome_cols, ~paste0(.y, "_dm", 2:r_cemx$config$L)) %>% unname %>% unlist
+  
+  l_vrbls_tomelt <- c(l_vrbls_treat, l_vrbls_pretreat)
+
+
+  dt_stack2 <- melt(dt_stack, id.vars = c("PeopleID", "stratum", "contrast", "treat_bin"),
+                    measure.vars = l_vrbls_pretreat, variable.name = "dvrbl", value.name = "dv")
+
+
+  ## ooof OOM: could also just use pre-treatment variables if necessary
+  ### yeah only pre-treatment fits well in RAM (maybe needs ~6-8 GB)
+
+  return(dt_stack2)
+
+}
+
+
+
+gd_wald_fstack <- function(r_stack) {
+
+  #' run some wald test on stacked model
+  #' question is if in pre-treatment periods treated differ from non-treated
+  #' use wald test to combine multiple time periods, treatments and outcomes
+  #' run 3 kinds of test:
+  #' - overall (all periods, treatments, outcomes)
+  #' - iv: focus on treatment: do the pre-treatment effect of each treatment vary across different outcomes?
+  #' - dv: focus on dv: for a given outcome, do the treatments differ in their pre-treatment periods? 
+
+  ## wald(r_stack4) # overall
+  dt_wald_all <- wald(r_stack, vcov = "cluster", print = F) %>% adt %>%
+    .[, `:=`(type = "all", vrbl = "all")]
+  ## wald(r_stack4, vcov = cluster ~ contrast)
+  ## wald(r_stack4, vcov = cluster ~ contrast^stratum)
+  ## wald(r_stack4, vcov = cluster ~ contrast^stratum^dvrbl) equivalent to just "cluster"
+  ## wald(r_stack4, vcov = "twoway") # confusing
+  ## wald(r_stack4, vcov = "hetero") # confuse
+
+  ## l_treats <- tidy(r_stack) %>% adt %>% .[, 
+  
+  
+  l_treats <- r_cem$config$treatment_cols
+  ## pre-effect of PM across outcomes: do the pre-treatment effect of each treatment vary across different outcomes?
+  dt_wald_iv <- map(l_treats, ~wald(r_stack, keep = sprintf("treat_bin:contrast%s", .x),
+                                    vcov = cluster ~stratum^dvrbl, print = F)) %>% rbindlist %>%
+                .[, `:=`(vrbl = l_treats, type = "iv")]
+
+  ## effect of all instypes on PI outcome
+  ## wald(r_stack4,keep = "treat_bin:contrastexn_[^_]+:dvrblexn_pi", vcov = cluster~stratum^contrast)
+
+  dt_wald_dv <- map(l_treats, ~wald(r_stack, keep = sprintf("treat_bin:contrastexn_[^_]+:dvrbl%s", .x),
+                                    vcov = cluster~stratum^contrast, print = F)) %>% rbindlist %>%
+                .[, `:=`(vrbl = l_treats, type = "dv")]
+
+
+  ## wald(r_stack4,keep = "treat_bin:contrastexn_[^_]+:dvrblexn_pi", vcov = cluster~stratum^contrast)
+
+  ## wald(r_stack4,keep = "treat_bin:contrastexn_[^_]+:dvrblexn_toti_dm2", vcov = cluster~stratum^contrast)
+  ## some more inspection.. bit weird, the difference doesn't look so large
+
+  rbind(dt_wald_all, dt_wald_iv, dt_wald_dv)
+
+}
