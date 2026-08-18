@@ -2335,7 +2335,7 @@ gd_cem_stack <- function(r_cemx) {
   ## l_vrbls_treat <- imap(r_cemx$config$outcome_cols, ~paste0(.y, "_d", 1:.x)) %>% unlist %>% unname
   l_vrbls_pretreat <- imap(r_cemx$config$outcome_cols, ~paste0(.y, "_dm", 2:r_cemx$config$L)) %>% unname %>% unlist
   
-  l_vrbls_tomelt <- c(l_vrbls_treat, l_vrbls_pretreat)
+  ## l_vrbls_tomelt <- c(l_vrbls_treat, l_vrbls_pretreat)
 
 
   dt_stack2 <- melt(dt_stack, id.vars = c("PeopleID", "stratum", "contrast", "treat_bin"),
