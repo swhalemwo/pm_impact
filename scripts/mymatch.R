@@ -1061,6 +1061,48 @@ gd_ecdf <- function(dt_cov, treat, weights) {
 #   - Handles multiple treatment types simultaneously
 #   - Ensures matched units share identical histories across ALL treatment types
 #   - Is dramatically simpler computationally (no Cartesian joins, no sets)
+
+#' Show history-col coarsening breakpoints with per-bin counts.
+#'
+#' Reconstructs the bins actually used for the history columns of a CEM
+#' result and tabulates how many (prepped) observations fall into each bin.
+#' Useful for spotting collapsed/duplicate quantile breakpoints (e.g. under
+#' zero-inflation) and pathologically wide top bins.
+#'
+#' The breaks are recomputed exactly as in the pipeline: quantile breaks on
+#' the reference data (config$history_cols, config$history_nbins,
+#' config$history_breaks), then deduplicated the same way coarse_bin does
+#' (sort(unique(breaks))). Counts come from findInterval(x, c(-Inf, breaks, Inf))
+#' on the CEM-prepared data (config$dt_panel), matching coarse_bin assignment.
+#'
+#' @param cem_result List returned by gd_cem_strata.
+#' @return data.table with columns: hist_col (original column name), bin,
+#'   n (observations in bin), pct, lo, hi (range of the original values in bin).
+gd_hist_breaks_diag <- function(cem_result) {
+  cfg  <- cem_result$config
+  dt_d <- cem_result$data
+
+  ## reconstruct breaks exactly as gd_coarse_history does
+  nb_vec <- if (length(cfg$history_nbins) == 1L) rep(cfg$history_nbins, length(cfg$history_cols)) else cfg$history_nbins
+
+  map2_dfr <- function(cols, nbs) {
+    setNames(map2(cols, nbs, function(h, nb) {
+      br <- gd_hist_breaks_one(dt_d, h, nb)
+      br <- sort(unique(br))                  ## same dedup as coarse_bin
+      x  <- dt_d[[h]]
+      bins <- findInterval(x, c(-Inf, br, Inf))
+      dt_b <- data.table(bin = bins, vlu = x)[, .(n = .N,
+                                                  lo = min(vlu), hi = max(vlu)),
+                                              by = bin]
+      dt_b[, `:=`(pct = round(100 * n / nrow(dt_d), 1),
+                  n_breaks = length(br),
+                  br = paste(round(br, 3), collapse = ", "))]
+    }), cols)
+  }
+
+  l <- map2_dfr(cfg$history_cols, nb_vec)
+  rbindlist(l, idcol = "hist_col")
+}
 #   - Reuses existing coarsening/diagnostic infrastructure (coarse_bin,
 #     gd_coarse_breaks, gd_l1_med_both, gd_smd_vr)
 
