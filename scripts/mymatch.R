@@ -2076,12 +2076,13 @@ gd_add_outcome_next <- function(cem_result) {
   ## dt_d[PeopleID == 44, .SD, .SDcols = c("PeopleID", "year", names(outcome_cols), l_outcome_lagged, l_col_lead)]
   ## looks good
 
-  dt_lag_names <- expand.grid(L = 1:max(unlist(outcome_cols)), v = names(outcome_cols)) %>% adt %>% 
+  ## dt_lag_names <- expand.grid(L = 1:max(unlist(outcome_cols)), v = names(outcome_cols)) %>% adt %>%
+  dt_lag_names <- expand.grid(L = 1:cem_result$config$L, v = names(outcome_cols)) %>% adt %>% 
     .[, `:=`(name_old = paste0("L", L, ".", v), name_new = paste0(v, "_l",L))] %>%
     .[, `:=`(name_l1 = paste0(v,"_l1"))]
 
   dt_lag_dvs <- cbind(dt_full[, .SD, .SDcols = c(cfg$uid, cfg$tid)], 
-        collapse::L(dt_full, n= 1:max(unlist(outcome_cols)), cols = names(outcome_cols))) %>%
+        collapse::L(dt_full, n= 1:cem_result$config$L, cols = names(outcome_cols))) %>%
     setnames(old = dt_lag_names$name_old, new = dt_lag_names$name_new)
 
   dt_d2 <- join(dt_d1, dt_lag_dvs, on = c(cfg$uid, cfg$tid))
