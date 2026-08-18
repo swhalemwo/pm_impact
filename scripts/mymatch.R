@@ -2332,7 +2332,7 @@ gd_cem_stack <- function(r_cemx) {
                   ~r_cemx$dt_reduc[treat_chr == .x | treat_chr == "crol"] %>%
                     .[, `:=`(contrast = factor(.x), treat_bin = fifelse(treat_chr == "crol", 0, 1))]) %>% rbindlist
 
-  l_vrbls_treat <- imap(r_cemx$config$outcome_cols, ~paste0(.y, "_d", 1:.x)) %>% unlist %>% unname
+  ## l_vrbls_treat <- imap(r_cemx$config$outcome_cols, ~paste0(.y, "_d", 1:.x)) %>% unlist %>% unname
   l_vrbls_pretreat <- imap(r_cemx$config$outcome_cols, ~paste0(.y, "_dm", 2:r_cemx$config$L)) %>% unname %>% unlist
   
   l_vrbls_tomelt <- c(l_vrbls_treat, l_vrbls_pretreat)
