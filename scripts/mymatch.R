@@ -2351,7 +2351,7 @@ gd_cem_stack <- function(r_cemx) {
 
 
 
-gd_wald_fstack <- function(r_stack) {
+gd_wald_fstack <- function(r_stack, r_cem) {
 
   #' run some wald test on stacked model
   #' question is if in pre-treatment periods treated differ from non-treated
