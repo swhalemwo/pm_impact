@@ -2221,6 +2221,18 @@ gd_cem_stracov <- function(r_cem, treat_type = "binary") {
   dt_reduc <- r_cem$data[dt_strata_covrd, on = "stratum"] %>% 
     .[treat %in% l_rel_treat_cols]
 
+  ## set up treatment columns
+  l_treats <- c(
+    crol = paste0("ct_", paste0(rep(0, len(r_cem$config$treatment_cols)),collapse= ".")),
+    map(r_cem$config$treatment_cols, ~(.x == r_cem$config$treatment_cols) %>%
+                                                  as.integer %>% paste0(collapse = ".") %>%
+                                                 paste0("ct_", .)) %>% 
+  setNames(r_cem$config$treatment_cols)) %>%
+  setNames(names(.), .)
+
+  dt_reduc[, treat_chr := l_treats[as.character(treat)]]
+
+
   ## add objects back to main CEM objects
   c(r_cem, 
     list(dt_strata_covrd = dt_strata_covrd,
