@@ -2362,8 +2362,16 @@ gd_wald_fstack <- function(r_stack, r_cem) {
   #' - dv: focus on dv: for a given outcome, do the treatments differ in their pre-treatment periods? 
 
   ## wald(r_stack4) # overall
-  dt_wald_all <- wald(r_stack, vcov = "cluster", print = F) %>% adt %>%
+  dt_wald_all <- wald(r_stack, vcov = cluster ~ PeopleID, print = F) %>% adt %>%
     .[, `:=`(type = "all", vrbl = "all")]
+
+  ## wald(r_stack, vcov = "cluster", print = F) # p = 0.01
+  ## wald(r_stack, vcov = cluster ~ PeopleID, print = F) # p=0.2
+  ## wald(r_stack, cluster = "PeopleID", print = F) # p=0.2
+  ## wald(r_stack, cluster = ~PeopleID, print = F) # p=0.2
+  ## wald(r_stack, vcov = cluster~contrast^stratum^dvrbl, print = F) # p=0.01
+  
+  
   ## wald(r_stack4, vcov = cluster ~ contrast)
   ## wald(r_stack4, vcov = cluster ~ contrast^stratum)
   ## wald(r_stack4, vcov = cluster ~ contrast^stratum^dvrbl) equivalent to just "cluster"
@@ -2376,14 +2384,14 @@ gd_wald_fstack <- function(r_stack, r_cem) {
   l_treats <- r_cem$config$treatment_cols
   ## pre-effect of PM across outcomes: do the pre-treatment effect of each treatment vary across different outcomes?
   dt_wald_iv <- map(l_treats, ~wald(r_stack, keep = sprintf("treat_bin:contrast%s", .x),
-                                    vcov = cluster ~stratum^dvrbl, print = F)) %>% rbindlist %>%
+                                    vcov = cluster ~PeopleID, print = F)) %>% rbindlist %>%
                 .[, `:=`(vrbl = l_treats, type = "iv")]
 
   ## effect of all instypes on PI outcome
   ## wald(r_stack4,keep = "treat_bin:contrastexn_[^_]+:dvrblexn_pi", vcov = cluster~stratum^contrast)
 
   dt_wald_dv <- map(l_treats, ~wald(r_stack, keep = sprintf("treat_bin:contrastexn_[^_]+:dvrbl%s", .x),
-                                    vcov = cluster~stratum^contrast, print = F)) %>% rbindlist %>%
+                                    vcov = cluster~PeopleID, print = F)) %>% rbindlist %>%
                 .[, `:=`(vrbl = l_treats, type = "dv")]
 
 
