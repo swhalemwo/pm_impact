@@ -1062,46 +1062,123 @@ gd_ecdf <- function(dt_cov, treat, weights) {
 #   - Ensures matched units share identical histories across ALL treatment types
 #   - Is dramatically simpler computationally (no Cartesian joins, no sets)
 
-#' Show history-col coarsening breakpoints with per-bin counts.
+#' Show coarsening breakpoints with per-bin counts for history columns and covariates.
 #'
-#' Reconstructs the bins actually used for the history columns of a CEM
-#' result and tabulates how many (prepped) observations fall into each bin.
+#' Reconstructs the bins actually used by the CEM pipeline and tabulates how
+#' many observations fall into each bin, for \code{cem_result$data} and — if
+#' present (i.e. after \code{gd_cem_stracov}) — \code{cem_result$dt_reduc},
+#' so one can see how much of each group survives into the final
+#' (covered-strata) data.
+#'
 #' Useful for spotting collapsed/duplicate quantile breakpoints (e.g. under
 #' zero-inflation) and pathologically wide top bins.
 #'
-#' The breaks are recomputed exactly as in the pipeline: quantile breaks on
-#' the reference data (config$history_cols, config$history_nbins,
-#' config$history_breaks), then deduplicated the same way coarse_bin does
-#' (sort(unique(breaks))). Counts come from findInterval(x, c(-Inf, breaks, Inf))
-#' on the CEM-prepared data (config$dt_panel), matching coarse_bin assignment.
+#' Breaks are recomputed exactly as in the pipeline — for history columns
+#' quantile/equal/none per \code{cfg$history_breaks} on \code{cfg$dt_panel}
+#' (as \code{gd_prep_multivar_hist}), for covariates quantile breaks on the
+#' prepped data (as \code{gd_cem_strata} via \code{gd_coarse_breaks}) — then
+#' deduplicated the same way \code{coarse_bin} does (sort(unique(breaks))).
+#' The same breaks are used for all sources, so bins are comparable between
+#' \code{data} and \code{dt_reduc}.
+#'
+#' @param cem_result List returned by gd_cem_strata (or gd_cem_stracov).
+#' @return data.table with columns: src ("data"/"dt_reduc"), type ("hist"/"cov"),
+#'   col (column name), bin, n (observations in bin), pct, lo, hi (range of the
+#'   original values in bin), n_breaks, br (breakpoints).
+gd_hist_breaks_diag <- function(cem_result) {
+  #' show effective coarsening bins for history cols and covariates
+  #' for cem_result$data and — if present — cem_result$dt_reduc
+
+  cfg <- cem_result$config
+
+  ## sources to tabulate (dt_reduc may be absent if gd_cem_stracov wasn't run)
+  l_srcs <- list(data = cem_result$data,
+                 dt_reduc = cem_result$dt_reduc) %>%
+    .[!map_lgl(., is.null)]
+
+  ## column specs: (type, col)
+  dt_specs <- rbindlist(list(
+    if (length(cfg$history_cols) > 0)
+      data.table(type = "hist", col = cfg$history_cols),
+    if (length(cfg$covariate_cutpoints) > 0)
+      data.table(type = "cov", col = names(cfg$covariate_cutpoints))))
+
+  ## breaks per column, computed once on the pipeline's reference and shared
+  ## across sources so bins are comparable
+  l_breaks <- map2(dt_specs$type, dt_specs$col,
+                   ~gd_breaks_diag_breaks(cem_result, .x, .y)) %>%
+    setNames(dt_specs$col)
+
+  ## tabulate each source × column
+  imap(l_srcs, ~gd_breaks_diag_src(.x, .y, dt_specs, l_breaks)) %>%
+    rbindlist
+}
+
+#' Compute the effective breakpoints for one column, exactly as the pipeline does.
+#'
+#' History columns: quantile breaks on config$dt_panel (as gd_prep_multivar_hist),
+#' equal-width breaks, or raw values, depending on cfg$history_breaks.
+#' Covariates: quantile breaks on the prepped data (as gd_cem_strata via
+#' gd_coarse_breaks); explicit break vectors are used as-is.
 #'
 #' @param cem_result List returned by gd_cem_strata.
-#' @return data.table with columns: hist_col (original column name), bin,
-#'   n (observations in bin), pct, lo, hi (range of the original values in bin).
-gd_hist_breaks_diag <- function(cem_result) {
-  cfg  <- cem_result$config
-  dt_d <- cem_result$data
+#' @param type String. "hist" or "cov".
+#' @param col String. Column name.
+#' @return Numeric vector of breakpoints (deduplicated in gd_breaks_diag_one).
+gd_breaks_diag_breaks <- function(cem_result, type, col) {
+  #' get the breakpoints for one column as the pipeline computes them
+  cfg <- cem_result$config
 
-  ## reconstruct breaks exactly as gd_coarse_history does
-  nb_vec <- if (length(cfg$history_nbins) == 1L) rep(cfg$history_nbins, length(cfg$history_cols)) else cfg$history_nbins
-
-  map2_dfr <- function(cols, nbs) {
-    setNames(map2(cols, nbs, function(h, nb) {
-      br <- gd_hist_breaks_one(dt_d, h, nb)
-      br <- sort(unique(br))                  ## same dedup as coarse_bin
-      x  <- dt_d[[h]]
-      bins <- findInterval(x, c(-Inf, br, Inf))
-      dt_b <- data.table(bin = bins, vlu = x)[, .(n = .N,
-                                                  lo = min(vlu), hi = max(vlu)),
-                                              by = bin]
-      dt_b[, `:=`(pct = round(100 * n / nrow(dt_d), 1),
-                  n_breaks = length(br),
-                  br = paste(round(br, 3), collapse = ", "))]
-    }), cols)
+  if (type == "hist") {
+    nb <- cfg$history_nbins %||% 5L
+    if (length(nb) > 1L) nb <- nb[[match(col, cfg$history_cols)]]
+    switch(cfg$history_breaks %||% "quantile",
+      quantile = gd_hist_breaks_one(cfg$dt_panel, col, nb),
+      equal    = { rng <- range(cfg$dt_panel[[col]], na.rm = TRUE)
+                   seq(rng[1], rng[2], length.out = nb + 1)[2:nb] },
+      none     = sort(unique(cfg$dt_panel[[col]])),
+      stop("gd_breaks_diag_breaks: unknown history_breaks '", cfg$history_breaks, "'"))
+  } else {
+    cp <- cfg$covariate_cutpoints[[col]]
+    if (is.null(cp)) stop("gd_breaks_diag_breaks: covariate_cutpoints must specify a value for ", col)
+    if (is.numeric(cp) && length(cp) > 1) cp
+    else gd_breaks_one(col, cem_result$data, cfg$covariate_cutpoints)
   }
+}
 
-  l <- map2_dfr(cfg$history_cols, nb_vec)
-  rbindlist(l, idcol = "hist_col")
+#' Tabulate bin counts for one column given breakpoints (helper for gd_hist_breaks_diag).
+#'
+#' @param dt_src data.table. Source data (e.g. cem_result$data or $dt_reduc).
+#' @param col String. Column name.
+#' @param br Numeric breakpoints (deduplicated inside, as coarse_bin does).
+#' @param src String. Source label ("data" / "dt_reduc").
+#' @param type String. "hist" or "cov".
+#' @return data.table with columns src, type, col, bin, n, pct, lo, hi, n_breaks, br.
+gd_breaks_diag_one <- function(dt_src, col, br, src, type) {
+  #' tabulate one column's bins given (deduplicated) breakpoints
+  x <- dt_src[[col]]
+  br <- sort(unique(br))
+  bins <- findInterval(x, c(-Inf, br, Inf))
+  data.table(bin = bins, vlu = x)[, .(n = .N, lo = min(vlu), hi = max(vlu)), by = bin] %>%
+    .[, `:=`(src = src, type = type, col = col,
+             pct = round(100 * n / nrow(dt_src), 1),
+             n_breaks = length(br),
+             br = if (length(br) <= 30) paste(round(br, 3), collapse = ", ")
+                  else sprintf("%d unique breaks", length(br)))]
+}
+
+#' Tabulate all columns for one data source (helper for gd_hist_breaks_diag).
+#'
+#' @param dt_src data.table. Source data.
+#' @param src String. Source label.
+#' @param dt_specs data.table with columns type, col.
+#' @param l_breaks Named list of breakpoints per column.
+#' @return data.table of bin counts for all columns in this source.
+gd_breaks_diag_src <- function(dt_src, src, dt_specs, l_breaks) {
+  #' tabulate all columns for one data source
+  map2(dt_specs$type, dt_specs$col,
+       ~gd_breaks_diag_one(dt_src, .y, l_breaks[[.y]], src, .x)) %>%
+    rbindlist
 }
 #   - Reuses existing coarsening/diagnostic infrastructure (coarse_bin,
 #     gd_coarse_breaks, gd_l1_med_both, gd_smd_vr)
