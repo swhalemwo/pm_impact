@@ -1529,6 +1529,8 @@ gd_cem_strata <- function(config) {
     l_breaks <- gd_coarse_breaks(dt_prep, covariate_cutpoints)
     coarse_cov_cols <- paste0(".cr_", covariate_cols)
     dt_prep[, (coarse_cov_cols) := map(covariate_cols, ~coarse_bin(get(.x), breaks = l_breaks[[.x]]))]
+
+    dt_prep <- dt_prep[complete.cases(dt_prep[, .SD, .SDcols = covariate_cols])] # yoin incomplete observations
   }
 
   ## step 3: form strata from year + hist_str + coarse covariates
