@@ -13,11 +13,18 @@ gd_atyear_foster <- function(dt_atyear_raw, c_filters_atyear) {
     l_cols_exn_s5 <- paste0(l_cols_exn, "_s5") # previous
     l_cols_exn_n5 <- paste0(l_cols_exn, "_n5") # next
     
+    l_cols_exn_s4 <- paste0(l_cols_exn, "_s4") # previous
+    l_cols_exn_s3 <- paste0(l_cols_exn, "_s3")
+
     l_cols_exn_cum <- paste0(l_cols_exn, "_cum")
 
     dt_atyear_lagprep1 <- dt_atyear_raw_fltrd %>% copy %>% # .[PeopleID == 44] %>% 
         .[, (l_cols_exn_s5) := frollsum(.SD, n=6, fill = NA), PeopleID, .SDcols = l_cols_exn] %>%
         .[, (l_cols_exn_s5) := map(l_cols_exn, ~.SD[, get(paste0(.x, "_s5")) - get(.x)])] %>%
+        .[, (l_cols_exn_s4) := frollsum(.SD, n=5, fill = NA), PeopleID, .SDcols = l_cols_exn] %>%
+        .[, (l_cols_exn_s4) := map(l_cols_exn, ~.SD[, get(paste0(.x, "_s4")) - get(.x)])] %>%
+        .[, (l_cols_exn_s3) := frollsum(.SD, n=4, fill = NA), PeopleID, .SDcols = l_cols_exn] %>%
+        .[, (l_cols_exn_s3) := map(l_cols_exn, ~.SD[, get(paste0(.x, "_s3")) - get(.x)])] %>%        
         .[, (l_cols_exn_n5) := frollsum(.SD, n = 6, fill = NA, align = "left"), PeopleID,.SDcols=l_cols_exn] %>%
         .[, (l_cols_exn_n5) := map(l_cols_exn, ~.SD[, get(paste0(.x, "_n5")) - get(.x)])] %>%
         .[, (l_cols_exn_cum) := fcumsum(.SD), PeopleID, .SDcols = l_cols_exn] %>%
@@ -35,7 +42,7 @@ gd_atyear_foster <- function(dt_atyear_raw, c_filters_atyear) {
 
     ## dt_atyear_lagprep2[PeopleID ==44, .(PeopleID, age, year, exn_all, exn_all_s5, exn_all_n5, exn_all_cum, exn_all_cum_n5)] %>% print(n=80)
     # Apply transformations for all relevant columns
-    l_all_exhb_cols <- c(l_cols_exn, l_cols_exn_s5, l_cols_exn_n5, l_cols_exn_cum)
+    l_all_exhb_cols <- c(l_cols_exn, l_cols_exn_s5, l_cols_exn_n5, l_cols_exn_cum, l_cols_exn_s4, l_cols_exn_s3)
     
     # Define transformation functions
     ihs <- function(x) asinh(x)
