@@ -2426,12 +2426,20 @@ gp_coef_dm_stack <- function(dt_coef_dm_stack) {
 gl_cem_proc <- function(cfgx) {
   #' process an entire CEM config
 
-  r_cemx <- gd_cem_strata(cfgx) # get strata
-  r_cemx_wdv <- gd_add_outcome_next(r_cemx) # add outcomes
-  r_cemx_stracov <- gd_cem_stracov(r_cemx_wdv) # reduce to covered strata
+  ## r_cemx <- gd_cem_strata(cfgx) # get strata
+  ## r_cemx_wdv <- gd_add_outcome_next(r_cemx) # add outcomes
+  ## r_cemx_stracov <- gd_cem_stracov(r_cemx_wdv) # reduce to covered strata
+
+  r_cemx_stracov <- gd_cem_strata(cfgx) %>% # get strata
+    gd_add_outcome_next %>% # add outcomes
+    gd_cem_stracov # reduce to covered strata
+
+
 
   dt_stack <- gd_cem_stack(r_cemx_stracov) # stack for estimation
-  r_stack <- feols(dv ~ treat_bin:contrast:dvrbl | contrast^stratum^dvrbl, dt_stack, cluster = ~PeopleID)
+  r_stack <- feols(dv ~ treat_bin:contrast:dvrbl | contrast^stratum^dvrbl, dt_stack, cluster = ~PeopleID, mem.clean = T)
+
+  
 
   dt_covrg <- gd_strata_covrg(r_cemx_stracov) # assess coverage
   dt_wald <- gd_wald_fstack(r_stack, r_cemx_stracov)
