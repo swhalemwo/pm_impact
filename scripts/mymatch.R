@@ -2536,7 +2536,7 @@ gd_wald_fstack <- function(r_stack, r_cem) {
 }
 
 
-gf_did2 <- function(l_dvs, l_tps, l_iv) {
+gf_did2 <- function(l_dvs, l_tps, l_iv, l_fe = "stratum") {
   #' can use weights
   #' estimate DVs of multiple forms in one go -> allows still single pass
 
@@ -2545,8 +2545,10 @@ gf_did2 <- function(l_dvs, l_tps, l_iv) {
   dt_combs <- expand.grid(dv = l_dvs, tp = l_tps2) %>% adt %>% 
     .[, dv_fmt := ifelse(tp > 0, sprintf("%s_d%s", dv, tp), sprintf("%s_dm%s", dv, abs(tp)))]
 
-  sprintf("c(%s) ~ %s | stratum", paste0(dt_combs[, dv_fmt], collapse = ","), 
-          paste0(l_iv, collapse = " + ")) %>% as.formula
+  sprintf("c(%s) ~ %s | %s",
+          paste0(dt_combs[, dv_fmt], collapse = ","), 
+          paste0(l_iv, collapse = " + "),
+          l_fe) %>% as.formula
 
 }
 
