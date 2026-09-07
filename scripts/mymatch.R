@@ -2271,34 +2271,6 @@ gf_did <- function(dv, l_tps, l_iv) {
 }
 
 
-#' extract coefs from DiD model estimated with fixest
-#' @param rx DiD model estimated with fixest (multiple LHS)
-#' @return data.table with coef estimates, timepoints (tp), terms
-gd_coef_did <- function(rx) {
-
-  dt_coef <- map(rx, tidy) %>% rbindlist(idcol = "mdl")
-
-  dt_coef[, tp_prep := gsub("lhs: exn_", "", mdl)] %>%
-    .[, c("dv", "tp_prep2") := tstrsplit(tp_prep, "_")] %>% 
-    .[, `:=`(tdir = fifelse(grepl("dm", tp_prep2), -1, 1), tlen = as.integer(gsub("[a-z]", "", tp_prep2)))] %>%
-    .[, tp := tdir * tlen] %>%
-    .[, `:=`(tdir = NULL, tlen = NULL)]
-
-  return(dt_coef)
-  
-}
-
-#' visualize dt_coef_did
-#' @param dt_coef_did data.table of did coefs produced by gd_coef_did
-gp_coef_did <- function(dt_coef_did) {
-  
-  dt_coef_did %>%
-    .[grepl("exn_", term)] %>% 
-    ggplot(aes(x=tp, y = estimate, color = term,
-                    ymin = estimate - 1.96*std.error, ymax = estimate + 1.96*std.error)) +
-    geom_point() + geom_errorbar()
-}
-
 
 gl_treat_cols <- function(r_cem, treat_type ="binary") {
   #' get treatment columns
