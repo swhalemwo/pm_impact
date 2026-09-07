@@ -390,6 +390,7 @@ sbw_fit_year <- function(dty, p_out, l_fs, l_fit_args, y) {
   }
   w <- as.numeric(r$weights)
   saveRDS(w, p_out)
+
   list(n_fit = nrow(dty), status = r$info$status, iter = r$info$iter,
        run_time = r$info$run_time)
 }
@@ -425,6 +426,8 @@ gd_sbw_attach_w <- function(dt, v_years, dir_run, l_use, v_tid, wcol) {
   l_att <- map(v_years, sbw_load_year, dt = dt, dir_run = dir_run,
                l_use = l_use, v_tid = v_tid) %>% setNames(v_years)
 
+  ## sbw_load_year(dt, y = 2012, dir_run =  dir_run, l_use = l_use, v_tid = v_tid)
+
   dt[, (wcol) := NA_real_]
   dt[data.table::rbindlist(map(l_att, ~.x$dt_w)), on = ".ridx", (wcol) := i.w]
   map_dbl(l_att, ~.x$n_fit)
@@ -456,6 +459,8 @@ gl_sbw_weights <- function(c_sbw, dt, dt_years, l_fs, b_force = FALSE) {
   ## fit the missing years (parallel across years, PSOCK only)
   v_miss <- v_years[!l_cached]
   if (length(v_miss) > 0) {
+
+    ## split data frames
     l_ycc <- map(v_miss, sbw_year_slice, dt = dt, v_tid = v_tid, l_use = l_use) %>%
       setNames(v_miss)
 
@@ -471,12 +476,16 @@ gl_sbw_weights <- function(c_sbw, dt, dt_years, l_fs, b_force = FALSE) {
                        })
 
     if (c_sbw$n_cores > 1) {
+
       Sys.setenv(OPENBLAS_NUM_THREADS = "1") ## fork + OpenBLAS threads deadlocks
       cl <- parallel::makeCluster(c_sbw$n_cores, type = "PSOCK")
       on.exit(parallel::stopCluster(cl))
       l_r <- parallel::clusterMap(cl, sbw_fit_year, l_ycc, l_paths[as.character(v_miss)],
                                   MoreArgs = list(l_fs = l_fs, l_fit_args = l_fit_args,
                                                   y = as.character(v_miss)))
+
+      ## sbw_fit_year(l_ycc$`2012`, l_paths[as.character(v_miss)], l_fs = l_fs, l_fit_args = l_fit_args, y = "2012")
+      
     } else {
       l_r <- map2(l_ycc, l_paths[as.character(v_miss)], sbw_fit_year,
                   l_fs = l_fs, l_fit_args = l_fit_args, y = as.character(v_miss))
@@ -506,6 +515,7 @@ gl_sbw_weights <- function(c_sbw, dt, dt_years, l_fs, b_force = FALSE) {
   list(dt_fit = dt_fit, dir_run = dir_run, hash = hash,
        from_cache_all = all(l_cached),
        elapsed_s = round(as.numeric(difftime(Sys.time(), t0, units = "secs")), 2))
+
 }
 
 
