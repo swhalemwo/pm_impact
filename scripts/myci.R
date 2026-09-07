@@ -46,3 +46,68 @@ gd_ess <- function(r_weight) {
   return(dt_ess)
 }
 
+
+check_cors_owmv <- function(r_ow) {
+  #' inspect correlations after weighting
+
+  l_treats <- map(r_ow$treat.list, ~attr(.x, "treat.name")) %>% unlist
+  ## assume same covs for all treats
+
+  if (isFALSE(Reduce(\(x,y) if(setequal(x,y)) x else return(FALSE), map(r_ow$covs.list, names)))) {
+    stop("requires same covariates for each treatment")
+  }
+  
+  dt_covs <- r_ow$covs.list[1] %>% adt
+
+  dt_treats <- r_ow$treat.list %>% adt %>% setnames(l_treats)
+  dt_cbn <- cbind(dt_treats, dt_covs)
+  
+  ## correlation of weighted
+  dt_cor_ww <- suppressWarnings(wtd.cor(dt_treats, num_vars(dt_cbn), weight = r_ow$weights)) %>%
+    map(~adt(.x, keep.rownames = "vrbl")) %>% ## rbindlist
+      ## dt_cor_ww %>%
+    rbindlist(idcol = "mes") %>%
+    melt(id.vars = c("vrbl", "mes"), measure.vars = l_treats) %>% 
+    dcast(vrbl + variable ~ mes) %>% .[, src := "mv"] %>%
+    .[, correlation := round(correlation, 3)]
+
+  ## correlation unweighted
+  dt_cor_raw <- suppressWarnings(wtd.cor(dt_treats, num_vars(dt_cbn))) %>%
+    map(~adt(.x, keep.rownames = "vrbl")) %>% rbindlist(idcol = "mes") %>%
+    melt(id.vars = c("vrbl", "mes"), measure.vars = l_treats) %>%
+    dcast(vrbl + variable ~ mes) %>% .[, src := "raw"]
+  
+
+  rbind(dt_cor_ww, dt_cor_raw) %>%
+    .[vrbl != variable] %>%
+    ## .[!(vrbl %in% l_treats & variable %in% l_treats)] %>% 
+    dcast(vrbl + variable ~ src, value.var = c("correlation", "p.value")) %>%
+    .[, corprop_mv_raw := correlation_mv/correlation_raw] # see to which proportion correlation is shrunk
+
+
+}
+
+check_cors_weightit <- function(rx) {
+
+  dt_treat <- data.table(treat = rx$treat)
+  dt_covs <- adt(rx$covs)
+
+  ## l_covs <- names(dt_covs)
+  dt_covs_fac <- fact_vars(dt_covs)
+
+  ## expand factor columns
+  dt_covs_expnd <- apply(dt_covs_fac, 2, \(x) model.matrix(~x-1)) %>%
+    imap(~adt(.x) %>% setnames(old = names(.), new = paste0(.y, names(.)))) %>% cbindlist
+  
+  dt_covs_cbn <- cbind(num_vars(dt_covs), dt_covs_expnd)
+
+  r_cor_wtd <- wtd.cor(dt_treat, dt_covs_cbn, weight = rx$weight)
+  r_cor_uwtd <- wtd.cor(dt_treat, dt_covs_cbn)
+
+  imap(list("wtd" = r_cor_wtd, "uwtd" = r_cor_uwtd),
+       ~adt(.x, keep.rownames = "vrbl")[, src := .y]) %>% rbindlist %>%
+    dcast(vrbl ~ src, value.var = "correlation") %>% adt %>% 
+    .[, corprop_wtd := round(wtd/uwtd,4)]
+
+}
+
