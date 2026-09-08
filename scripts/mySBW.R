@@ -188,7 +188,14 @@ gd_sbw_check <- function(c_sbw) {
 
 
 gd_sbw_shiftcols <- function(l_cols, n, dir = "l") {
-  #' shifted column names in data.table::shift(.SD) order: col-major, n inner
+  #' Column names produced by data.table::shift(.SD, 1:n): col-major, the lag
+  #' distance is the fastest-varying index. Used so that generated names match
+  #' the columns := creates (treat-major, distance-inner).
+  #'
+  #' @param l_cols character vector of source column names (e.g. treatments)
+  #' @param n      maximum shift distance
+  #' @param dir    suffix letter: "l" (lag) or "f" (lead)
+  #' @return character vector of length length(l_cols) * n
   paste0(rep(l_cols, each = n), "_", dir, rep(seq_len(n), times = length(l_cols)))
 }
 
@@ -225,23 +232,30 @@ gf_sbw_formulas <- function(c_sbw) {
 
 
 md_sbw_panel <- function(c_sbw) {
-  #' build working panel (lean copy, original dt_panel untouched): keeps
-  #' uid/tid/treats/covs and adds lags (to max(n_lag, impact_years)), plus
-  #' DiD outcome columns exn_X_d{k} = f{k} - l1 and exn_X_dm{k} = l{k} - l1
-  #' (k >= 2; l1 is the DiD baseline). Leads are intermediate and dropped.
-
-  c_sbw <- md_sbw_defaults(c_sbw)
+  #' Build the working panel from the base dt_panel (a lean copy; the input
+  #' is never modified): keeps uid/tid/treatments/covariates and adds
+  #'   - treatment lags exn_X_l1..l{max_lag}   (max_lag = max(n_lag, impact_years);
+  #'     lags beyond n_lag serve as unbalanced placebo pre-periods)
+  #'   - outcome columns exn_X_d{k}  = lead k - l1  (k = 1..impact_years)
+  #'   - outcome columns exn_X_dm{k} = lag k - l1   (k = 2..L_lag; dm1 = 0 is
+  #'     the DiD baseline by construction and is not stored)
+  #' Intermediate lead columns are dropped again.
+  #'
+  #' @param c_sbw defaulted config
+  #' @return data.table: the working panel
   l_treats <- c_sbw$treatment_cols
-  l_covs <- c_sbw$covariate_cols
-  K <- c_sbw$impact_years
-  L_lag <- max(c_sbw$n_lag, K)
+  l_covs   <- c_sbw$covariate_cols
+  K        <- c_sbw$impact_years
+  ## max_lag    <- max(c_sbw$n_lag, K)
+  max_lag    <- c_sbw$n_lag
+  
 
-  ## generated column names must not collide with panel columns (the pipeline
-  ## owns the *_l/*_d/*_dm namespace; pass the base panel without these)
-  l_new <- c(gd_sbw_shiftcols(l_treats, L_lag, "l"),
-             gd_sbw_shiftcols(l_treats, K, "f"),
-             sprintf("%s_d%d", rep(l_treats, each = K), seq_len(K)),
-             if (L_lag > 1) sprintf("%s_dm%d", rep(l_treats, each = L_lag - 1), 2:L_lag) else character(0))
+  ## generated names must not collide with base panel columns (the pipeline
+  ## owns the *_l/*_f/*_d/*_dm namespace)
+  l_new <- c(gd_sbw_shiftcols(l_treats, max_lag, "l"),  # lags
+             gd_sbw_shiftcols(l_treats, K, "f"), # leads
+             sprintf("%s_d%d", rep(l_treats, each = K), seq_len(K)), # forward diffs
+             if (max_lag > 1) sprintf("%s_dm%d", rep(l_treats, each = max_lag - 1), 2:max_lag) else character(0)) # backward diffs
   l_clash <- intersect(l_new, names(c_sbw$dt_panel))
   if (length(l_clash) > 0) {
     stop(sprintf("dt_panel already contains pipeline-generated columns: %s. ",
@@ -249,42 +263,48 @@ md_sbw_panel <- function(c_sbw) {
          "Pass the base panel (no precomputed lags/leads).")
   }
 
-  dt <- copy(c_sbw$dt_panel[, c(c_sbw$uid, c_sbw$tid, l_treats, l_covs), with = FALSE])
-  setorderv(dt, c(c_sbw$uid, c_sbw$tid))
+  dt_working <- copy(c_sbw$dt_panel[, c(c_sbw$uid, c_sbw$tid, l_treats, l_covs), with = FALSE])
+  setorderv(dt_working, c(c_sbw$uid, c_sbw$tid))
 
-  ## lags of treatments (to L_lag; lags beyond n_lag serve as unbalanced placebo pre-periods)
-  l_lagcols <- gd_sbw_shiftcols(l_treats, L_lag, "l")
-  dt[, (l_lagcols) := shift(.SD, 1:L_lag, type = "lag"),
-     by = c(c_sbw$uid), .SDcols = l_treats]
+  ## lags of treatments (to max_lag)
+  l_lagcols <- gd_sbw_shiftcols(l_treats, max_lag, "l")
+
+  ## dt_working[, (l_lagcols) := shift(.SD, 1:max_lag, type = "lag"), by = c(c_sbw$uid), .SDcols = l_treats]
+  dt_working[,  (l_lagcols) := collapse::L(.SD, n = 1:max_lag, by = get(c_sbw$uid)), .SDcols = l_treats]
+    
 
   ## covariate lags (numeric covariates only; enforced in gd_sbw_check)
+  ## CHECK ME, not fully tested
+  ## covariate lagging not sufficiently flexible me thinks: difference between time-invariant and categorical
   if (c_sbw$n_lag_cov > 0) {
     l_covlagcols <- gd_sbw_shiftcols(l_covs, c_sbw$n_lag_cov, "l")
-    dt[, (l_covlagcols) := shift(.SD, 1:c_sbw$n_lag_cov, type = "lag"),
-       by = c(c_sbw$uid), .SDcols = l_covs]
+    ## dt_working[, (l_covlagcols) := shift(.SD, 1:c_sbw$n_lag_cov, type = "lag"),
+    ##            by = c(c_sbw$uid), .SDcols = l_covs]
+    dt_working[, (l_covlagcols) := shift(.SD, n = 1:c_sbw$n_lag_cov, by = get(c_sbw$uid)), .SDcols = l_covs]
   }
 
   ## leads of treatments (intermediate)
   l_fcols <- gd_sbw_shiftcols(l_treats, K, "f")
-  dt[, (l_fcols) := shift(.SD, 1:K, type = "lead"),
-     by = c(c_sbw$uid), .SDcols = l_treats]
+  ## dt_working[, (l_fcols) := shift(.SD, 1:K, type = "lead"), by = c(c_sbw$uid), .SDcols = l_treats]
+  dt_working[, (l_fcols) := collapse::L(.SD, n=-(1:K), by = get(c_sbw$uid)), .SDcols = l_treats]
 
-  ## d{k} = f{k} - l1 (k = 1..K)
-  l_l1 <- gd_sbw_shiftcols(l_treats, 1, "l")
-  l_dcols <- sprintf("%s_d%d", rep(l_treats, each = K), seq_len(K))
-  dt[, (l_dcols) := map2(l_fcols, rep(l_l1, each = K), ~get(.x) - get(.y))]
+  ## d{k} = lead{k} - l1
+  l_l1cols <- gd_sbw_shiftcols(l_treats, 1, "l")
+  l_dcols  <- sprintf("%s_d%d", rep(l_treats, each = K), seq_len(K))
+  dt_working[, (l_dcols) := map2(l_fcols, rep(l_l1cols, each = K), ~get(.x) - get(.y))]
 
-  ## dm{k} = l{k} - l1 (k = 2..L_lag; dm1 = 0 would be the baseline)
-  if (L_lag > 1) {
-    l_dmcols <- sprintf("%s_dm%d", rep(l_treats, each = L_lag - 1), 2:L_lag)
-    ## drop each treatment's _l1 entry (positions 1, 1+L_lag, ... in col-major order)
-    l_dmsrcs <- l_lagcols[-seq(1, length(l_lagcols), by = L_lag)]
-    dt[, (l_dmcols) := map2(l_dmsrcs, rep(l_l1, each = L_lag - 1), ~get(.x) - get(.y))]
+  ## dm{k} = lag{k} - l1  (k = 2..L_lag)
+  if (max_lag > 1) {
+    l_dmcols  <- sprintf("%s_dm%d", rep(l_treats, each = max_lag - 1), 2:max_lag)
+    ## source lags: every column except each treatment's _l1 (positions
+    ## 1, 1+max_lag, ... in the col-major name order)
+    l_dmsrcs  <- l_lagcols[-seq(1, length(l_lagcols), by = max_lag)]
+    dt_working[, (l_dmcols) := map2(l_dmsrcs, rep(l_l1cols, each = max_lag - 1), ~get(.x) - get(.y))]
   }
 
-  ## leads are intermediate -> drop
-  dt[, (l_fcols) := NULL]
-  dt
+  ## leads were intermediate -> drop
+  ## dt_working[, (l_fcols) := NULL]
+  return(dt_working)
 }
 
 
