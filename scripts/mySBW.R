@@ -438,94 +438,133 @@ gf_sbw_hash <- function(c_sbw, dt_years, dt) {
 }
 
 
-sbw_fit_year <- function(dty, p_out, l_fs, l_fit_args, y) {
-  #' fit one year of optweightMV, write weights to p_out (runs on PSOCK workers
-  #' or in the master process); returns solver diagnostics
+gd_sbw_fit_year <- function(dt_year, p_out, l_fs, l_fit_args, year, uid_col,
+                            tid_col) {
+  #' Fit optweightMV for one year's complete rows and write the weights to
+  #' disk. Runs either in the master process or on a PSOCK worker. The
+  #' weights file stores (uid, tid, w) per row, so nothing depends on order.
+  #'
+  #' @param dt_year    data.table of one year's rows: uid + tid + treatments +
+  #'                   balance columns (complete cases only)
+  #' @param p_out      full path of the w_<year>.rds file to write
+  #' @param l_fs       named list of optweightMV formulas (gf_sbw_formulas)
+  #' @param l_fit_args optweightMV arguments (estimand/norm/eps/tols/...)
+  #' @param year       the calendar year (for error messages)
+  #' @param uid_col    unit id column name (PeopleID)
+  #' @param tid_col    time column name (year)
+  #' @return list(n_fit, status, iter, run_time) solver diagnostics
 
-  r <- do.call(optweight::optweightMV, c(list(formula.list = l_fs, data = dty), l_fit_args))
+  r <- do.call(optweight::optweightMV,
+               c(list(formula.list = l_fs, data = dt_year), l_fit_args))
   if (!identical(r$info$status, "solved")) {
     stop(sprintf("optweightMV did not solve for year %s (status: %s). ",
-                 y, r$info$status),
+                 year, r$info$status),
          "Try: relax `tols`, drop/recode covariates (factors are auto-expanded ",
          "to dummies; avoid covariates containing the current-year treatment, ",
          "e.g. cumulative counts as of year t), reduce n_lag, or trim extreme values.")
   }
-  w <- as.numeric(r$weights)
-  saveRDS(w, p_out)
 
-  list(n_fit = nrow(dty), status = r$info$status, iter = r$info$iter,
+  dt_w <- data.table::data.table(uid = dt_year[[uid_col]],
+                                 tid = dt_year[[tid_col]],
+                                 w = as.numeric(r$weights))
+  data.table::setnames(dt_w, c("uid", "tid"), c(uid_col, tid_col))
+  saveRDS(dt_w, p_out)
+
+  list(n_fit = nrow(dt_year), status = r$info$status, iter = r$info$iter,
        run_time = r$info$run_time)
 }
 
 
-sbw_year_slice <- function(dt, y, v_tid, l_use) {
-  #' rows of the working panel for one year with complete balance columns
-  #' (keeps .ridx so weights can be re-attached to the full panel later)
-  dty <- dt[get(v_tid) == y, .SD, .SDcols = c(".ridx", l_use)]
-  dty[complete.cases(dty)]
+gd_sbw_year_slice <- function(dt_working, year, tid_col, uid_col, l_fitcols) {
+  #' One year's rows of the working panel, keeping the row identity (uid,
+  #' tid) plus the fit columns, complete rows only (optweightMV errors on any
+  #' NA). The uid/tid columns travel into the fit so the saved weights carry
+  #' their row identity.
+  #'
+  #' @param dt_working working panel (md_sbw_panel output)
+  #' @param year       calendar year to slice
+  #' @param tid_col    time column name (e.g. "year")
+  #' @param uid_col    unit id column name (e.g. "PeopleID")
+  #' @param l_fitcols  columns needed for the fit (treatments + balance cols)
+  #' @return data.table with columns (uid, tid, fitcols), complete cases only
+  v_year <- year   ## local scalar: `year` is also a column name in dt_working
+  dt_year <- dt_working[get(tid_col) == v_year,
+                        .SD, .SDcols = c(uid_col, tid_col, l_fitcols)]
+  dt_year[complete.cases(dt_year[, .SD, .SDcols = l_fitcols])]
 }
 
 
-sbw_load_year <- function(dt, y, dir_run, l_use, v_tid) {
-  #' load one year's weights from disk and pair them with the .ridx of the
-  #' complete rows they belong to; validates length vs complete rows
-  dty <- dt[get(v_tid) == y, .SD, .SDcols = c(".ridx", l_use)]
-  dty <- dty[complete.cases(dty)]
-  w <- readRDS(file.path(dir_run, sprintf("w_%s.rds", y)))
-  if (length(w) != nrow(dty)) {
-    stop(sprintf("cached weights for year %s have length %d but %d complete rows",
-                 y, length(w), nrow(dty)))
+gd_sbw_read_year <- function(dt_year, dt_working, dir_run, year, tid_col,
+                             uid_col, wcol) {
+  #' Load one year's cached weights and attach them to the working panel rows
+  #' of that year (matched on (uid, tid), never on row order). Validates that
+  #' the cached weight count matches the number of complete fit rows.
+  #'
+  #' @param dt_year    complete-case rows of the year in dt_working (same
+  #'                   definition as gd_sbw_year_slice returns)
+  #' @param dt_working working panel to attach weights into (by reference)
+  #' @param dir_run    cache directory holding w_<year>.rds
+  #' @param year       calendar year
+  #' @param tid_col,uid_col column names of time / unit id
+  #' @param wcol       name of the weight column to fill
+  #' @return number of fitted rows for this year (invisible)
+  dt_w <- readRDS(file.path(dir_run, sprintf("w_%s.rds", year)))
+  if (nrow(dt_w) != nrow(dt_year)) {
+    stop(sprintf("cached weights for year %s have %d rows but %d complete fit rows",
+                 year, nrow(dt_w), nrow(dt_year)))
   }
-  list(dt_w = data.table(.ridx = dty$.ridx, w = w), n_fit = length(w))
+  if (!identical(sort(dt_w[[uid_col]]), sort(dt_year[[uid_col]])) ||
+      !identical(sort(dt_w[[tid_col]]), sort(dt_year[[tid_col]]))) {
+    stop(sprintf("cached (uid, tid) pairs for year %s do not match the current panel", year))
+  }
+
+  dt_w_keep <- dt_w[, .SD, .SDcols = c(uid_col, tid_col, "w")]
+  dt_working[dt_w_keep, on = c(uid_col, tid_col), (wcol) := i.w]
+  invisible(nrow(dt_w))
 }
 
 
-gd_sbw_attach_w <- function(dt, v_years, dir_run, l_use, v_tid, wcol) {
-  #' load per-year weights from disk and attach them to dt (by reference, via
-  #' the .ridx column)
-  #' @return named vector of per-year n_fit
+gl_sbw_weights <- function(c_sbw, dt_working, dt_years, l_fs, b_force = FALSE) {
+  #' Per-year optweightMV fits with an on-disk cache (one w_<year>.rds per
+  #' year, each storing the weights together with their (uid, tid) rows).
+  #' Years are fitted in parallel over a PSOCK cluster when n_cores > 1.
+  #' Afterwards every year's weights are attached to dt_working (by
+  #' reference) under config$wcol; rows outside the fitted complete rows keep
+  #' NA.
+  #'
+  #' @param c_sbw      defaulted + covariate-expanded config
+  #' @param dt_working working panel (md_sbw_panel output)
+  #' @param dt_years   eligible years (gd_sbw_years output)
+  #' @param l_fs       formula list (gf_sbw_formulas output)
+  #' @param b_force    TRUE: delete cached weights and refit all years
+  #' @return list(dt_fit = per-year diagnostics, dir_run, hash,
+  #'              from_cache_all, elapsed_s)
 
-  l_att <- map(v_years, sbw_load_year, dt = dt, dir_run = dir_run,
-               l_use = l_use, v_tid = v_tid) %>% setNames(v_years)
+  uid_col  <- c_sbw$uid
+  tid_col  <- c_sbw$tid
+  v_years  <- dt_years$year
+  l_fitcols <- c(c_sbw$treatment_cols, gl_sbw_balcols(c_sbw))
 
-  ## sbw_load_year(dt, y = 2012, dir_run =  dir_run, l_use = l_use, v_tid = v_tid)
-
-  dt[, (wcol) := NA_real_]
-  dt[data.table::rbindlist(map(l_att, ~.x$dt_w)), on = ".ridx", (wcol) := i.w]
-  map_dbl(l_att, ~.x$n_fit)
-}
-
-
-gl_sbw_weights <- function(c_sbw, dt, dt_years, l_fs, b_force = FALSE) {
-  #' per-year optweightMV fits with on-disk cache (w_<year>.rds per year);
-  #' attaches the weights column to dt (by reference, requires a .ridx column);
-  #' parallelizes across years with a PSOCK cluster when n_cores > 1.
-  #' @return list(dt_fit, dir_run, hash, from_cache_all, elapsed_s)
-
-  c_sbw <- md_sbw_defaults(c_sbw)
-  v_tid <- c_sbw$tid
-  v_years <- dt_years$year
-  l_use <- c(c_sbw$treatment_cols, gf_sbw_balcols(c_sbw))
-
-  ## cache location
-  hash <- gf_sbw_hash(c_sbw, dt_years, dt)
+  ## cache location (content-addressed within the label folder)
+  hash    <- gf_sbw_hash(c_sbw, dt_years, dt_working)
   dir_run <- file.path(c_sbw$dir_cache, c_sbw$label, substr(hash, 1, 12))
   dir.create(dir_run, recursive = TRUE, showWarnings = FALSE)
 
-  l_paths <- setNames(file.path(dir_run, sprintf("w_%s.rds", v_years)), v_years)
+  l_paths  <- setNames(file.path(dir_run, sprintf("w_%s.rds", v_years)), v_years)
   if (b_force) walk(l_paths, ~if (file.exists(.x)) file.remove(.x))
   l_cached <- map_lgl(l_paths, file.exists)
 
   t0 <- Sys.time()
 
-  ## fit the missing years (parallel across years, PSOCK only)
+  ## ---- fit the missing years ----
   v_miss <- v_years[!l_cached]
   if (length(v_miss) > 0) {
 
-    ## split data frames
-    l_ycc <- map(v_miss, sbw_year_slice, dt = dt, v_tid = v_tid, l_use = l_use) %>%
-      setNames(v_miss)
+    l_year_dt <- map(v_miss, gd_sbw_year_slice, dt_working = dt_working,
+                     tid_col = tid_col, uid_col = uid_col,
+                     l_fitcols = l_fitcols) %>% setNames(v_miss)
 
+    ## optweightMV arguments that are identical across years
     l_fit_args <- list(estimand = c_sbw$estimand, norm = c_sbw$norm,
                        min.w = c_sbw$min.w, verbose = c_sbw$verbose,
                        eps_rel = c_sbw$eps, eps_abs = c_sbw$eps,
@@ -537,22 +576,35 @@ gl_sbw_weights <- function(c_sbw, dt, dt_years, l_fs, b_force = FALSE) {
                          c_sbw$tols          ## full per-formula tolerance list
                        })
 
-    if (c_sbw$n_cores > 1) {
+    ## one job per year: the data + the output path (year is the list name)
+    l_jobs <- map2(l_year_dt, l_paths[as.character(v_miss)],
+                   ~list(dt_year = .x, p_out = .y))
 
-      Sys.setenv(OPENBLAS_NUM_THREADS = "1") ## fork + OpenBLAS threads deadlocks
+    if (c_sbw$n_cores > 1) {
+      ## PSOCK cluster across years; export the fit function and the
+      ## constants so the workers do not need the package source
+      Sys.setenv(OPENBLAS_NUM_THREADS = "1")  ## fork + OpenBLAS deadlocks
       cl <- parallel::makeCluster(c_sbw$n_cores, type = "PSOCK")
       on.exit(parallel::stopCluster(cl))
-      l_r <- parallel::clusterMap(cl, sbw_fit_year, l_ycc, l_paths[as.character(v_miss)],
-                                  MoreArgs = list(l_fs = l_fs, l_fit_args = l_fit_args,
-                                                  y = as.character(v_miss)))
-
-      ## sbw_fit_year(l_ycc$`2012`, l_paths[as.character(v_miss)], l_fs = l_fs, l_fit_args = l_fit_args, y = "2012")
-      
+      parallel::clusterExport(cl, c("gd_sbw_fit_year", "l_fs", "l_fit_args"),
+                              envir = environment())
+      l_r <- parallel::clusterMap(cl, function(job, year) {
+        gd_sbw_fit_year(job$dt_year, job$p_out, l_fs, l_fit_args, year,
+                        uid_col, tid_col)
+      }, l_jobs, names(l_jobs))
     } else {
-      l_r <- map2(l_ycc, l_paths[as.character(v_miss)], sbw_fit_year,
-                  l_fs = l_fs, l_fit_args = l_fit_args, y = as.character(v_miss))
+      ## sequential: fit years one after another in the master process
+      l_r <- map2(l_jobs, v_miss, function(job, year) {
+        gd_sbw_fit_year(job$dt_year, job$p_out, l_fs, l_fit_args, year,
+                        uid_col, tid_col)
+      })
     }
+
+    ## debug: don't delete
+    ## gd_sbw_fit_year(l_year_dt$`2012`, p_out = l_jobs$`2012`$p_out, l_fs = l_fs, l_fit_args = l_fit_args, year = 2012, uid_col =uid_col, tid_col = tid_col)
+    
     names(l_r) <- v_miss
+
     dt_fit <- map2(v_miss, l_r, ~data.table(year = .x, n_fit = .y$n_fit,
                                             status = .y$status, iter = .y$iter,
                                             run_time = .y$run_time,
@@ -561,12 +613,19 @@ gl_sbw_weights <- function(c_sbw, dt, dt_years, l_fs, b_force = FALSE) {
     dt_fit <- data.table()
   }
 
-  ## load all weights (fresh or cached) and attach them to dt
-  l_nfit <- gd_sbw_attach_w(dt, v_years, dir_run, l_use, v_tid, c_sbw$wcol)
+  ## ---- attach all years' weights (fresh or cached) to dt_working ----
+  l_nfit <- map(v_years, function(year) {
+    dt_year <- gd_sbw_year_slice(dt_working, year, tid_col, uid_col, l_fitcols)
+    gd_sbw_read_year(dt_year, dt_working, dir_run, year, tid_col, uid_col,
+                     c_sbw$wcol)
+  }) %>% setNames(v_years)
 
-  ## diag rows for the cached years
+  ## gd_sbw_year_slice(dt_working, 2012, tid_col, uid_col, l_fitcols)
+
+  ## diagnostics rows for the years that came from cache
   if (any(l_cached)) {
-    dt_fit_c <- map(v_years[l_cached], ~data.table(year = .x, n_fit = l_nfit[as.character(.x)],
+    dt_fit_c <- map(v_years[l_cached], ~data.table(year = .x,
+                                                   n_fit = l_nfit[[as.character(.x)]],
                                                    status = "cached", iter = NA_real_,
                                                    run_time = NA_real_, from_cache = TRUE)) %>%
       rbindlist
@@ -577,7 +636,6 @@ gl_sbw_weights <- function(c_sbw, dt, dt_years, l_fs, b_force = FALSE) {
   list(dt_fit = dt_fit, dir_run = dir_run, hash = hash,
        from_cache_all = all(l_cached),
        elapsed_s = round(as.numeric(difftime(Sys.time(), t0, units = "secs")), 2))
-
 }
 
 
