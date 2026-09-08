@@ -424,15 +424,12 @@ md_sbw_cov_lags <- function(dt_working, c_sbw) {
   dt_working[, (l_all) := collapse::L(.SD, n = 1:n_lag, by = get(c_sbw$uid)),
              .SDcols = l_covs]
 
-  ## get all time-varying columns  
-  l_keep <- varying(dt_working, by = dt_working[, get(c_sbw$uid)])[l_all]
+  ## keep only the lag columns that carry within-artist information
+  ## (collapse::varying: FALSE for a lag of a time-invariant covariate,
+  ## which is identical to the level value and would only duplicate the
+  ## constraint)
+  l_keep <- collapse::varying(dt_working, by = dt_working[[c_sbw$uid]], cols = l_all)[l_all]
 
-  ## ## drop lags that are identical to their level column (time-invariant cov)
-  ## l_keep <- map_lgl(l_all, function(lag_col) {
-  ##   cov_col <- sub("_l[0-9]+$", "", lag_col)
-  ##   any(dt_working[[lag_col]] != dt_working[[cov_col]], na.rm = TRUE)
-  ## })
-  
   l_drop <- l_all[!l_keep]
   if (length(l_drop) > 0) dt_working[, (l_drop) := NULL]
 
@@ -522,21 +519,21 @@ gf_sbw_hash <- function(c_sbw, dt_years, dt_working) {
 }
 
 
-gd_sbw_fit_year <- function(dt_year, p_out, l_fs, l_fit_args, year, uid_col,
-                            tid_col) {
-  #' Fit optweightMV for one year's complete rows and write the weights to
-  #' disk. Runs either in the master process or on a PSOCK worker. The
-  #' weights file stores (uid, tid, w) per row, so nothing depends on order.
+
+gd_sbw_fit_year <- function(dt_working, year, p_out, c_sbw, l_fs, l_fit_args) {
+  #' Fit optweightMV for ONE year: slice the year's complete fit rows from
+  #' the working panel, solve, write the weights file (uid, tid, w) to disk.
+  #' Runs either in the master process or in a forked worker.
   #'
-  #' @param dt_year    data.table of one year's rows: uid + tid + treatments +
-  #'                   balance columns (complete cases only)
-  #' @param p_out      full path of the w_<year>.rds file to write
-  #' @param l_fs       named list of optweightMV formulas (gf_sbw_formulas)
-  #' @param l_fit_args optweightMV arguments (estimand/norm/eps/tols/...)
-  #' @param year       the calendar year (for error messages)
-  #' @param uid_col    unit id column name (PeopleID)
-  #' @param tid_col    time column name (year)
-  #' @return list(n_fit, status, iter, run_time) solver diagnostics
+  #' @param dt_working  working panel (md_sbw_panel output)
+  #' @param year        calendar year to fit
+  #' @param p_out       full path of the w_<year>.rds file to write
+  #' @param c_sbw       defaulted + covariate-expanded config (uid/tid)
+  #' @param l_fs        optweightMV formula list (gf_sbw_formulas output)
+  #' @param l_fit_args  optweightMV arguments (identical across years)
+  #' @return single-row data.table (n_fit, status, iter, run_time) solver
+  #'   diagnostics
+  dt_year <- gd_sbw_year_slice(dt_working, year, c_sbw)
 
   r <- do.call(optweight::optweightMV,
                c(list(formula.list = l_fs, data = dt_year), l_fit_args))
@@ -548,32 +545,33 @@ gd_sbw_fit_year <- function(dt_year, p_out, l_fs, l_fit_args, year, uid_col,
          "e.g. cumulative counts as of year t), reduce n_lag, or trim extreme values.")
   }
 
-  dt_w <- data.table::data.table(uid = dt_year[[uid_col]],
-                                 tid = dt_year[[tid_col]],
-                                 w = as.numeric(r$weights))
-  data.table::setnames(dt_w, c("uid", "tid"), c(uid_col, tid_col))
+  dt_w <- data.table(uid = dt_year[[c_sbw$uid]], tid = dt_year[[c_sbw$tid]],
+                     w = as.numeric(r$weights))
+  data.table::setnames(dt_w, c("uid", "tid"), c(c_sbw$uid, c_sbw$tid))
   saveRDS(dt_w, p_out)
 
-  list(n_fit = nrow(dt_year), status = r$info$status, iter = r$info$iter,
-       run_time = r$info$run_time)
+  data.table(n_fit = nrow(dt_year), status = r$info$status, iter = r$info$iter,
+             run_time = r$info$run_time)
 }
 
-
-gd_sbw_year_slice <- function(dt_working, year, tid_col, uid_col, l_fitcols) {
-  #' One year's rows of the working panel, keeping the row identity (uid,
-  #' tid) plus the fit columns, complete rows only (optweightMV errors on any
-  #' NA). The uid/tid columns travel into the fit so the saved weights carry
-  #' their row identity.
+gd_sbw_year_slice <- function(dt_working, year, c_sbw) {
+  #' One year's rows of the working panel that the fit needs: uid, tid, the
+  #' treatments, the balance columns and the future outcome leads (the
+  #' coverage gate), complete rows only (optweightMV errors on any NA). The
+  #' fit population therefore equals the outcome population: every weighted
+  #' row has its d1..dK outcomes.
   #'
   #' @param dt_working working panel (md_sbw_panel output)
   #' @param year       calendar year to slice
-  #' @param tid_col    time column name (e.g. "year")
-  #' @param uid_col    unit id column name (e.g. "PeopleID")
-  #' @param l_fitcols  columns needed for the fit (treatments + balance cols)
-  #' @return data.table with columns (uid, tid, fitcols), complete cases only
+  #' @param c_sbw      defaulted config (uid/tid + treatment/impact cols)
+  #' @return data.table with columns (uid, tid, treatments, balcols, leads),
+  #'   complete cases only
   v_year <- year   ## local scalar: `year` is also a column name in dt_working
-  dt_year <- dt_working[get(tid_col) == v_year,
-                        .SD, .SDcols = c(uid_col, tid_col, l_fitcols)]
+  l_cols <- c(c_sbw$uid, c_sbw$tid, c_sbw$treatment_cols,
+              gl_sbw_balcols(c_sbw),
+              gd_sbw_shiftcols(c_sbw$treatment_cols, c_sbw$impact_years, "f"))
+  l_fitcols <- setdiff(l_cols, c(c_sbw$uid, c_sbw$tid))
+  dt_year <- dt_working[get(c_sbw$tid) == v_year, .SD, .SDcols = l_cols]
   dt_year[complete.cases(dt_year[, .SD, .SDcols = l_fitcols])]
 }
 
