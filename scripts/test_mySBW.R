@@ -27,6 +27,7 @@ gd_syn_dt <- function(n_artists = 2500, years = 2006:2014, seed = 7) {
   set.seed(seed)
   yr_min <- min(years); yr_max <- max(years); n <- yr_max - yr_min + 1
   map_dfr(seq_len(n_artists), function(i) {
+    byr <- sample(1940:1990, 1)
     pm <- pi <- oes <- toti <- integer(n)
     pm[1] <- rbinom(1, 1, 0.3); pi[1] <- rpois(1, 0.8); oes[1] <- rpois(1, 1)
     toti[1] <- rbinom(1, 1, 0.1)
@@ -36,11 +37,31 @@ gd_syn_dt <- function(n_artists = 2500, years = 2006:2014, seed = 7) {
       oes[j]  <- rpois(1, 0.30 + 0.35*oes[j-1] + 0.05*pi[j-1])
       toti[j] <- rbinom(1, 1, pmin(0.6, 0.05 + 0.3*pm[j-1] + 0.2*toti[j-1]))
     }
+    ## ar1: artist-specific time-varying numeric covariate (not deterministic
+    ## in year, so its lags are informative but not collinear with the level)
+    ar1 <- numeric(n); ar1[1] <- rnorm(1)
+    for (j in 2:n) ar1[j] <- 0.6 * ar1[j - 1] + rnorm(1)
+
     data.table(PeopleID = i, year = yr_min:yr_max,
                exn_pm = pm, exn_pi = pi, exn_oes = oes, exn_toti = toti,
                Gender = sample(c("Male", "Female"), 1),
+               BirthYear = byr,
+               ar1 = round(ar1, 3),
                exn_all_cum_ihs = asinh(cumsum(pm + pi + oes + toti)))
   })
+}
+
+## mimic gl_sbw_proc's preparation chain on a config: panel + factor
+## expansion + covariate lags; returns the prepared config (ready for
+## gf_sbw_formulas / gd_sbw_years)
+gd_prep_cfg <- function(c_sbw) {
+  c_sbw <- md_sbw_defaults(c_sbw)
+  dt_p <- md_sbw_panel(c_sbw)
+  l_exp <- md_sbw_expand_covs(dt_p, c_sbw$covariate_cols)
+  c_sbw$covariate_cols <- l_exp$covs
+  l_lags <- md_sbw_cov_lags(l_exp$dt, c_sbw)
+  c_sbw$covariate_cols <- l_lags$covs
+  list(cfg = c_sbw, dt = l_lags$dt)
 }
 
 ## test cache lives in a per-session temp dir
@@ -75,8 +96,14 @@ gd_test_check <- function() {
                pattern = "n_lag", info = "n_lag >= 1")
   expect_error(gd_sbw_check(utils::modifyList(c_ok, list(covariate_cols = "exn_pm"))),
                pattern = "overlap", info = "cov/treat disjoint")
-  expect_error(gd_sbw_check(utils::modifyList(c_ok, list(n_lag_cov = 1L))),
-               pattern = "n_lag_cov", info = "n_lag_cov numeric covs only")
+  ## mixed numeric + factor covariate set with n_lag_cov > 0 is supported:
+  ## numeric covs (and later dummies) are lagged, factors balanced at level t
+  expect_true(gd_sbw_check(md_sbw_defaults(
+    utils::modifyList(c_ok, list(covariate_cols = c("Gender", "ar1"),
+                                 n_lag_cov = 2L)))),
+    info = "mixed covariate set + n_lag_cov passes check")
+  expect_error(gd_sbw_check(utils::modifyList(c_ok, list(n_lag_cov = -1L))),
+               pattern = "n_lag_cov", info = "n_lag_cov >= 0")
 
   ## gap in the grid -> error (note: replace dt_panel by direct assignment;
   ## utils::modifyList recurses into data.table members and breaks)
@@ -89,14 +116,13 @@ gd_test_check <- function() {
                pattern = "duplicate", info = "duplicate (uid, tid) rejected")
 }
 
-# === formula generation (after factor-covariate expansion) ===
+# === formula generation (after factor-covariate expansion + covariate lags) ===
 gd_test_formulas <- function() {
   dt <- gd_syn_dt(50, 2006:2009, seed = 1)
   c_sbw <- gd_syn_config(dt)
-  ## mimic gl_sbw_proc: build panel, expand factor covariates, then formulas
-  dt_p <- md_sbw_panel(c_sbw)
-  l_exp <- md_sbw_expand_covs(dt_p, c_sbw$covariate_cols)
-  c_sbw$covariate_cols <- l_exp$covs
+  ## mimic gl_sbw_proc: build panel, expand factor covariates, lag covariates
+  l_prep <- gd_prep_cfg(c_sbw)
+  c_sbw <- l_prep$cfg
   l_fs <- gf_sbw_formulas(c_sbw)
 
   expect_equal(length(l_fs), 4L, info = "one formula per treatment")
@@ -111,11 +137,21 @@ gd_test_formulas <- function() {
                            ~grepl(sprintf("\\b%s\\b(?!_)", .x), rhs, perl = TRUE))),
                info = "no current-year treatments in RHS")
 
-  ## covariate lags enter the RHS for numeric covariates
-  c_cov <- gd_syn_config(dt, covariate_cols = "exn_all_cum_ihs", n_lag_cov = 2L)
-  rhs2 <- as.character(gf_sbw_formulas(c_cov)[[1]])[3]
-  expect_true(grepl("exn_all_cum_ihs_l1", rhs2) && grepl("exn_all_cum_ihs_l2", rhs2),
-              info = "numeric covariate lags in RHS")
+  ## covariate lags enter the RHS for a numeric time-varying covariate
+  c_cov <- gd_syn_config(dt, covariate_cols = "ar1", n_lag_cov = 2L)
+  l_cov <- gd_prep_cfg(c_cov)
+  rhs2 <- as.character(gf_sbw_formulas(l_cov$cfg)[[1]])[3]
+  expect_true(grepl("ar1_l1", rhs2) && grepl("ar1_l2", rhs2),
+              info = "numeric time-varying covariate lags in RHS")
+  expect_true("ar1_l1" %in% l_cov$cfg$covariate_cols &&
+              "ar1_l2" %in% l_cov$cfg$covariate_cols,
+              info = "numeric covariate lags kept in final covariate set")
+
+  ## time-invariant numeric covariate: lags are redundant and dropped
+  c_ti <- gd_syn_config(dt, covariate_cols = "BirthYear", n_lag_cov = 2L)
+  l_ti <- gd_prep_cfg(c_ti)
+  expect_false(any(grepl("^BirthYear_l", l_ti$cfg$covariate_cols)),
+               info = "time-invariant numeric covariate lags dropped")
 }
 
 # === factor covariate expansion ===
@@ -152,13 +188,16 @@ gd_test_panel <- function() {
   dt <- md_sbw_panel(c_h)
 
   expect_true(is.data.table(dt), info = "panel is data.table")
-  expect_false(any(grepl("_f[0-9]+$", names(dt))), info = "intermediate leads dropped")
+  ## raw future leads are KEPT (usable e.g. for Poisson outcomes and needed
+  ## as the outcome-coverage gate in gd_sbw_years)
+  expect_true(all(c("exn_pm_f1", "exn_pm_f2") %in% names(dt)), info = "leads retained")
 
   ## artist 1: pm = 1..5 over 2001..2005
   d1 <- dt[PeopleID == 1]
   expect_equal(d1[year == 2003, exn_pm_l1], 2, info = "lag1 value")
   expect_equal(d1[year == 2003, exn_pm_l2], 1, info = "lag2 value")
   expect_true(is.na(d1[year == 2001, exn_pm_l1]), info = "lag NA at panel start")
+  expect_equal(d1[year == 2003, exn_pm_f1], 4, info = "raw lead f1 value")
   expect_equal(d1[year == 2003, exn_pm_d1], 2, info = "d1 = f1 - l1")
   expect_equal(d1[year == 2003, exn_pm_d2], 3, info = "d2 = f2 - l1")
   expect_equal(d1[year == 2003, exn_pm_dm2], -1, info = "dm2 = l2 - l1")
@@ -169,10 +208,85 @@ gd_test_panel <- function() {
   expect_equal(d2[year == 2003, exn_pi_dm2], -10, info = "pi dm2")
   expect_equal(d2[year == 2003, exn_pi_d1], 20, info = "pi d1")
 
+  ## n_lag and impact_years are independent: n_lag = 2, impact = 1
+  c_ind <- gd_syn_config(dt_h, treatment_cols = c("exn_pm", "exn_pi"),
+                         covariate_cols = NULL, years = 2003:2004,
+                         label = "indep", n_lag = 2L, impact_years = 1L)
+  dt_ind <- md_sbw_panel(c_ind)
+  expect_true(all(c("exn_pm_l1", "exn_pm_l2", "exn_pm_dm2") %in% names(dt_ind)),
+              info = "lags/dm only up to n_lag (2)")
+  expect_true(all(c("exn_pm_f1", "exn_pm_d1") %in% names(dt_ind)),
+              info = "leads/d only up to impact_years (1)")
+  expect_false(any(grepl("_f2$|_d2$|_dm3$", names(dt_ind))),
+               info = "no columns beyond n_lag / impact_years")
+
   ## clash error when the panel already has pipeline columns
   c_clash <- c_h; c_clash$dt_panel <- copy(dt_h); c_clash$dt_panel[, exn_pm_l1 := 0L]
   expect_error(md_sbw_panel(c_clash),
                pattern = "pipeline-generated", info = "precomputed lag cols rejected")
+}
+
+# === covariate lags semantics (numeric time-varying vs time-invariant vs factor) ===
+gd_test_covlags <- function() {
+  dt <- gd_syn_dt(120, 2006:2012, seed = 4)
+
+  ## numeric time-varying covariate: lags kept
+  c_tv <- gd_syn_config(dt, covariate_cols = "ar1", n_lag_cov = 2L)
+  l_tv <- gd_prep_cfg(c_tv)
+  expect_true(all(c("ar1", "ar1_l1", "ar1_l2") %in% l_tv$cfg$covariate_cols),
+              info = "time-varying numeric covariate keeps lags")
+  expect_true(all(c("ar1_l1", "ar1_l2") %in% names(l_tv$dt)),
+              info = "time-varying numeric lag columns exist in panel")
+
+  ## numeric time-invariant covariate: lags dropped (lag == level value)
+  c_ti <- gd_syn_config(dt, covariate_cols = "BirthYear", n_lag_cov = 2L)
+  l_ti <- gd_prep_cfg(c_ti)
+  expect_equal(l_ti$cfg$covariate_cols, "BirthYear",
+               info = "time-invariant numeric covariate: lags dropped")
+  expect_false(any(grepl("^BirthYear_l", names(l_ti$dt))),
+               info = "time-invariant lag columns removed from panel")
+
+  ## time-invariant factor (Gender): level dummies kept, their lags dropped
+  c_g <- gd_syn_config(dt, covariate_cols = "Gender", n_lag_cov = 2L)
+  l_g <- gd_prep_cfg(c_g)
+  expect_true("Gender_Male" %in% l_g$cfg$covariate_cols, info = "gender dummy kept")
+  expect_false(any(grepl("^Gender_Male_l", l_g$cfg$covariate_cols)),
+               info = "time-invariant factor dummy lags dropped")
+
+  ## time-varying factor: dummy lags carry information and are kept
+  dt_tv <- dt[, .(PeopleID, year)]
+  set.seed(11)
+  ## status changes for ~30% of artist-years (random walk on 3 levels)
+  dt_tv[, status := rbinom(.N, 1, 0.25)]   ## placeholder; rebuilt below per artist
+  l_art <- unique(dt_tv$PeopleID)
+  dt_status <- map_dfr(l_art, function(id) {
+    n <- nrow(dt_tv[PeopleID == id])
+    st <- integer(n)
+    st[1] <- sample(1:3, 1)
+    for (j in 2:n) st[j] <- if (runif(1) < 0.3) sample(1:3, 1) else st[j - 1]
+    data.table(PeopleID = id, year = sort(dt_tv[PeopleID == id, year]), status = st)
+  })
+  dt_tv2 <- merge(dt, dt_status, by = c("PeopleID", "year"))
+  dt_tv2[, status := factor(status)]
+  c_fv <- gd_syn_config(dt_tv2, covariate_cols = "status", n_lag_cov = 1L,
+                        years = 2008:2009)
+  l_fv <- gd_prep_cfg(c_fv)
+  expect_true(any(grepl("^status_.*_l1$", l_fv$cfg$covariate_cols)),
+              info = "time-varying factor dummy lags kept (dummy lag informative)")
+  expect_true(all(grepl("^status_", l_fv$cfg$covariate_cols) | l_fv$cfg$covariate_cols == "status"),
+              info = "factor replaced by dummy set")
+
+  ## end-to-end fit with a numeric time-varying covariate incl. its lag;
+  ## exact balance on a continuous covariate needs sample size, so use a full
+  ## pool and a uniform balance tolerance (tols = 1e-3)
+  dt_fit_pool <- gd_syn_dt(2500, 2006:2014, seed = 9)
+  c_fit <- gd_syn_config(dt_fit_pool, covariate_cols = "ar1", n_lag_cov = 1L,
+                         years = 2009:2010, label = "test_covlags", tols = 1e-3)
+  r <- gl_sbw_proc(c_fit)
+  expect_true(all(r$dt_diag$status == "solved"), info = "covariate-lag fit solves")
+  expect_true(all(r$dt_diag$max_cor_w < 0.05), info = "covariate-lag fit balances")
+  expect_true(any(grepl("^ar1_l1$", r$config$covariate_cols)),
+              info = "covariate lags part of fitted config")
 }
 
 # === year eligibility ===
@@ -314,7 +428,7 @@ gd_test_cache_format_and_parallel <- function() {
   ## re-slice + read into the shuffled table
   c_sbw_fit <- r$config   ## config after covariate expansion (Gender -> Gender_Male)
   dt_year <- gd_sbw_year_slice(dt_shuf, 2009, "year", "PeopleID",
-                               c(c_sbw_fit$treatment_cols, gd_sbw_balcols(c_sbw_fit)))
+                               c(c_sbw_fit$treatment_cols, gl_sbw_balcols(c_sbw_fit)))
   expect_equal(nrow(dt_year), nrow(dt_w), info = "shuffled slice rows match weight rows")
   ## values attached by join must equal the file weights for those (uid, tid)
   dt_check <- merge(dt_shuf[year == 2009, .(PeopleID, year)],
@@ -338,6 +452,7 @@ cat("\n--- config checks ---\n");       gd_test_check()
 cat("\n--- formulas ---\n");            gd_test_formulas()
 cat("\n--- covariate expansion ---\n"); gd_test_covexp()
 cat("\n--- panel builder ---\n");       gd_test_panel()
+cat("\n--- covariate lags ---\n");     gd_test_covlags()
 cat("\n--- year eligibility ---\n");    gd_test_years()
 cat("\n--- end-to-end pipeline ---\n"); gd_test_proc()
 cat("\n--- balance long ---\n");        gd_test_bal_long()
