@@ -576,56 +576,109 @@ gd_sbw_year_slice <- function(dt_working, year, c_sbw) {
 }
 
 
-gd_sbw_read_year <- function(dt_year, dir_run, year, tid_col, uid_col) {
+gd_sbw_read_year <- function(dt_working, year, dir_run, c_sbw) {
   #' Load one year's cached weights from disk and validate them against the
-  #' year's complete fit rows (row count and (uid, tid) membership). PURE:
-  #' no side effect on the working panel — gl_sbw_weights collects all years'
-  #' weight tables and attaches them in one explicit join at the end.
+  #' year's complete fit rows (row count + (uid, tid) membership — catches a
+  #' stale/mismatched cache instead of silently mis-assigning). PURE: no side
+  #' effect on the working panel; gl_sbw_weights attaches all years at once.
   #'
-  #' @param dt_year  complete-case rows of the year (gd_sbw_year_slice output)
-  #' @param dir_run  cache directory holding w_<year>.rds
-  #' @param year     calendar year
-  #' @param tid_col,uid_col column names of time / unit id
+  #' @param dt_working working panel (md_sbw_panel output)
+  #' @param year       calendar year
+  #' @param dir_run    cache directory holding w_<year>.rds
+  #' @param c_sbw      defaulted config (uid/tid)
   #' @return data.table (uid, tid, w) of the validated weights for that year
+  dt_year <- gd_sbw_year_slice(dt_working, year, c_sbw)
   dt_w <- readRDS(file.path(dir_run, sprintf("w_%s.rds", year)))
   if (nrow(dt_w) != nrow(dt_year)) {
     stop(sprintf("cached weights for year %s have %d rows but %d complete fit rows",
                  year, nrow(dt_w), nrow(dt_year)))
   }
-  if (!identical(sort(dt_w[[uid_col]]), sort(dt_year[[uid_col]])) ||
-      !identical(sort(dt_w[[tid_col]]), sort(dt_year[[tid_col]]))) {
+  if (!identical(sort(dt_w[[c_sbw$uid]]), sort(dt_year[[c_sbw$uid]])) ||
+      !identical(sort(dt_w[[c_sbw$tid]]), sort(dt_year[[c_sbw$tid]]))) {
     stop(sprintf("cached (uid, tid) pairs for year %s do not match the current panel", year))
   }
-  dt_w[, .SD, .SDcols = c(uid_col, tid_col, "w")]
+  dt_w[, .SD, .SDcols = c(c_sbw$uid, c_sbw$tid, "w")]
 }
 
 
+gd_sbw_year_weights <- function(dt_working, year, dir_run, c_sbw, l_fs,
+                                l_fit_args) {
+  #' One worker task: the complete weight pipeline for a single year.
+  #' Fits optweightMV when the year is not yet cached (gd_sbw_fit_year),
+  #' then reads the weights back (gd_sbw_read_year) and returns them together
+  #' with the fit diagnostics. Runs either in the master process or in a
+  #' forked worker (dt_working shared copy-on-write).
+  #'
+  #' @param dt_working  working panel (md_sbw_panel output)
+  #' @param year        calendar year
+  #' @param dir_run     cache directory holding w_<year>.rds
+  #' @param c_sbw       defaulted + covariate-expanded config
+  #' @param l_fs        optweightMV formula list
+  #' @param l_fit_args  optweightMV arguments (identical across years)
+  #' @return list(dt_w = data.table (uid, tid, w) of the year's weights,
+  #'              dt_fit = single-row diagnostics (n_fit, status, iter,
+  #'              run_time, from_cache))
+  p_out <- file.path(dir_run, sprintf("w_%s.rds", year))
+  if (!file.exists(p_out)) {
+    dt_fit <- gd_sbw_fit_year(dt_working, year, p_out, c_sbw, l_fs, l_fit_args)
+    dt_fit[, from_cache := FALSE]
+  } else {
+    dt_fit <- data.table(n_fit = NA_integer_, status = "cached",
+                         iter = NA_real_, run_time = NA_real_,
+                         from_cache = TRUE)
+  }
+  dt_w <- gd_sbw_read_year(dt_working, year, dir_run, c_sbw)
+  dt_fit[, n_fit := nrow(dt_w)]
+  list(dt_w = dt_w, dt_fit = dt_fit)
+}
+
+
+gl_sbw_fit_missing_years <- function(c_sbw, dt_working, v_miss, dir_run, l_fs,
+                                     l_fit_args) {
+  #' Fit the per-year weights for all years that are not yet cached. Runs
+  #' sequentially, or with parallel::mclapply (fork) when n_cores > 1 on
+  #' Unix; OPENBLAS_NUM_THREADS is forced to 1 before forking (forking R
+  #' while OpenBLAS runs threads deadlocks). Windows falls back to
+  #' sequential with a warning.
+  #'
+  #' @param c_sbw       defaulted + covariate-expanded config
+  #' @param dt_working  working panel (md_sbw_panel output)
+  #' @param v_miss      years without cached weights
+  #' @param dir_run     cache directory to write w_<year>.rds into
+  #' @param l_fs        optweightMV formula list
+  #' @param l_fit_args  optweightMV arguments (identical across years)
+  #' @return named list (one entry per year in v_miss) of the results of
+  #'   gd_sbw_year_weights
+  if (length(v_miss) == 0) return(list())
+
+  if (c_sbw$n_cores > 1 && .Platform$OS.type == "unix") {
+    Sys.setenv(OPENBLAS_NUM_THREADS = "1")
+    l_res <- parallel::mclapply(v_miss, gd_sbw_year_weights,
+                                dt_working = dt_working, dir_run = dir_run,
+                                c_sbw = c_sbw, l_fs = l_fs,
+                                l_fit_args = l_fit_args,
+                                mc.cores = c_sbw$n_cores,
+                                mc.preschedule = TRUE, mc.set.seed = FALSE)
+  } else {
+    if (c_sbw$n_cores > 1) {
+      warning("n_cores > 1 only parallelizes on Unix (fork); running sequentially")
+    }
+    l_res <- map(v_miss, gd_sbw_year_weights, dt_working = dt_working,
+                 dir_run = dir_run, c_sbw = c_sbw, l_fs = l_fs,
+                 l_fit_args = l_fit_args)
+  }
+  setNames(l_res, v_miss)
+}
 
 
 gl_sbw_weights <- function(c_sbw, dt_working, dt_years, l_fs, b_force = FALSE) {
   #' Per-year optweightMV fits with an on-disk cache (one w_<year>.rds per
   #' year, each storing the weights together with their (uid, tid) rows).
-  #'
-  #' Fit population: a year's rows are fitted only if they have complete
-  #' values on the treatments, the balance columns AND the future outcome
-  #' columns (leads f1..fK). This guarantees that every weighted row also has
-  #' its d1..dK outcomes — the weighting population equals the outcome
-  #' population. (The leads are only used for the completeness filter, they
-  #' never enter the balance formulas.)
-  #'
-  #' Parallelization: years are fitted in parallel with parallel::mclapply
-  #' (fork) when n_cores > 1 on a Unix system. Forking shares dt_working
-  #' copy-on-write, so memory stays ~ sequential + one year slice per worker
-  #' (a PSOCK cluster instead serializes every year slice into a fresh R
-  #' process — the 10+ GB peak seen with n_cores = 3). OPENBLAS_NUM_THREADS
-  #' is forced to 1 before forking (forking R while OpenBLAS runs threads
-  #' deadlocks). On Windows (no fork) it falls back to sequential with a
-  #' warning.
-  #'
-  #' Weights are attached AT THE END, in one explicit join on (uid, tid)
-  #' under config$wcol (by reference); there is no per-year side effect, so a
-  #' failed fit leaves dt_working untouched. Rows outside the fitted complete
-  #' rows keep NA.
+  #' Fits the missing years (gl_sbw_fit_missing_years, sequential or forked
+  #' parallel), then loads EVERY year's weights and attaches them to
+  #' dt_working in one explicit join on (uid, tid) under config$wcol (by
+  #' reference) — there is no per-year side effect, so a failed fit leaves
+  #' dt_working untouched. Rows outside the fitted complete rows keep NA.
   #'
   #' @param c_sbw      defaulted + covariate-expanded config
   #' @param dt_working working panel (md_sbw_panel output; must NOT yet
@@ -636,16 +689,6 @@ gl_sbw_weights <- function(c_sbw, dt_working, dt_years, l_fs, b_force = FALSE) {
   #' @return list(dt_fit = per-year diagnostics, dir_run, hash,
   #'              from_cache_all, elapsed_s); dt_working gains the wcol
   #'              column as a side effect of the final join
-
-  uid_col  <- c_sbw$uid
-  tid_col  <- c_sbw$tid
-  v_years  <- dt_years$year
-  K        <- c_sbw$impact_years
-  ## fit columns = what the completeness filter requires (treatments +
-  ## balance cols + future outcome leads); the formulas only touch the first
-  ## two groups, the leads are just the coverage gate
-  l_fitcols <- c(c_sbw$treatment_cols, gl_sbw_balcols(c_sbw),
-                 gd_sbw_shiftcols(c_sbw$treatment_cols, K, "f"))
   if (c_sbw$wcol %in% names(dt_working)) {
     stop(sprintf("wcol '%s' already present in dt_working; pass a fresh panel", c_sbw$wcol))
   }
@@ -655,81 +698,65 @@ gl_sbw_weights <- function(c_sbw, dt_working, dt_years, l_fs, b_force = FALSE) {
   dir_run <- file.path(c_sbw$dir_cache, c_sbw$label, substr(hash, 1, 12))
   dir.create(dir_run, recursive = TRUE, showWarnings = FALSE)
 
-  l_paths  <- setNames(file.path(dir_run, sprintf("w_%s.rds", v_years)), v_years)
+  l_paths <- setNames(file.path(dir_run, sprintf("w_%s.rds", dt_years$year)),
+                      dt_years$year)
   if (b_force) walk(l_paths, ~if (file.exists(.x)) file.remove(.x))
-  l_cached <- map_lgl(l_paths, file.exists)
+  v_cached <- map_lgl(l_paths, file.exists)
+  v_miss   <- dt_years$year[!v_cached]
 
   t0 <- Sys.time()
 
-  ## ---- fit the missing years ----
-  v_miss <- v_years[!l_cached]
-  if (length(v_miss) > 0) {
-    ## optweightMV arguments that are identical across years
+  ## optweightMV arguments that are identical across years
+  l_fit_args <- gl_sbw_fit_args(c_sbw, l_fs)
 
-    l_fit_args <- list(estimand = c_sbw$estimand, norm = c_sbw$norm,
-                       min.w = c_sbw$min.w, verbose = c_sbw$verbose,
-                       eps_rel = c_sbw$eps, eps_abs = c_sbw$eps,
-                       tols.list = if (is.null(c_sbw$tols)) {
-                         list(0)              ## exact balance (optweight default)
-                       } else if (is.numeric(c_sbw$tols) && length(c_sbw$tols) == 1) {
-                         rep(list(c_sbw$tols), length(l_fs))  ## uniform tolerance
-                       } else {
-                         c_sbw$tols          ## full per-formula tolerance list
-                       })
+  ## fit the missing years (parallel across years when n_cores > 1)
+  l_res <- gl_sbw_fit_missing_years(c_sbw, dt_working, v_miss, dir_run, l_fs,
+                                    l_fit_args)
 
-    ## one worker task per year: slice the year from the (fork-shared)
-    ## working panel, fit, write weights, return the small diagnostics
-    ## FIXME: fit_one_year is effectively lambda (functions should only be defined on top level),
-    ## FIXME: also just wrapper around gd_sbw_fit_year: refactor/simplify
-    fit_one_year <- function(year) {
-      dt_year <- gd_sbw_year_slice(dt_working, year, tid_col, uid_col, l_fitcols)
-      gd_sbw_fit_year(dt_year, l_paths[[as.character(year)]], l_fs, l_fit_args,
-                      year, uid_col, tid_col)
-    }
+  ## load ALL years' weights (fitted above or from cache) and attach in ONE
+  ## join on (uid, tid); v_cached (the original file-existence detection)
+  ## must NOT be overwritten — from_cache_all below relies on it
+  v_all  <- dt_years$year
+  v_from_cache <- setdiff(v_all, v_miss)
+  l_res_cached <- map(v_from_cache, gd_sbw_year_weights, dt_working = dt_working,
+                      dir_run = dir_run, c_sbw = c_sbw, l_fs = l_fs,
+                      l_fit_args = l_fit_args) %>% setNames(v_from_cache)
+  l_res <- c(l_res, l_res_cached)[as.character(v_all)]
 
-    if (c_sbw$n_cores > 1 && .Platform$OS.type == "unix") {
-      Sys.setenv(OPENBLAS_NUM_THREADS = "1")  ## inherited by the forks
-      l_r <- parallel::mclapply(v_miss, fit_one_year, mc.cores = c_sbw$n_cores,
-                                mc.preschedule = TRUE, mc.set.seed = FALSE)
-    } else if (c_sbw$n_cores > 1) {
-      warning("n_cores > 1 only parallelizes on Unix (fork); running sequentially")
-      l_r <- map(v_miss, fit_one_year)
-    } else {
-      l_r <- map(v_miss, fit_one_year)
-    }
-    names(l_r) <- v_miss
+  dt_all_w <- rbindlist(map(l_res, ~.x$dt_w))
+  dt_working[dt_all_w, on = c(c_sbw$uid, c_sbw$tid), (c_sbw$wcol) := i.w]
 
-    dt_fit <- map2(v_miss, l_r, ~data.table(year = .x, n_fit = .y$n_fit,
-                                            status = .y$status, iter = .y$iter,
-                                            run_time = .y$run_time,
-                                            from_cache = FALSE)) %>% rbindlist
-  } else {
-    dt_fit <- data.table()
-  }
-
-  ## ---- collect all years' weights and attach them in ONE join ----
-  l_dt_w <- map(v_years, function(year) {
-    dt_year <- gd_sbw_year_slice(dt_working, year, tid_col, uid_col, l_fitcols)
-    gd_sbw_read_year(dt_year, dir_run, year, tid_col, uid_col)
-  }) %>% setNames(v_years)
-
-  dt_all_w <- rbindlist(l_dt_w)   ## columns (uid, tid, w)
-  dt_working[dt_all_w, on = c(uid_col, tid_col), (c_sbw$wcol) := i.w]
-
-  ## diagnostics rows for the years that came from cache
-  if (any(l_cached)) {
-    dt_fit_c <- map(v_years[l_cached], ~data.table(year = .x,
-                                                   n_fit = nrow(l_dt_w[[as.character(.x)]]),
-                                                   status = "cached", iter = NA_real_,
-                                                   run_time = NA_real_, from_cache = TRUE)) %>%
-      rbindlist
-    dt_fit <- rbind(dt_fit, dt_fit_c)
-  }
+  dt_fit <- rbindlist(map(l_res, ~.x$dt_fit))
+  dt_fit[, year := v_all]
   setorderv(dt_fit, "year")
 
   list(dt_fit = dt_fit, dir_run = dir_run, hash = hash,
-       from_cache_all = all(l_cached),
+       from_cache_all = all(v_cached),
        elapsed_s = round(as.numeric(difftime(Sys.time(), t0, units = "secs")), 2))
+}
+
+
+gl_sbw_fit_args <- function(c_sbw, l_fs) {
+  #' optweightMV arguments that are identical across all years.
+  #' tols: NULL = exact balance (optweight default), a numeric scalar =
+  #' uniform tolerance, otherwise passed through as the full per-formula
+  #' tolerance list.
+  #'
+  #' @param c_sbw defaulted + covariate-expanded config
+  #' @param l_fs  optweightMV formula list (number of formulas determines the
+  #'              length of a uniform tols repetition)
+  #' @return named list of optweightMV arguments (estimand, norm, min.w,
+  #'   verbose, eps_rel, eps_abs, tols.list)
+  list(estimand = c_sbw$estimand, norm = c_sbw$norm,
+       min.w = c_sbw$min.w, verbose = c_sbw$verbose,
+       eps_rel = c_sbw$eps, eps_abs = c_sbw$eps,
+       tols.list = if (is.null(c_sbw$tols)) {
+         list(0)              ## exact balance (optweight default)
+       } else if (is.numeric(c_sbw$tols) && length(c_sbw$tols) == 1) {
+         rep(list(c_sbw$tols), length(l_fs))  ## uniform tolerance
+       } else {
+         c_sbw$tols          ## full per-formula tolerance list
+       })
 }
 
 
