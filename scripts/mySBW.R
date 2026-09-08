@@ -999,18 +999,20 @@ gd_sbw_registry <- function(dir_cache) {
 
 gf_sbw_did <- function(c_sbw, l_tps = NULL) {
   #' DiD formula on the weighted panel: c(exn_X_d{k} / exn_X_dm{k} across all
-  #' treatments and time points) ~ <same-year treatments> | <tid>. Default
-  #' time points: pre -(2..L_lag) (l1 is the baseline, dm1 = 0 by
-  #' construction) and post 1..impact_years.
+  #' treatments and time points) ~ <same-year treatments> | <tid>.
+  #'
+  #' Time-point defaults are INDEPENDENT for the pre and post side, matching
+  #' the now-independent n_lag and impact_years: pre periods -(2..n_lag)
+  #' (l1 is the baseline, dm1 = 0 by construction and never included) and
+  #' post periods 1..impact_years. Sorted ascending afterwards.
   #'
   #' @param c_sbw config (as stored in the result)
   #' @param l_tps optional integer vector of relative years (excludes 0)
   #' @return formula
-  K     <- c_sbw$impact_years
+  K       <- c_sbw$impact_years
   max_lag <- c_sbw$n_lag
 
-  l_tps <- l_tps %||% c(-(2:max_lag), seq_len(K)) %>% sort
-  
+  if (is.null(l_tps)) l_tps <- sort(c(-(2:max_lag), seq_len(K)))
   if (any(l_tps > K | l_tps < -max_lag | l_tps == 0)) {
     stop(sprintf("time points must be in [%d, %d] \\ {0}: post periods only go to impact_years = %d",
                  -max_lag, K, K))
