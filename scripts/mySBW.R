@@ -934,15 +934,9 @@ gd_sbw_bal_summary <- function(dt_results, c_sbw, v_years = NULL, wcol = NULL,
   dt_long <- gd_sbw_bal_long(dt_results, c_sbw, v_years = v_years, wcol = wcol)
   if (b_return_long) return(dt_long)
 
-  ## per-year weight statistics
-  ## FIXME: assingment in lambdas
-  dt_wstats <- map(v_years, function(year) {
-    v_year <- year   ## `year` is also a column name in dt_results
-    dt_year <- dt_results[get(tid_col) == v_year & !is.na(get(wcol))]
-    dt_ws <- gd_sbw_bal_wstats_year(dt_year, wcol)
-    dt_ws[, year := v_year]
-    dt_ws
-  }) %>% rbindlist
+  ## per-year weight statistics (helper per year; no assignments in lambdas)
+  dt_wstats <- map(v_years, gd_sbw_bal_wstats_year_cfg, dt_results = dt_results,
+                   tid_col = tid_col, wcol = wcol) %>% rbindlist
 
   dt_cors <- dt_long[, .(max_cor_raw = round(max(abs(cor_raw), na.rm = TRUE), 4),
                          max_cor_w = round(max(abs(cor_w), na.rm = TRUE), 4)),
@@ -950,6 +944,22 @@ gd_sbw_bal_summary <- function(dt_results, c_sbw, v_years = NULL, wcol = NULL,
   merge(dt_wstats, dt_cors, by = "year")[order(year)]
 }
 
+
+gd_sbw_bal_wstats_year_cfg <- function(dt_results, year, tid_col, wcol) {
+  #' Weight statistics for one weighted year of dt_results (year column
+  #' added), used by gd_sbw_bal_summary.
+  #'
+  #' @param dt_results weighted panel
+  #' @param year       calendar year
+  #' @param tid_col    time column name
+  #' @param wcol       weight column name
+  #' @return single-row data.table (ess, mean_w, year)
+  v_year <- year   ## local scalar: `year` is also a column name in dt_results
+  dt_year <- dt_results[get(tid_col) == v_year & !is.na(get(wcol))]
+  dt_ws <- gd_sbw_bal_wstats_year(dt_year, wcol)
+  dt_ws[, year := v_year]
+  dt_ws
+}
 
 gl_sbw_proc <- function(c_sbw, b_force = FALSE) {
   #' Run the SBW pipeline end-to-end for one config (the orchestrator).
