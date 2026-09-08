@@ -427,15 +427,14 @@ gd_test_cache_format_and_parallel <- function() {
   dt_shuf <- r$dt_results[sample(.N)]
   ## re-slice + read into the shuffled table
   c_sbw_fit <- r$config   ## config after covariate expansion (Gender -> Gender_Male)
-  dt_year <- gd_sbw_year_slice(dt_shuf, 2009, "year", "PeopleID",
-                               c(c_sbw_fit$treatment_cols, gl_sbw_balcols(c_sbw_fit)))
+  dt_year <- gd_sbw_year_slice(dt_shuf, 2009, c_sbw_fit)
   expect_equal(nrow(dt_year), nrow(dt_w), info = "shuffled slice rows match weight rows")
   ## values attached by join must equal the file weights for those (uid, tid)
   dt_check <- merge(dt_shuf[year == 2009, .(PeopleID, year)],
                     dt_w, by = c("PeopleID", "year"))
   expect_equal(sum(!is.na(dt_check$w)), nrow(dt_w), info = "every file row joins to a panel row")
 
-  ## PSOCK parallel fit produces the same weights as the sequential fit
+  ## fork-parallel (mclapply) fit produces the same weights as the sequential fit
   c_par <- gd_syn_config(dt, years = 2009:2010, label = "test_syn_par", n_cores = 2L)
   r_par <- gl_sbw_proc(c_par)
   expect_true(all(r_par$dt_diag$status == "solved"), info = "parallel years solved")
