@@ -854,53 +854,57 @@ gd_sbw_bal_long <- function(dt_results, c_sbw, v_years = NULL, wcol = NULL) {
 }
 
 
-gd_sbw_bal_summary_year <- function(dt_results, year, tid_col, wcol, l_treats,
-                                    l_balcols) {
-  #' One-row balance summary (ESS, mean weight, max |corr| raw/weighted) for
-  #' one weighted year of dt_results.
+gd_sbw_bal_wstats_year <- function(dt_year, wcol) {
+  #' Weight statistics (ESS, mean weight) for one weighted year.
   #'
-  #' @param dt_results weighted panel
-  #' @param year       calendar year
-  #' @param tid_col    time column name
-  #' @param wcol       weight column name
-  #' @param l_treats   treatment column names
-  #' @param l_balcols  balance column names
-  #' @return single-row data.table (year, ess, mean_w, max_cor_raw, max_cor_w)
-
-  v_year <- year   ## local scalar: `year` is also a column name in dt_results
-  dt_year <- dt_results[get(tid_col) == v_year & !is.na(get(wcol))]
-  w    <- dt_year[[wcol]]
-  dt_b <- gd_sbw_bal_year(dt_year, l_treats, l_balcols, wcol)
-
-  data.table(year = v_year,
-             ess = round(sum(w)^2 / sum(w^2), 1),
-             mean_w = round(mean(w), 4),
-             max_cor_raw = round(max(abs(dt_b$cor_raw), na.rm = TRUE), 4),
-             max_cor_w = round(max(abs(dt_b$cor_w), na.rm = TRUE), 4))
+  #' @param dt_year one year of the weighted panel (weighted rows only)
+  #' @param wcol    weight column name
+  #' @return single-row data.table (ess, mean_w)
+  w <- dt_year[[wcol]]
+  data.table(ess = round(sum(w)^2 / sum(w^2), 1),
+             mean_w = round(mean(w), 4))
 }
 
 
-gd_sbw_bal_summary <- function(dt_results, c_sbw, v_years = NULL, wcol = NULL) {
-  #' Per-year balance summary over the weighted panel (used by gl_sbw_proc
-  #' for the dt_diag table).
+gd_sbw_bal_summary <- function(dt_results, c_sbw, v_years = NULL, wcol = NULL,
+                               b_return_long = FALSE) {
+  #' Per-year balance summary over the weighted panel. Computed from the SAME
+  #' long individual-correlation table that gd_sbw_bal_long returns (one code
+  #' path — no separate per-year matrix code), aggregated to per-year maxima
+  #' and joined with the per-year weight statistics.
   #'
-  #' @param dt_results weighted panel
-  #' @param c_sbw      config
-  #' @param v_years    optional subset; NULL = all weighted years
-  #' @param wcol       weight column (defaults to config$wcol)
-  #' @return data.table one row per year
+  #' @param dt_results     weighted panel
+  #' @param c_sbw          config
+  #' @param v_years        optional subset; NULL = all weighted years
+  #' @param wcol           weight column (defaults to config$wcol)
+  #' @param b_return_long  TRUE: return the full long table (individual
+  #'   treat x balcol correlations for every year) instead of the summary
+  #' @return data.table: default one row per year
+  #'   (year, ess, mean_w, max_cor_raw, max_cor_w); with b_return_long = TRUE
+  #'   the long table (year, treat, balcol, cor_raw, cor_w)
+
   c_sbw <- md_sbw_defaults(c_sbw)
   wcol    <- wcol %||% c_sbw$wcol
   tid_col <- c_sbw$tid
   v_years <- v_years %||% dt_results[!is.na(get(wcol)), sort(unique(get(tid_col)))]
 
-  ## DEBUG
-  ## gd_sbw_bal_summary_year(dt_results, 2012, tid_col = tid_col, wcol = wcol, l_treats = c_sbw$treatment_cols, l_balcols = gl_sbw_balcols(c_sbw))
+  dt_long <- gd_sbw_bal_long(dt_results, c_sbw, v_years = v_years, wcol = wcol)
+  if (b_return_long) return(dt_long)
 
-  map(v_years, gd_sbw_bal_summary_year, dt_results = dt_results,
-      tid_col = tid_col, wcol = wcol, l_treats = c_sbw$treatment_cols,
-      l_balcols = gl_sbw_balcols(c_sbw)) %>% rbindlist
+  ## per-year weight statistics
+  ## FIXME: assingment in lambdas
+  dt_wstats <- map(v_years, function(year) {
+    v_year <- year   ## `year` is also a column name in dt_results
+    dt_year <- dt_results[get(tid_col) == v_year & !is.na(get(wcol))]
+    dt_ws <- gd_sbw_bal_wstats_year(dt_year, wcol)
+    dt_ws[, year := v_year]
+    dt_ws
+  }) %>% rbindlist
 
+  dt_cors <- dt_long[, .(max_cor_raw = round(max(abs(cor_raw), na.rm = TRUE), 4),
+                         max_cor_w = round(max(abs(cor_w), na.rm = TRUE), 4)),
+                     by = year]
+  merge(dt_wstats, dt_cors, by = "year")[order(year)]
 }
 
 
