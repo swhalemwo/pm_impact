@@ -440,6 +440,7 @@ gf_sbw_hash <- function(c_sbw, dt_years, dt_working) {
 
   digest::digest(paste(spec_str, paste(dt_years$year, collapse = ","), data_str, sep = "|"),
                  algo = "md5", serialize = FALSE)
+
 }
 
 
@@ -645,93 +646,141 @@ gl_sbw_weights <- function(c_sbw, dt_working, dt_years, l_fs, b_force = FALSE) {
 
 
 gd_sbw_cor_w <- function(m, w) {
-  #' weighted correlation matrix; NA where a column has (near-)zero variance
-
-  sw <- sum(w)
-  mw <- colSums(m * w) / sw
-  mc <- m - rep(mw, each = nrow(m))
+  #' Weighted correlation matrix of the columns of m.
+  #'
+  #' @param m numeric matrix (rows = observations)
+  #' @param w numeric weight vector (length nrow(m)); w = rep(1, nrow(m))
+  #'   yields the unweighted correlation matrix
+  #' @return matrix; NA where a column has (near-)zero variance
+  sw  <- sum(w)
+  mw  <- colSums(m * w) / sw
+  mc  <- m - rep(mw, each = nrow(m))
   covm <- crossprod(mc * w, mc) / sw
   sds <- sqrt(diag(covm))
-  r <- covm / outer(sds, sds)
+  r   <- covm / outer(sds, sds)
   r[sds < 1e-12, ] <- NA
   r[, sds < 1e-12] <- NA
   r
 }
 
 
-sbw_mat_col <- function(dty, cl) {
-  #' matrix form of one column: numeric as-is, factor/character expanded to
-  #' one dummy per level (names sanitized like md_sbw_expand_covs)
-  x <- dty[[cl]]
+gd_sbw_mat_col <- function(dt_year, col) {
+  #' Matrix form of one column of a (weighted) year: numeric columns as-is;
+  #' factor/character columns expanded to one dummy per level (used only by
+  #' the balance diagnostics — the fit itself gets pre-expanded dummies).
+  #'
+  #' @param dt_year one year of the weighted panel
+  #' @param col     column name
+  #' @return numeric matrix with 1 (numeric) or k (factor) columns
+  x <- dt_year[[col]]
   if (is.numeric(x)) {
     m1 <- as.matrix(x)
-    colnames(m1) <- cl
+    colnames(m1) <- col
     m1
   } else {
     m1 <- model.matrix(~ factor(x) - 1)
-    colnames(m1) <- make.names(paste0(cl, "_", colnames(m1)))
+    colnames(m1) <- make.names(paste0(col, "_", colnames(m1)))
     m1
   }
 }
 
 
-gd_sbw_mat <- function(dty, l_cols) {
-  #' cbind matrix form of the given columns (used for the balance diagnostics;
-  #' the fit itself already receives pre-expanded dummies from md_sbw_expand_covs)
-
-  l_m <- map(l_cols, sbw_mat_col, dty = dty)
+gd_sbw_mat <- function(dt_year, l_cols) {
+  #' Column-bind the given columns of dt_year in matrix form (cbind helper
+  #' over gd_sbw_mat_col).
+  #'
+  #' @param dt_year one year of the weighted panel
+  #' @param l_cols  column names to include
+  #' @return numeric matrix
+  l_m <- map(l_cols, gd_sbw_mat_col, dt_year = dt_year)
+  ## gd_sbw_mat_col(dt_year, "exn_pm_l1") %>% dim
   do.call(cbind, l_m)
 }
 
 
-gd_sbw_bal_year <- function(dty, l_treats, l_balcols, wcol) {
-  #' weighted vs raw correlations (treatment x balance column) for one year
+gd_sbw_bal_year <- function(dt_year, l_treats, l_balcols, wcol) {
+  #' Weighted vs raw correlations (treatment x balance column) for one year
+  #' of the weighted panel.
+  #'
+  #' @param dt_year   one year of the weighted panel (weighted rows only)
+  #' @param l_treats  treatment column names
+  #' @param l_balcols balance column names (gl_sbw_balcols output)
+  #' @param wcol      weight column name
+  #' @return data.table with columns (treat, balcol, cor_raw, cor_w)
 
-  w <- dty[[wcol]]
-  m <- gd_sbw_mat(dty, c(l_treats, l_balcols))
+  w <- dt_year[[wcol]]
+  m <- gd_sbw_mat(dt_year, c(l_treats, l_balcols))
   n_t <- length(l_treats)
-  r_w <- gd_sbw_cor_w(m, w)
+  r_w   <- gd_sbw_cor_w(m, w)
   r_raw <- gd_sbw_cor_w(m, rep(1, nrow(m)))
 
-  data.table(treat = rep(l_treats, times = ncol(m) - n_t),
-             balcol = rep(colnames(m)[-seq_len(n_t)], each = n_t),
+  data.table(treat   = rep(l_treats, times = ncol(m) - n_t),
+             balcol  = rep(colnames(m)[-seq_len(n_t)], each = n_t),
              cor_raw = as.vector(r_raw[seq_len(n_t), -seq_len(n_t), drop = FALSE]),
-             cor_w = as.vector(r_w[seq_len(n_t), -seq_len(n_t), drop = FALSE]))
+             cor_w   = as.vector(r_w[seq_len(n_t), -seq_len(n_t), drop = FALSE]))
+
 }
 
 
-sbw_bal_long_year <- function(dt, y, v_tid, wcol, l_treats, l_bal) {
-  #' balance rows (treat x balcol correlations) for one weighted year
-  dty <- dt[get(v_tid) == y & !is.na(get(wcol))]
-  dt_b <- gd_sbw_bal_year(dty, l_treats, l_bal, wcol)
-  dt_b[, year := y]
+gd_sbw_bal_long_year <- function(dt_results, year, tid_col, wcol, l_treats,
+                                 l_balcols) {
+  #' Balance rows for one weighted year of dt_results.
+  #'
+  #' @param dt_results weighted panel (gl_sbw_proc output)
+  #' @param year       calendar year to evaluate
+  #' @param tid_col    time column name
+  #' @param wcol       weight column name
+  #' @param l_treats   treatment column names
+  #' @param l_balcols  balance column names
+  #' @return data.table like gd_sbw_bal_year with an added year column
+  v_year <- year   ## local scalar: `year` is also a column name in dt_results
+  dt_year <- dt_results[get(tid_col) == v_year & !is.na(get(wcol))]
+  dt_b <- gd_sbw_bal_year(dt_year, l_treats, l_balcols, wcol)
+  dt_b[, year := v_year]
   dt_b
 }
 
 
-gd_sbw_bal_long <- function(dt, c_sbw, v_years = NULL, wcol = NULL) {
-  #' long balance table across years: year x treat x balcol with raw/weighted
-  #' correlations (weighted rows only; v_years defaults to all weighted years)
-
+gd_sbw_bal_long <- function(dt_results, c_sbw, v_years = NULL, wcol = NULL) {
+  #' Long balance table across years: rows year x treat x balcol with raw and
+  #' weighted correlations. Only weighted rows are used; v_years defaults to
+  #' all years that have weights.
+  #'
+  #' @param dt_results weighted panel (gl_sbw_proc output)
+  #' @param c_sbw      config (as stored in the result)
+  #' @param v_years    optional subset of years; NULL = all weighted years
+  #' @param wcol       weight column (defaults to config$wcol)
+  #' @return data.table with columns (year, treat, balcol, cor_raw, cor_w)
   c_sbw <- md_sbw_defaults(c_sbw)
-  wcol <- wcol %||% c_sbw$wcol
-  v_tid <- c_sbw$tid
-  l_treats <- c_sbw$treatment_cols
-  l_bal <- gf_sbw_balcols(c_sbw)
-  v_years <- v_years %||% dt[!is.na(get(wcol)), sort(unique(get(v_tid)))]
+  wcol    <- wcol %||% c_sbw$wcol
+  tid_col <- c_sbw$tid
+  v_years <- v_years %||% dt_results[!is.na(get(wcol)), sort(unique(get(tid_col)))]
 
-  map(v_years, sbw_bal_long_year, dt = dt, v_tid = v_tid, wcol = wcol,
-      l_treats = l_treats, l_bal = l_bal) %>% rbindlist
+  map(v_years, gd_sbw_bal_long_year, dt_results = dt_results, tid_col = tid_col,
+      wcol = wcol, l_treats = c_sbw$treatment_cols,
+      l_balcols = gl_sbw_balcols(c_sbw)) %>% rbindlist
 }
 
 
-sbw_bal_summary_year <- function(dt, y, v_tid, wcol, l_treats, l_bal) {
-  #' one-row balance summary (ESS, mean weight, max |corr| raw/weighted) for
-  #' one weighted year
-  dty <- dt[get(v_tid) == y & !is.na(get(wcol))]
-  w <- dty[[wcol]]
-  dt_b <- gd_sbw_bal_year(dty, l_treats, l_bal, wcol)
-  data.table(year = y,
+gd_sbw_bal_summary_year <- function(dt_results, year, tid_col, wcol, l_treats,
+                                    l_balcols) {
+  #' One-row balance summary (ESS, mean weight, max |corr| raw/weighted) for
+  #' one weighted year of dt_results.
+  #'
+  #' @param dt_results weighted panel
+  #' @param year       calendar year
+  #' @param tid_col    time column name
+  #' @param wcol       weight column name
+  #' @param l_treats   treatment column names
+  #' @param l_balcols  balance column names
+  #' @return single-row data.table (year, ess, mean_w, max_cor_raw, max_cor_w)
+
+  v_year <- year   ## local scalar: `year` is also a column name in dt_results
+  dt_year <- dt_results[get(tid_col) == v_year & !is.na(get(wcol))]
+  w    <- dt_year[[wcol]]
+  dt_b <- gd_sbw_bal_year(dt_year, l_treats, l_balcols, wcol)
+
+  data.table(year = v_year,
              ess = round(sum(w)^2 / sum(w^2), 1),
              mean_w = round(mean(w), 4),
              max_cor_raw = round(max(abs(dt_b$cor_raw), na.rm = TRUE), 4),
@@ -739,19 +788,27 @@ sbw_bal_summary_year <- function(dt, y, v_tid, wcol, l_treats, l_bal) {
 }
 
 
-gd_sbw_bal_summary <- function(dt, c_sbw, v_years = NULL, wcol = NULL) {
-  #' per-year balance summary (ESS, mean weight, max |corr| raw/weighted) for
-  #' the weighted rows; used by gl_sbw_proc for the diag table
-
+gd_sbw_bal_summary <- function(dt_results, c_sbw, v_years = NULL, wcol = NULL) {
+  #' Per-year balance summary over the weighted panel (used by gl_sbw_proc
+  #' for the dt_diag table).
+  #'
+  #' @param dt_results weighted panel
+  #' @param c_sbw      config
+  #' @param v_years    optional subset; NULL = all weighted years
+  #' @param wcol       weight column (defaults to config$wcol)
+  #' @return data.table one row per year
   c_sbw <- md_sbw_defaults(c_sbw)
-  wcol <- wcol %||% c_sbw$wcol
-  v_tid <- c_sbw$tid
-  l_treats <- c_sbw$treatment_cols
-  l_bal <- gf_sbw_balcols(c_sbw)
-  v_years <- v_years %||% dt[!is.na(get(wcol)), sort(unique(get(v_tid)))]
+  wcol    <- wcol %||% c_sbw$wcol
+  tid_col <- c_sbw$tid
+  v_years <- v_years %||% dt_results[!is.na(get(wcol)), sort(unique(get(tid_col)))]
 
-  map(v_years, sbw_bal_summary_year, dt = dt, v_tid = v_tid, wcol = wcol,
-      l_treats = l_treats, l_bal = l_bal) %>% rbindlist
+  ## DEBUG
+  ## gd_sbw_bal_summary_year(dt_results, 2012, tid_col = tid_col, wcol = wcol, l_treats = c_sbw$treatment_cols, l_balcols = gl_sbw_balcols(c_sbw))
+
+  map(v_years, gd_sbw_bal_summary_year, dt_results = dt_results,
+      tid_col = tid_col, wcol = wcol, l_treats = c_sbw$treatment_cols,
+      l_balcols = gl_sbw_balcols(c_sbw)) %>% rbindlist
+
 }
 
 
