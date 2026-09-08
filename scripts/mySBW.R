@@ -200,36 +200,32 @@ gd_sbw_shiftcols <- function(l_cols, n, dir = "l") {
 gl_sbw_balcols <- function(c_sbw) {
   #' The balance columns: everything each treatment formula balances on —
   #' lagged treatments (t-1..t-n_lag of every treatment type) followed by the
-  #' covariates at year t and (for numeric covariates, n_lag_cov > 0) their
-  #' lags. NOTE: returns column *names* (a character vector), not a formula.
+  #' covariate set. IMPORTANT: config$covariate_cols must already be the
+  #' FINAL covariate list — md_sbw_expand_covs turns factor columns into
+  #' numeric dummies and md_sbw_cov_lags appends their lags — so this
+  #' function just adds the names as-is (no lag expansion here; doing it here
+  #' would double-lag). 
   #'
-  #' @param c_sbw defaulted config
+  #' @param c_sbw defaulted + covariate-expanded/lagged config
   #' @return character vector of column names
   c(gd_sbw_shiftcols(c_sbw$treatment_cols, c_sbw$n_lag, "l"),
-    c_sbw$covariate_cols,
-    if (c_sbw$n_lag_cov > 0) {
-      gd_sbw_shiftcols(c_sbw$covariate_cols, c_sbw$n_lag_cov, "l")
-    } else {
-      character(0)
-    })
+    c_sbw$covariate_cols)
 }
 
 
 gf_sbw_formulas <- function(c_sbw) {
   #' One optweightMV formula per treatment: exn_X ~ <all treatment lags> +
-  #' <covariates>. Same-year other treatments stay out of the RHS so each
+  #' <covariate set>. Same-year other treatments stay out of the RHS so each
   #' fitted coefficient is a partial dose effect conditional on the observed
   #' other treatments of that year.
   #'
-  #' @param c_sbw defaulted config (covariate_cols already expanded to
-  #'   dummies by md_sbw_expand_covs when factors were involved)
+  #' @param c_sbw defaulted config; covariate_cols must be the FINAL set
+  #'   (numeric covariates + expanded factor dummies + their lags, as
+  #'   prepared by md_sbw_expand_covs / md_sbw_cov_lags)
   #' @return named list of formulas, names = treatment_cols
 
   l_rhs <- paste(c(gd_sbw_shiftcols(c_sbw$treatment_cols, c_sbw$n_lag, "l"),
-                   c_sbw$covariate_cols,
-                   if (c_sbw$n_lag_cov > 0) {
-                     gd_sbw_shiftcols(c_sbw$covariate_cols, c_sbw$n_lag_cov, "l")
-                   }),
+                   c_sbw$covariate_cols),
                  collapse = " + ")
 
   map(c_sbw$treatment_cols, ~as.formula(sprintf("%s ~ %s", .x, l_rhs))) %>%
@@ -240,28 +236,36 @@ gf_sbw_formulas <- function(c_sbw) {
 md_sbw_panel <- function(c_sbw) {
   #' Build the working panel from the base dt_panel (a lean copy; the input
   #' is never modified): keeps uid/tid/treatments/covariates and adds
-  #'   - treatment lags exn_X_l1..l{max_lag}   (max_lag = max(n_lag, impact_years);
-  #'     lags beyond n_lag serve as unbalanced placebo pre-periods)
-  #'   - outcome columns exn_X_d{k}  = lead k - l1  (k = 1..impact_years)
-  #'   - outcome columns exn_X_dm{k} = lag k - l1   (k = 2..L_lag; dm1 = 0 is
+  #'   - treatment lags exn_X_l1..l{n_lag}   (n_lag only; NOT tied to
+  #'     impact_years — lags beyond the balance horizon would anyway be
+  #'     unbalanced and only serve as placebo pre-periods)
+  #'   - treatment leads exn_X_f1..f{K}      (K = impact_years) — KEPT in the
+  #'     panel: raw future values are useful in their own right (e.g. Poisson
+  #'     outcome models) and gd_sbw_years uses them for outcome-coverage
+  #'     checks
+  #'   - outcome columns exn_X_d{k}  = lead k - l1  (k = 1..K)
+  #'   - outcome columns exn_X_dm{k} = lag k - l1   (k = 2..n_lag; dm1 = 0 is
   #'     the DiD baseline by construction and is not stored)
-  #' Intermediate lead columns are dropped again.
+  #' Covariates are NOT lagged here — factor covariates must first be
+  #' expanded to numeric dummies (md_sbw_expand_covs) and their lags are
+  #' built afterwards (md_sbw_cov_lags), so that a lag of a factor level is a
+  #' lag of a dummy, not a lag of a character column.
   #'
   #' @param c_sbw defaulted config
   #' @return data.table: the working panel
+
   l_treats <- c_sbw$treatment_cols
   l_covs   <- c_sbw$covariate_cols
   K        <- c_sbw$impact_years
-  ## max_lag    <- max(c_sbw$n_lag, K)
-  max_lag    <- c_sbw$n_lag
-  
+  max_lag  <- c_sbw$n_lag
 
   ## generated names must not collide with base panel columns (the pipeline
   ## owns the *_l/*_f/*_d/*_dm namespace)
   l_new <- c(gd_sbw_shiftcols(l_treats, max_lag, "l"),  # lags
-             gd_sbw_shiftcols(l_treats, K, "f"), # leads
-             sprintf("%s_d%d", rep(l_treats, each = K), seq_len(K)), # forward diffs
-             if (max_lag > 1) sprintf("%s_dm%d", rep(l_treats, each = max_lag - 1), 2:max_lag) else character(0)) # backward diffs
+             gd_sbw_shiftcols(l_treats, K, "f"),        # leads
+             sprintf("%s_d%d", rep(l_treats, each = K), seq_len(K)), # forward diffs, backward diffs below
+             if (max_lag > 1) sprintf("%s_dm%d", rep(l_treats, each = max_lag - 1), 2:max_lag) else character(0))
+  
   l_clash <- intersect(l_new, names(c_sbw$dt_panel))
   if (length(l_clash) > 0) {
     stop(sprintf("dt_panel already contains pipeline-generated columns: %s. ",
