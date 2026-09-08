@@ -925,39 +925,56 @@ gf_sbw_did <- function(c_sbw, l_tps = NULL) {
   #' @param l_tps optional integer vector of relative years (excludes 0)
   #' @return formula
   K     <- c_sbw$impact_years
-  L_lag <- max(c_sbw$n_lag, K)
-  l_tps <- l_tps %||% c(-(2:L_lag), seq_len(K))
-  if (any(l_tps > K | l_tps < -L_lag | l_tps == 0)) {
+  max_lag <- c_sbw$n_lag
+
+  l_tps <- l_tps %||% c(-(2:max_lag), seq_len(K)) %>% sort
+  
+  if (any(l_tps > K | l_tps < -max_lag | l_tps == 0)) {
     stop(sprintf("time points must be in [%d, %d] \\ {0}: post periods only go to impact_years = %d",
-                 -L_lag, K, K))
+                 -max_lag, K, K))
   }
 
-  l_dvs <- map(c_sbw$treatment_cols, function(tr) {
-    sprintf("%s_%s%d", tr, fifelse(l_tps > 0, "d", "dm"), abs(l_tps))
+  l_dvs <- map(c_sbw$treatment_cols, function(treat_col) {
+    sprintf("%s_%s%d", treat_col, fifelse(l_tps > 0, "d", "dm"), abs(l_tps))
   }) %>% unlist
 
   sprintf("c(%s) ~ %s | %s", paste(l_dvs, collapse = ", "),
           paste(c_sbw$treatment_cols, collapse = " + "), c_sbw$tid) %>% as.formula
+
 }
 
 
 gl_sbw_did <- function(r_sbw, l_tps = NULL, ...) {
-  #' pooled DiD on the SBW-weighted panel: feols(multi-LHS d/dm outcomes ~
-  #' same-year treatments | tid, weights = ~wcol, cluster = ~uid)
-  #' @return fixest_multi object; extract with gd_sbw_coef_did
-
+  #' Pooled DiD on the SBW-weighted panel:
+  #'   feols(c(<d/dm outcomes>) ~ <same-year treatments> | <tid>,
+  #'         data = dt_results, weights = ~wcol, cluster = ~uid)
+  #' The result is a fixest_multi object; extract coefficients with
+  #' gd_sbw_coef_did (year fixed effects make this the meta-analytic average
+  #' of the per-year fits).
+  #'
+  #' @param r_sbw result of gl_sbw_proc
+  #' @param l_tps optional time points (gf_sbw_did)
+  #' @param ...   further feols arguments (vcov, etc.)
+  #' @return fixest_multi model object
   c_sbw <- r_sbw$config
-  f <- gf_sbw_did(c_sbw, l_tps)
-  feols(f, data = r_sbw$dt,
+
+  f_did <- gf_sbw_did(c_sbw, l_tps)
+  
+  feols(f_did, data = r_sbw$dt_results,
         weights = as.formula(sprintf("~ %s", c_sbw$wcol)),
         cluster = as.formula(sprintf("~ %s", c_sbw$uid)), ...)
+
 }
 
 
 gd_sbw_coef_did <- function(rx) {
-  #' extract coefficients from a fixest multi-LHS DiD model (gl_sbw_did):
-  #' columns mdl/term/estimate/std.error/statistic/p.value/dv/tp
-
+  #' Extract coefficients from a fixest multi-LHS DiD model (gl_sbw_did).
+  #'
+  #' @param rx fixest_multi object (or any list-like with a tidy method)
+  #' @return data.table with columns
+  #'   (mdl, term, estimate, std.error, statistic, p.value, dv, tp)
+  #'   where dv is the outcome treatment type (exn_pm, ...) and tp is the
+  #'   relative year (negative = pre-period dm, positive = post-period d)
   dt_coef <- map(rx, tidy) %>% rbindlist(idcol = "mdl")
 
   dt_coef[, tp_prep := sub("^lhs: ", "", mdl)] %>%
@@ -967,5 +984,5 @@ gd_sbw_coef_did <- function(rx) {
     .[, tp := tdir * tlen] %>%
     .[, `:=`(tdir = NULL, tlen = NULL)]
 
-  dt_coef
+  return(dt_coef)
 }
