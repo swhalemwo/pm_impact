@@ -199,13 +199,13 @@ gd_test_proc <- function() {
   c_sbw <- gd_syn_config(dt, years = 2009:2010)
 
   r <- t_test("proc fit", gl_sbw_proc(c_sbw))
-  expect_true(all(c("dt", "dt_panel", "dt_years", "dt_diag", "config", "cache") %in% names(r)),
+  expect_true(all(c("dt_panel", "dt_results", "dt_years", "dt_diag", "config", "cache") %in% names(r)),
               info = "result structure")
-  expect_true("w_sbw" %in% names(r$dt), info = "weight column added")
-  expect_true(all(c("exn_pm_l1", "exn_pm_d1", "exn_pm_dm2") %in% names(r$dt)),
+  expect_true("w_sbw" %in% names(r$dt_results), info = "weight column added")
+  expect_true(all(c("exn_pm_l1", "exn_pm_d1", "exn_pm_dm2") %in% names(r$dt_results)),
               info = "lags and outcome columns present")
   expect_equal(nrow(r$dt_years), 2L, info = "two fit years")
-  expect_equal(sum(!is.na(r$dt$w_sbw)), sum(r$dt_years$n_use), info = "weighted rows = n_use")
+  expect_equal(sum(!is.na(r$dt_results$w_sbw)), sum(r$dt_years$n_use), info = "weighted rows = n_use")
   expect_equal(nrow(r$dt_diag), 2L, info = "diag row per year")
   expect_true(all(r$dt_diag$status == "solved"), info = "all years solved")
   expect_true(all(r$dt_diag$max_cor_w < 0.02), info = "weighted correlations ~ 0")
@@ -215,13 +215,13 @@ gd_test_proc <- function() {
   ## cache: rerun is a pure reload with identical weights
   r2 <- t_test("proc cached", gl_sbw_proc(c_sbw))
   expect_true(r2$cache$from_cache_all, info = "second run served from cache")
-  expect_equal(r$dt$w_sbw, r2$dt$w_sbw, info = "cached weights identical")
+  expect_equal(r$dt_results$w_sbw, r2$dt_results$w_sbw, info = "cached weights identical")
   expect_true(r$cache$dir_run == r2$cache$dir_run, info = "same cache dir")
 
   ## b_force refits
   r3 <- t_test("proc refit", gl_sbw_proc(c_sbw, b_force = TRUE))
   expect_false(r3$cache$from_cache_all, info = "b_force refits")
-  expect_equal(r$dt$w_sbw, r3$dt$w_sbw, info = "deterministic refit weights")
+  expect_equal(r$dt_results$w_sbw, r3$dt_results$w_sbw, info = "deterministic refit weights")
 
   ## registry + persisted files
   expect_true(file.exists(file.path(c_sbw$dir_cache, "registry.csv")), info = "registry exists")
@@ -239,7 +239,7 @@ gd_test_bal_long <- function() {
   dt <- gd_syn_dt(2500, 2006:2014)
   c_sbw <- gd_syn_config(dt, years = 2009:2010)
   r <- gl_sbw_proc(c_sbw)
-  dt_bl <- gd_sbw_bal_long(r$dt, r$config)
+  dt_bl <- gd_sbw_bal_long(r$dt_results, r$config)
 
   ## Gender -> 1 dummy (Gender_Male; Female = dropped reference):
   ## 4 treats x (8 lags + 1 dummy) x 2 years
@@ -293,7 +293,44 @@ gd_test_real <- function() {
   expect_true(all(r$dt_diag$n_fit >= 100), info = "real n per year")
   expect_true(all(r$dt_diag$max_cor_w < 0.05), info = "real balance ok")
   expect_true(all(r$dt_diag$ess > 0.3 * r$dt_diag$n_fit), info = "real ESS healthy")
-  expect_true("w_sbw" %in% names(r$dt), info = "real weights attached")
+  expect_true("w_sbw" %in% names(r$dt_results), info = "real weights attached")
+}
+
+# === cached weight files carry (uid, tid) row identity + PSOCK parallel fit ===
+gd_test_cache_format_and_parallel <- function() {
+  dt <- gd_syn_dt(2500, 2006:2014)
+  c_sbw <- gd_syn_config(dt, years = 2009:2010)
+
+  ## sequential fit; inspect the on-disk weight format
+  r <- gl_sbw_proc(c_sbw)
+  p_w <- file.path(r$cache$dir_run, "w_2009.rds")
+  dt_w <- readRDS(p_w)
+  expect_true(is.data.table(dt_w), info = "weight file is a data.table")
+  expect_equal(names(dt_w), c("PeopleID", "year", "w"), info = "weight file columns (uid, tid, w)")
+  expect_equal(nrow(dt_w), sum(r$dt_years[year == 2009, n_use]), info = "one weight per complete row")
+  ## weights match the panel rows on (uid, tid), not on order: shuffle the
+  ## panel's 2009 rows and re-attach from the same file
+  dt_shuf <- r$dt_results[sample(.N)]
+  ## re-slice + read into the shuffled table
+  c_sbw_fit <- r$config   ## config after covariate expansion (Gender -> Gender_Male)
+  dt_year <- gd_sbw_year_slice(dt_shuf, 2009, "year", "PeopleID",
+                               c(c_sbw_fit$treatment_cols, gd_sbw_balcols(c_sbw_fit)))
+  expect_equal(nrow(dt_year), nrow(dt_w), info = "shuffled slice rows match weight rows")
+  ## values attached by join must equal the file weights for those (uid, tid)
+  dt_check <- merge(dt_shuf[year == 2009, .(PeopleID, year)],
+                    dt_w, by = c("PeopleID", "year"))
+  expect_equal(sum(!is.na(dt_check$w)), nrow(dt_w), info = "every file row joins to a panel row")
+
+  ## PSOCK parallel fit produces the same weights as the sequential fit
+  c_par <- gd_syn_config(dt, years = 2009:2010, label = "test_syn_par", n_cores = 2L)
+  r_par <- gl_sbw_proc(c_par)
+  expect_true(all(r_par$dt_diag$status == "solved"), info = "parallel years solved")
+  expect_true(all(r_par$dt_diag$ess > 0.1 * r_par$dt_diag$n_fit), info = "parallel ESS healthy")
+  dt_m <- merge(r$dt_results[!is.na(w_sbw), .(PeopleID, year, w_sbw)],
+                r_par$dt_results[!is.na(w_sbw), .(PeopleID, year, w_sbw)],
+                by = c("PeopleID", "year"), suffixes = c("_seq", "_par"))
+  expect_equal(nrow(dt_m), sum(r$dt_years$n_use), info = "sequential and parallel weight sets align")
+  expect_true(max(abs(dt_m$w_sbw_seq - dt_m$w_sbw_par)) < 1e-6, info = "sequential == parallel weights")
 }
 
 # === run everything ===
@@ -305,6 +342,7 @@ cat("\n--- year eligibility ---\n");    gd_test_years()
 cat("\n--- end-to-end pipeline ---\n"); gd_test_proc()
 cat("\n--- balance long ---\n");        gd_test_bal_long()
 cat("\n--- DiD ---\n");                 gd_test_did()
+cat("\n--- cache format + parallel ---\n"); gd_test_cache_format_and_parallel()
 cat("\n--- real-data smoke ---\n");     gd_test_real()
 
 cat("\n========================================\n")
