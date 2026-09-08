@@ -196,7 +196,7 @@ gd_sbw_shiftcols <- function(l_cols, n, dir = "l") {
   paste0(rep(l_cols, each = n), "_", dir, rep(seq_len(n), times = length(l_cols)))
 }
 
-## FIXME: make sure this handles different covariates (time-varying, categorical) properly
+
 gl_sbw_balcols <- function(c_sbw) {
   #' The balance columns: everything each treatment formula balances on —
   #' lagged treatments (t-1..t-n_lag of every treatment type) followed by the
@@ -663,6 +663,8 @@ gl_sbw_weights <- function(c_sbw, dt_working, dt_years, l_fs, b_force = FALSE) {
 
     ## one worker task per year: slice the year from the (fork-shared)
     ## working panel, fit, write weights, return the small diagnostics
+    ## FIXME: fit_one_year is effectively lambda (functions should only be defined on top level),
+    ## FIXME: also just wrapper around gd_sbw_fit_year: refactor/simplify
     fit_one_year <- function(year) {
       dt_year <- gd_sbw_year_slice(dt_working, year, tid_col, uid_col, l_fitcols)
       gd_sbw_fit_year(dt_year, l_paths[[as.character(year)]], l_fs, l_fit_args,
