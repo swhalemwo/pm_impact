@@ -385,14 +385,18 @@ gd_sbw_years <- function(c_sbw, dt_working) {
   #' @param dt_working working panel (md_sbw_panel output)
   #' @return data.table with columns (year, n_use) for the eligible years,
   #'   sorted ascending
-  tid_col  <- c_sbw$tid
-  l_fitcols <- c(c_sbw$treatment_cols, gl_sbw_balcols(c_sbw))
-  K         <- c_sbw$impact_years
 
-  dt_years <- dt_working[, .(n_use = sum(complete.cases(.SD))), by = c(tid_col), .SDcols = l_fitcols]
+  tid_col  <- c_sbw$tid
+  K         <- c_sbw$impact_years
+  l_fitcols <- c(c_sbw$treatment_cols, # treatment cols
+                 gl_sbw_balcols(c_sbw), # past treatment cols
+                 gd_sbw_shiftcols(c_sbw$treatment_cols, K, "f")) # future impact
+
+  dt_years <- dt_working[, .(n_use = sum(complete.cases(.SD))), by = c(tid_col), .SDcols = l_fitcols] %>%
+    .[n_use >= 1]
 
   setnames(dt_years, tid_col, "year")
-  dt_years <- dt_years[n_use >= 1 & year <= max(dt_working[[tid_col]]) - K]
+  ## dt_years <- dt_years[n_use >= 1 & year <= max(dt_working[[tid_col]]) - K]
 
   v_requested <- c_sbw$years
   if (length(v_requested) > 0) {
