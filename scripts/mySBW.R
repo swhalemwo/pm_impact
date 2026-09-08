@@ -413,21 +413,26 @@ gd_sbw_years <- function(c_sbw, dt_working) {
 }
 
 
-gf_sbw_hash <- function(c_sbw, dt_years, dt) {
-  #' md5 cache key: config spec (minus dt_panel/label) + selected years +
-  #' content of the used working-panel columns (numerics rounded to kill fp
-  #' noise). dt is the pipeline-built working panel (lags/leads derived from
-  #' it, so its content determines the weights).
-
+gf_sbw_hash <- function(c_sbw, dt_years, dt_working) {
+  #' md5 cache key: the config spec (minus dt_panel/label, which are the data
+  #' and the folder name) + the selected years + the content of the used
+  #' working-panel columns. Numerics are rounded to 8 digits first to keep
+  #' the hash stable across float noise.
+  #'
+  #' @param c_sbw      defaulted config (covariate_cols expanded)
+  #' @param dt_years   eligible years table (gd_sbw_years output)
+  #' @param dt_working working panel (its lag/lead columns determine the fit)
+  #' @return md5 hex string
   c_spec <- c_sbw
   c_spec$dt_panel <- NULL
   c_spec$label <- NULL
   l_spec <- c_spec[order(names(c_spec))]
-  spec_str <- map_chr(names(l_spec), ~sprintf("%s=%s", .x, paste(l_spec[[.x]], collapse = "|"))) %>%
+  spec_str <- map_chr(names(l_spec), ~sprintf("%s=%s", .x,
+                                              paste(l_spec[[.x]], collapse = "|"))) %>%
     paste(collapse = ";")
 
   l_cols <- unique(c(c_sbw$uid, c_sbw$tid, c_sbw$treatment_cols, c_sbw$covariate_cols))
-  dt0 <- dt[, ..l_cols]
+  dt0 <- dt_working[, ..l_cols]
   data_str <- map_chr(dt0, function(x) {
     if (is.numeric(x)) digest::digest(round(x, 8), algo = "md5")
     else digest::digest(x, algo = "md5", serialize = FALSE)
