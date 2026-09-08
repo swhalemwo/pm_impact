@@ -27,56 +27,75 @@
 ##   gd_sbw_bal_*                     balance report (weighted vs raw corr, ESS)
 ##   gl_sbw_proc                      orchestrator -> list(dt, dt_years, dt_diag, config, cache)
 ##   gl_sbw_did / gd_sbw_coef_did     DiD outcome model (feols) + coefficient extraction
+
+## Result of gl_sbw_proc:
+##   $dt_panel   original input panel, untouched (identical to config$dt_panel)
+##   $dt_results working panel: uid/tid + treatment/covariate columns + built
+##               lags (l1..) + outcome columns (d{k} / dm{k}) + the weight
+##               column (wcol); one row per (uid, tid), weight NA outside the
+##               fitted (complete) rows
+##   $dt_years   eligible fit years with complete-row counts (n_use)
+##   $dt_diag    per-year fit + balance diagnostics (n, ESS, max |corr|, ...)
+##   $config     the (defaulted + covariate-expanded) config used
+##   $cache      paths/hash of the weight cache used
 ##
-## Cache/registry: weights land in <dir_cache>/<label>/<hash>/w_<year>.rds as
-## each year finishes; whenever fitting happened a run row (label/hash/years/
-## elapsed) is appended to <dir_cache>/registry.csv. Re-running an identical
-## config (same spec + same panel content) restores the weights from disk.
+## Cache/registry:
+##   Per-year weights are stored as <dir_cache>/<label>/<hash>/w_<year>.rds;
+##   each file is a data.table with columns (uid, tid, w) — the row identity
+##   travels with the weights, so neither order nor a transient row index is
+##   ever relied on (joining back is on (uid, tid)). Whenever fitting
+##   happened a run row (label/hash/years/elapsed/timestamp) is appended to
+##   <dir_cache>/registry.csv; a rerun with an identical config + panel
+##   content (same hash) restores the weights from disk (b_force = TRUE
+##   refits). diag.csv + config.rds are persisted next to the weights.
 ##
-## Notes / contracts:
-## - dt_panel must be a COMPLETE per-artist grid (rows for every year between
-##   the artist's first and last panel year) and must NOT contain precomputed
-##   lag/lead columns (the pipeline builds them; clash -> error).
-## - Covariates: numeric columns are balanced as-is; factor/character columns
-##   are auto-expanded to one numeric dummy per level minus the first (sorted)
-##   level — optweightMV is infeasible when passed factors directly. Beware
-##   covariates that contain the current-year treatment (e.g. a cumulative
-##   count as of year t): balancing corr(treat_t, cum_t) = 0 is structurally
-##   infeasible — pass the cumulative as of t-1 instead, or the lag columns.
-## - The solver is single-threaded: parallelize across years with a PSOCK
-##   cluster (n_cores > 1); forking R + OpenBLAS threads deadlocks.
-## - optweightMV only supports estimand = "ATE". eps is the osqp solver
-##   tolerance (1e-3 ~2x faster than 1e-4, weights essentially identical);
-##   tols is the *balance* tolerance: NULL = exact balance (optweight
-##   default), a scalar = uniform tolerance, or a full per-formula list.
-## - Every default below can be overridden per config entry; fields not in
-##   the config fall back to md_sbw_defaults. min_n_year only matters when
-##   years = NULL (auto-selection): it is the minimum number of complete rows
-##   a year needs to be kept; explicitly requested years are kept with as few
-##   as one complete row.
+## Contracts / gotchas:
+## - dt_panel must be a COMPLETE per-artist grid (every year between the
+##   artist's first and last panel year) and must NOT contain precomputed
+##   lag/lead columns (the pipeline owns the *_l/*_d/*_dm namespace).
+## - Factor/character covariates are auto-expanded to numeric dummies (all
+##   levels minus the first sorted level = reference) — optweightMV is
+##   infeasible when passed factors directly. Rare levels (< 0.5% or < 100
+##   rows) warn: exact ATE balance with them is usually infeasible (recode).
+## - Covariates that contain the current-year treatment (e.g. a cumulative
+##   count as of year t) cannot be balanced exactly against that treatment —
+##   pass the cumulative as of t-1, or rely on the treatment lags.
+## - The osqp solver is single-threaded. n_cores > 1 runs years on a PSOCK
+##   cluster (the fit function + constants are exported to the workers);
+##   set OPENBLAS_NUM_THREADS = 1 (forking + OpenBLAS threads deadlocks).
+## - eps = osqp solver tolerance (1e-3 ~2x faster than 1e-4, weights
+##   essentially identical); tols = *balance* tolerance: NULL = exact (the
+##   optweight default), a scalar = uniform tolerance, or a full
+##   per-formula tolerance list.
+## - estimand is fixed to "ATE" (optweightMV only supports ATE).
+## - min_n_year only matters when years = NULL (auto): the minimum number of
+##   complete rows a year needs to be kept. Explicitly requested years are
+##   kept with as few as one complete row.
 ## - Moments/interactions are not hard-wired: precompute e.g. I(x^2) or
 ##   product columns and list them in covariate_cols.
 ## =====================================================================
 
 
 md_sbw_defaults <- function(c_sbw) {
-  #' fill default values for missing config fields; user-supplied entries
-  #' always win (plain overlay, no recursion into list members like dt_panel)
-
+  #' Fill missing config fields with defaults. User-supplied entries always
+  #' win. 
+  #'
+  #' @param c_sbw config list (may be partially specified)
+  #' @return the completed config list
   l_dflt <- list(
-    covariate_cols = character(0),
-    n_lag_cov = 0L,
-    years = NULL,
-    min_n_year = 10L,
-    estimand = "ATE",
-    norm = "l2",
-    eps = 1e-3,
-    min.w = 1e-8,
-    verbose = FALSE,
-    tols = NULL,
-    n_cores = 1L,
-    wcol = "w_sbw",
-    dir_cache = "~/Dropbox/phd/papers/foster/misc/sbw_cache")
+    covariate_cols = character(0), # names of extra covariates to balance
+    n_lag_cov      = 0L,           # lags of numeric covariates to balance
+    years          = NULL,         # fit years; NULL -> auto (see gd_sbw_years)
+    min_n_year     = 10L,          # min complete rows per year for auto years
+    estimand       = "ATE",        # optweightMV supports only "ATE"
+    norm           = "l2",         # weight norm: l2/l1/linf/entropy
+    eps            = 1e-3,         # osqp solver tolerance
+    min.w          = 1e-8,         # lower bound on weights
+    verbose        = FALSE,        # optweightMV verbosity
+    tols           = NULL,         # balance tolerance (NULL = exact)
+    n_cores        = 1L,           # years to fit in parallel (PSOCK)
+    wcol           = "w_sbw",      # name of the weights column in dt_results
+    dir_cache      = "~/Dropbox/phd/papers/foster/misc/sbw_cache")
 
   for (nm in setdiff(names(l_dflt), names(c_sbw))) c_sbw[[nm]] <- l_dflt[[nm]]
   c_sbw$dir_cache <- path.expand(c_sbw$dir_cache)
