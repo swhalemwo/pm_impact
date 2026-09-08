@@ -317,59 +317,78 @@ md_sbw_panel <- function(c_sbw) {
 }
 
 
-sbw_dum_for_cov <- function(dt, cl) {
-  #' dummy matrix for one factor/character covariate (one column per level
-  #' minus the first, sorted level order = reference); column names are
-  #' make.names-sanitized level labels so they stay syntactically valid
-  x <- dt[[cl]]
+md_sbw_dum_for_cov <- function(dt_working, cov_col) {
+  #' Dummy matrix for one factor/character covariate: one column per level
+  #' minus the first (sorted level order = the dropped reference, consistent
+  #' with model.matrix). Column names are make.names-sanitized so they stay
+  #' syntactically valid when they appear in a formula (level labels like
+  #' "Artist duo, Female" would otherwise break the formula parser).
+  #'
+  #' @param dt_working data.table containing cov_col
+  #' @param cov_col    name of the factor/character column to expand
+  #' @return numeric matrix with length(levels) - 1 columns
+  x <- dt_working[[cov_col]]
   l_lv <- sort(unique(x[!is.na(x)]))
-  if (length(l_lv) < 2) stop(sprintf("covariate '%s' has fewer than 2 levels", cl))
+  if (length(l_lv) < 2) stop(sprintf("covariate '%s' has fewer than 2 levels", cov_col))
   m <- model.matrix(~ factor(x) - 1)   ## one column per level
   colnames(m) <- l_lv
-  m <- m[, -1, drop = FALSE]           ## drop the (first sorted) reference level
+  m <- m[, -1, drop = FALSE]           ## drop the reference level
   colnames(m) <- make.names(colnames(m))
   m
 }
 
 
-sbw_warn_rare <- function(dt, cl) {
-  #' warn when a covariate level is tiny (exact balance with such dummies is
-  #' typically infeasible per year); the user should recode before balancing
-  l_rr <- names(which(table(dt[[cl]], useNA = "no") < max(100, 0.005 * nrow(dt))))
-  if (length(l_rr) > 0) {
-    warning(sprintf("covariate '%s' has rare level(s): %s. ", cl,
-                    paste(l_rr, collapse = ", ")),
+gd_sbw_warn_rare <- function(dt_working, cov_col) {
+  #' Warn when a covariate level is tiny (< 0.5% of the panel rows). Exact
+  #' ATE balance against such a dummy is typically infeasible per year; the
+  #' user should recode the covariate into few meaningful levels first (e.g.
+  #' the project's Male/Female/Other gender recode).
+  #'
+  #' @param dt_working data.table containing cov_col
+  #' @param cov_col    name of the factor/character covariate
+
+  l_rare <- names(which(table(dt_working[[cov_col]], useNA = "no") < (0.005 * nrow(dt_working))))
+
+  if (length(l_rare) > 0) {
+    warning(sprintf("covariate '%s' has rare level(s): %s. ", cov_col,
+                    paste(l_rare, collapse = ", ")),
             "Exact ATE balance with such dummies is typically infeasible; ",
             "recode the covariate into a few meaningful levels before balancing.")
   }
 }
 
 
-md_sbw_expand_covs <- function(dt, l_covs) {
-  #' expand factor/character covariates into numeric dummies (one per level
-  #' minus the first, sorted level order = reference, consistent with
-  #' model.matrix); numeric covariates stay as-is. optweightMV is infeasible
-  #' when passed factor columns directly, hence the expansion.
-  #' @return list(dt = dt with dummy columns added / factors removed, covs)
+md_sbw_expand_covs <- function(dt_working, l_covs) {
+  #' Expand factor/character covariates into numeric dummies (one per level
+  #' minus the first, sorted = reference); numeric covariates stay as-is.
+  #' optweightMV is infeasible when passed factor columns directly, so the
+  #' pipeline always balances on the expanded dummies.
+  #'
+  #' @param dt_working working panel (as built by md_sbw_panel)
+  #' @param l_covs     covariate names to balance
+  #' @return list(dt = dt_working with dummies added and factor columns
+  #'              removed, covs = the names actually to balance afterwards)
 
-  l_keep <- l_covs[map_lgl(l_covs, ~is.numeric(dt[[.x]]))]
-  l_exp <- setdiff(l_covs, l_keep)
-  if (length(l_exp) == 0) return(list(dt = dt, covs = l_covs))
+  l_keep <- l_covs[map_lgl(l_covs, ~is.numeric(dt_working[[.x]]))]
+  l_exp  <- setdiff(l_covs, l_keep)
+  if (length(l_exp) == 0) return(list(dt = dt_working, covs = l_covs))
 
-  l_dum <- map(l_exp, sbw_dum_for_cov, dt = dt) %>% setNames(l_exp)
-  l_nms <- map2(names(l_dum), l_dum, ~sprintf("%s_%s", .x, colnames(.y))) %>% unlist
-  if (any(l_nms %in% names(dt))) {
+  l_dum <- map(l_exp, md_sbw_dum_for_cov, dt_working = dt_working) %>%
+    setNames(l_exp)
+  l_dum_names <- map2(names(l_dum), l_dum, ~sprintf("%s_%s", .x, colnames(.y))) %>%
+    unlist
+  if (any(l_dum_names %in% names(dt_working))) {
     stop(sprintf("dummy columns would clash with existing columns: %s",
-                 paste(intersect(l_nms, names(dt)), collapse = ", ")))
+                 paste(intersect(l_dum_names, names(dt_working)), collapse = ", ")))
   }
-  walk(l_exp, sbw_warn_rare, dt = dt)
+  walk(l_exp, gd_sbw_warn_rare, dt_working = dt_working)
 
   m_dum <- do.call(cbind, unname(l_dum))
-  colnames(m_dum) <- l_nms
+  colnames(m_dum) <- l_dum_names
 
-  dt <- cbind(dt, data.table::as.data.table(m_dum))
-  dt[, (l_exp) := NULL]                  ## factor info now lives in the dummies
-  list(dt = dt, covs = c(l_keep, l_nms))
+  dt_working <- cbind(dt_working, data.table::as.data.table(m_dum))
+  dt_working[, (l_exp) := NULL]        ## factor info now lives in the dummies
+  list(dt = dt_working, covs = c(l_keep, l_dum_names))
 }
 
 
