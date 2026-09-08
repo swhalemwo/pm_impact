@@ -718,6 +718,20 @@ gl_sbw_weights <- function(c_sbw, dt_working, dt_years, l_fs, b_force = FALSE) {
 gd_sbw_cor_w <- function(m, w) {
   #' Weighted correlation matrix of the columns of m.
   #'
+  #' Hand-rolled on purpose instead of weights::wtd.cor / Hmisc:
+  #'   - weights::wtd.cor ERRORS when a column has zero variance ("0 (non-NA)
+  #'     cases") — exactly what happens with a rare dummy or a constant
+  #'     covariate within a year;
+  #'   - the ~10 lines here are the textbook weighted covariance formula
+  #'     (crossprod on mean-centered, weight-scaled columns), vectorized,
+  #'     dependency-free, and easy to step through. Zero-variance columns are
+  #'     set to NA instead of erroring.
+  #'
+  #' Row alignment: w must be in the SAME row order as m. The only caller
+  #' (gd_sbw_bal_year) builds both from one dt_year without any filtering in
+  #' between, so alignment holds by construction (guarded by a length check
+  #' there).
+  #'
   #' @param m numeric matrix (rows = observations)
   #' @param w numeric weight vector (length nrow(m)); w = rep(1, nrow(m))
   #'   yields the unweighted correlation matrix
@@ -772,6 +786,11 @@ gd_sbw_bal_year <- function(dt_year, l_treats, l_balcols, wcol) {
   #' Weighted vs raw correlations (treatment x balance column) for one year
   #' of the weighted panel.
   #'
+  #' Transparency of row order: the weights vector and the design matrix are
+  #' both extracted from the SAME dt_year (no subsetting in between), so the
+  #' k-th row of m corresponds to the k-th element of w by construction; the
+  #' length check guards against future edits that break that invariant.
+  #'
   #' @param dt_year   one year of the weighted panel (weighted rows only)
   #' @param l_treats  treatment column names
   #' @param l_balcols balance column names (gl_sbw_balcols output)
@@ -780,7 +799,9 @@ gd_sbw_bal_year <- function(dt_year, l_treats, l_balcols, wcol) {
 
   w <- dt_year[[wcol]]
   m <- gd_sbw_mat(dt_year, c(l_treats, l_balcols))
-  n_t <- length(l_treats)
+  stopifnot(length(w) == nrow(m))
+
+  n_t   <- length(l_treats)
   r_w   <- gd_sbw_cor_w(m, w)
   r_raw <- gd_sbw_cor_w(m, rep(1, nrow(m)))
 
@@ -788,7 +809,6 @@ gd_sbw_bal_year <- function(dt_year, l_treats, l_balcols, wcol) {
              balcol  = rep(colnames(m)[-seq_len(n_t)], each = n_t),
              cor_raw = as.vector(r_raw[seq_len(n_t), -seq_len(n_t), drop = FALSE]),
              cor_w   = as.vector(r_w[seq_len(n_t), -seq_len(n_t), drop = FALSE]))
-
 }
 
 
