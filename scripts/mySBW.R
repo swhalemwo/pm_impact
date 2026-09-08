@@ -928,11 +928,16 @@ gl_sbw_proc <- function(c_sbw, b_force = FALSE) {
   c_sbw_mod <- md_sbw_defaults(c_sbw)
   gd_sbw_check(c_sbw_mod)
 
-  ## working panel + factor-covariate expansion + eligibility
+  ## working panel + factor-covariate expansion + covariate lags + eligibility
   dt_results <- md_sbw_panel(c_sbw_mod)
   l_exp <- md_sbw_expand_covs(dt_results, c_sbw_mod$covariate_cols)
   dt_results <- l_exp$dt
   c_sbw_mod$covariate_cols <- l_exp$covs   ## factors now referenced by dummies
+  l_lags <- md_sbw_cov_lags(dt_results, c_sbw_mod)
+  dt_results <- l_lags$dt
+
+  c_sbw_mod$covariate_cols <- l_lags$covs  ## final covariate set incl. surviving lags
+  ## gl_sbw_balcols(c_sbw_mod)
 
   dt_years <- gd_sbw_years(c_sbw_mod, dt_results)
   if (nrow(dt_years) == 0) {
