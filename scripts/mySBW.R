@@ -104,7 +104,11 @@ md_sbw_defaults <- function(c_sbw) {
 
 
 gd_sbw_check <- function(c_sbw) {
-  #' validate an SBW config; returns TRUE invisibly, errors with a message otherwise
+  #' Validate a config. Errors with an explanatory message on the first
+  #' problem found; returns TRUE invisibly when everything is fine.
+  #'
+  #' @param c_sbw a defaulted config (as returned by md_sbw_defaults)
+  #' @return TRUE invisibly
 
   if (!is.list(c_sbw) || is.null(c_sbw$dt_panel)) {
     stop("config must be a list with at least a dt_panel entry")
@@ -114,7 +118,7 @@ gd_sbw_check <- function(c_sbw) {
   }
   if (!is.data.table(c_sbw$dt_panel)) stop("dt_panel must be a data.table")
 
-  ## ids
+  ## identifiers
   l_need <- c("uid", "tid", "treatment_cols", "n_lag", "impact_years")
   l_miss <- setdiff(l_need, names(c_sbw))
   if (length(l_miss) > 0) stop(sprintf("config missing: %s", paste(l_miss, collapse = ", ")))
@@ -161,7 +165,8 @@ gd_sbw_check <- function(c_sbw) {
   l_ints <- c(n_lag = c_sbw$n_lag, n_lag_cov = c_sbw$n_lag_cov,
               impact_years = c_sbw$impact_years, min_n_year = c_sbw$min_n_year,
               n_cores = c_sbw$n_cores)
-  if (!all(map_lgl(l_ints, ~is.numeric(.x) && .x == round(.x)))) {
+  
+  if (!all(map_lgl(l_ints, ~is.integer(.x)))) {
     stop("n_lag / n_lag_cov / impact_years / min_n_year / n_cores must be integers")
   }
   if (c_sbw$n_lag < 1 || c_sbw$impact_years < 1 || c_sbw$n_lag_cov < 0 ||
