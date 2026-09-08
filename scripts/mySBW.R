@@ -199,10 +199,15 @@ gd_sbw_shiftcols <- function(l_cols, n, dir = "l") {
   paste0(rep(l_cols, each = n), "_", dir, rep(seq_len(n), times = length(l_cols)))
 }
 
-
-gf_sbw_balcols <- function(c_sbw) {
-  #' columns entering the balance constraints (the RHS of every treatment formula)
-
+## FIXME: make sure this handles different covariates (time-varying, categorical) properly
+gl_sbw_balcols <- function(c_sbw) {
+  #' The balance columns: everything each treatment formula balances on —
+  #' lagged treatments (t-1..t-n_lag of every treatment type) followed by the
+  #' covariates at year t and (for numeric covariates, n_lag_cov > 0) their
+  #' lags. NOTE: returns column *names* (a character vector), not a formula.
+  #'
+  #' @param c_sbw defaulted config
+  #' @return character vector of column names
   c(gd_sbw_shiftcols(c_sbw$treatment_cols, c_sbw$n_lag, "l"),
     c_sbw$covariate_cols,
     if (c_sbw$n_lag_cov > 0) {
