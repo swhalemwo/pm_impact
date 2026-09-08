@@ -219,11 +219,15 @@ gl_sbw_balcols <- function(c_sbw) {
 
 
 gf_sbw_formulas <- function(c_sbw) {
-  #' one optweightMV formula per treatment: exn_X ~ lags of all treatments +
-  #' covariates (at t and lagged); same-year other treatments stay out of the
-  #' RHS (partial dose effect interpretation)
+  #' One optweightMV formula per treatment: exn_X ~ <all treatment lags> +
+  #' <covariates>. Same-year other treatments stay out of the RHS so each
+  #' fitted coefficient is a partial dose effect conditional on the observed
+  #' other treatments of that year.
+  #'
+  #' @param c_sbw defaulted config (covariate_cols already expanded to
+  #'   dummies by md_sbw_expand_covs when factors were involved)
+  #' @return named list of formulas, names = treatment_cols
 
-  c_sbw <- md_sbw_defaults(c_sbw)
   l_rhs <- paste(c(gd_sbw_shiftcols(c_sbw$treatment_cols, c_sbw$n_lag, "l"),
                    c_sbw$covariate_cols,
                    if (c_sbw$n_lag_cov > 0) {
@@ -369,30 +373,35 @@ md_sbw_expand_covs <- function(dt, l_covs) {
 }
 
 
-gd_sbw_years <- function(c_sbw, dt) {
-  #' eligible fit years: complete rows with all balance columns non-NA and
-  #' outcome coverage t + impact_years <= max(panel year). With years = NULL
-  #' additionally require n_use >= min_n_year (see header); explicitly
-  #' requested years are honored whenever n_use >= 1 (warn about requested
-  #' years that drop out).
+gd_sbw_years <- function(c_sbw, dt_working) {
+  #' Eligible fit years: years with at least one complete row on all fit
+  #' columns AND full outcome coverage (year + impact_years <= last panel
+  #' year, so every fitted row can be matched with its d1..dK outcomes).
+  #' With config years = NULL additionally require n_use >= min_n_year;
+  #' explicitly requested years are honored with >= 1 complete row (requested
+  #' but ineligible years are dropped with a warning).
+  #'
+  #' @param c_sbw      defaulted config
+  #' @param dt_working working panel (md_sbw_panel output)
+  #' @return data.table with columns (year, n_use) for the eligible years,
+  #'   sorted ascending
+  tid_col  <- c_sbw$tid
+  l_fitcols <- c(c_sbw$treatment_cols, gl_sbw_balcols(c_sbw))
+  K         <- c_sbw$impact_years
 
-  c_sbw <- md_sbw_defaults(c_sbw)
-  v_tid <- c_sbw$tid
-  l_use <- c(c_sbw$treatment_cols, gf_sbw_balcols(c_sbw))
-  K <- c_sbw$impact_years
+  dt_years <- dt_working[, .(n_use = sum(complete.cases(.SD))), by = c(tid_col), .SDcols = l_fitcols]
 
-  dt_years <- dt[, .(n_use = sum(complete.cases(.SD))), by = c(v_tid), .SDcols = l_use]
-  setnames(dt_years, v_tid, "year")
-  dt_years <- dt_years[n_use >= 1 & year <= max(dt[[v_tid]]) - K]
+  setnames(dt_years, tid_col, "year")
+  dt_years <- dt_years[n_use >= 1 & year <= max(dt_working[[tid_col]]) - K]
 
-  v_years <- c_sbw$years
-  if (length(v_years) > 0) {
-    l_miss <- setdiff(v_years, dt_years$year)
+  v_requested <- c_sbw$years
+  if (length(v_requested) > 0) {
+    l_miss <- setdiff(v_requested, dt_years$year)
     if (length(l_miss) > 0) {
       warning(sprintf("gd_sbw_years: requested years not eligible (no complete rows or no outcome coverage): %s",
                       paste(l_miss, collapse = ", ")))
     }
-    dt_years <- dt_years[year %in% v_years]
+    dt_years <- dt_years[year %in% v_requested]
   } else {
     dt_years <- dt_years[n_use >= c_sbw$min_n_year]
   }
