@@ -961,13 +961,68 @@ gd_sbw_bal_wstats_year_cfg <- function(dt_results, year, tid_col, wcol) {
   dt_ws
 }
 
+
+md_sbw_prepare <- function(c_sbw) {
+  #' Prepare the analysis table for a config: build the working panel,
+  #' expand factor covariates to numeric dummies, lag the covariate set and
+  #' update the config's covariate_cols to the final set. Pure (the input
+  #' dt_panel is never touched).
+  #'
+  #' @param c_sbw defaulted config
+  #' @return list(dt_results = prepared panel, c_sbw = config with the final
+  #'   covariate set: numeric columns + expanded dummies + surviving lags)
+  c_sbw <- md_sbw_defaults(c_sbw)
+  gd_sbw_check(c_sbw)
+
+  dt_results <- md_sbw_panel(c_sbw)
+
+  l_exp <- md_sbw_expand_covs(dt_results, c_sbw$covariate_cols)
+  dt_results <- l_exp$dt
+  c_sbw$covariate_cols <- l_exp$covs   ## factors now referenced by dummies
+
+  l_lags <- md_sbw_cov_lags(dt_results, c_sbw)
+  dt_results <- l_lags$dt
+  c_sbw$covariate_cols <- l_lags$covs  ## final set incl. surviving lags
+
+  list(dt_results = dt_results, c_sbw = c_sbw)
+}
+
+
+gd_sbw_persist <- function(r_w, c_sbw, dt_years, dt_diag) {
+  #' Write the run's artifacts next to the cached weights: the per-year
+  #' diagnostics (diag.csv), a snapshot of the (panel-free) config, and —
+  #' whenever any year was actually fitted (not served from cache) — one row
+  #' in the run registry.
+  #'
+  #' @param r_w      cache/result list of gl_sbw_weights (has dir_run/hash)
+  #' @param c_sbw    defaulted config used for the run
+  #' @param dt_years eligible years table
+  #' @param dt_diag  per-year diagnostics table
+  #' @return nothing (side effects: files)
+  fwrite(dt_diag, file.path(r_w$dir_run, "diag.csv"))
+
+  c_spec <- c_sbw
+  c_spec$dt_panel <- NULL
+  saveRDS(c_spec, file.path(r_w$dir_run, "config.rds"))
+
+  if (!r_w$from_cache_all) {
+    dt_reg <- data.table(label = c_sbw$label, hash = r_w$hash,
+                         dir_run = r_w$dir_run,
+                         years = paste(dt_years$year, collapse = "|"),
+                         n_years = nrow(dt_years), n_obs = sum(dt_diag$n_fit),
+                         elapsed_s = r_w$elapsed_s,
+                         time = format(Sys.time(), "%Y-%m-%d %H:%M:%S"))
+    fwrite(dt_reg, file.path(c_sbw$dir_cache, "registry.csv"), append = TRUE)
+  }
+  invisible(NULL)
+}
+
+
 gl_sbw_proc <- function(c_sbw, b_force = FALSE) {
   #' Run the SBW pipeline end-to-end for one config (the orchestrator).
-  #' Stages: validate config -> build working panel (treatment lags/leads/
-  #' d/dm) -> expand factor covariates to numeric dummies -> build covariate
-  #' lags (n_lag_cov) -> select eligible years -> build formulas -> fit
-  #' per-year weights (cached, parallel via fork) -> attach weights ->
-  #' per-year balance diagnostics -> persist diag/config/registry.
+  #' Stages: prepare the analysis table (md_sbw_prepare) -> select eligible
+  #' years -> build formulas -> fit per-year weights (cached, fork-parallel)
+  #' -> balance diagnostics -> persist diag/config/registry.
   #'
   #' @param c_sbw   config list (see header for the fields and defaults)
   #' @param b_force TRUE to ignore the weight cache and refit all years
@@ -979,58 +1034,31 @@ gl_sbw_proc <- function(c_sbw, b_force = FALSE) {
   #'   config     = defaulted config (covariate_cols = the FINAL covariate
   #'                set: numeric + expanded dummies + surviving lags)
   #'   cache      = list(dir_cache, dir_run, hash, from_cache_all, elapsed_fit_s)
-  
-  c_sbw_mod <- md_sbw_defaults(c_sbw)
-  gd_sbw_check(c_sbw_mod)
-
-  ## working panel + factor-covariate expansion + covariate lags + eligibility
-  dt_results <- md_sbw_panel(c_sbw_mod)
-  l_exp <- md_sbw_expand_covs(dt_results, c_sbw_mod$covariate_cols)
-  dt_results <- l_exp$dt
-  c_sbw_mod$covariate_cols <- l_exp$covs   ## factors now referenced by dummies
-  l_lags <- md_sbw_cov_lags(dt_results, c_sbw_mod)
-  dt_results <- l_lags$dt
-
-  c_sbw_mod$covariate_cols <- l_lags$covs  ## final covariate set incl. surviving lags
-  ## gl_sbw_balcols(c_sbw_mod)
+  l_prep <- md_sbw_prepare(c_sbw)
+  c_sbw_mod   <- l_prep$c_sbw
+  dt_results <- l_prep$dt_results
 
   dt_years <- gd_sbw_years(c_sbw_mod, dt_results)
   if (nrow(dt_years) == 0) {
     stop("no eligible fit years: check impact_years vs panel end, years, and min_n_year")
   }
   l_fs <- gf_sbw_formulas(c_sbw_mod)
-  if (c_sbw_mod$verbose) {print(l_fs)}
+  if (c_sbw_mod$verbose) print(l_fs)
 
   ## per-year weights (cached on disk), attached under config$wcol
   r_w <- gl_sbw_weights(c_sbw_mod, dt_results, dt_years, l_fs, b_force = b_force)
 
-  ## per-year fit + balance diagnostics
+  ## per-year fit + balance diagnostics (warn on near-degenerate weights)
   dt_bal  <- gd_sbw_bal_summary(dt_results, c_sbw_mod)
-  ## gd_sbw_bal_long(dt_results, c_sbw_mod, v_years = 2012, wcol = "w_sbw")
   dt_diag <- merge(r_w$dt_fit, dt_bal, by = "year")
   setorderv(dt_diag, "year")
-
   if (any(dt_diag$ess < 0.05 * dt_diag$n_fit)) {
     warning("some years have ESS < 5% of n: weights are near-degenerate ",
             "(balance constraints barely feasible). Relax `tols` or simplify ",
             "the balance specification.")
   }
 
-  ## persist diagnostics + config snapshot + one registry row (when fitting)
-  fwrite(dt_diag, file.path(r_w$dir_run, "diag.csv"))
-  c_spec <- c_sbw_mod
-  c_spec$dt_panel <- NULL
-  saveRDS(c_spec, file.path(r_w$dir_run, "config.rds"))
-  
-  if (!r_w$from_cache_all) {
-    dt_reg <- data.table(label = c_sbw_mod$label, hash = r_w$hash,
-                         dir_run = r_w$dir_run,
-                         years = paste(dt_years$year, collapse = "|"),
-                         n_years = nrow(dt_years), n_obs = sum(dt_diag$n_fit),
-                         elapsed_s = r_w$elapsed_s,
-                         time = format(Sys.time(), "%Y-%m-%d %H:%M:%S"))
-    fwrite(dt_reg, file.path(c_sbw_mod$dir_cache, "registry.csv"), append = TRUE)
-  }
+  gd_sbw_persist(r_w, c_sbw_mod, dt_years, dt_diag)
 
   list(dt_panel = c_sbw_mod$dt_panel, dt_results = dt_results, dt_years = dt_years,
        dt_diag = dt_diag, config = c_sbw_mod,
