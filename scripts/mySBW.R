@@ -813,77 +813,99 @@ gd_sbw_bal_summary <- function(dt_results, c_sbw, v_years = NULL, wcol = NULL) {
 
 
 gl_sbw_proc <- function(c_sbw, b_force = FALSE) {
-  #' run the SBW pipeline end-to-end for a config
-  #' @return list(dt, dt_years, dt_diag, config, cache): dt is the working
-  #'   panel with the weights column; dt_panel (untouched) is in config$dt_panel
+  #' Run the SBW pipeline end-to-end for one config (the orchestrator).
+  #' Stages: validate config -> build working panel -> expand factor
+  #' covariates to dummies -> select eligible years -> build formulas ->
+  #' fit per-year weights (cached) -> attach weights -> per-year balance
+  #' diagnostics -> persist diag/config/registry.
+  #'
+  #' @param c_sbw   config list (see header for the fields and defaults)
+  #' @param b_force TRUE to ignore the weight cache and refit all years
+  #' @return list(dt_panel, dt_results, dt_years, dt_diag, config, cache):
+  #'   dt_panel   = the input panel, untouched (== config$dt_panel)
+  #'   dt_results = working panel + weights (the analysis table)
+  #'   dt_years   = eligible years with complete-row counts
+  #'   dt_diag    = per-year fit/balance diagnostics
+  #'   config     = defaulted config (covariate_cols = expanded dummy names)
+  #'   cache      = list(dir_cache, dir_run, hash, from_cache_all, elapsed_fit_s)
+  
+  c_sbw_mod <- md_sbw_defaults(c_sbw)
+  gd_sbw_check(c_sbw_mod)
 
-  c_sbw <- md_sbw_defaults(c_sbw)
-  gd_sbw_check(c_sbw)
+  ## working panel + factor-covariate expansion + eligibility
+  dt_results <- md_sbw_panel(c_sbw_mod)
+  l_exp <- md_sbw_expand_covs(dt_results, c_sbw_mod$covariate_cols)
+  dt_results <- l_exp$dt
+  c_sbw_mod$covariate_cols <- l_exp$covs   ## factors now referenced by dummies
 
-  ## working panel + factor-covariate expansion + per-year eligibility
-  dt <- md_sbw_panel(c_sbw)
-  l_exp <- md_sbw_expand_covs(dt, c_sbw$covariate_cols)
-  dt <- l_exp$dt
-  c_sbw$covariate_cols <- l_exp$covs   ## factors now referenced via their dummies
-  dt[, .ridx := .I]
-  dt_years <- gd_sbw_years(c_sbw, dt)
+  dt_years <- gd_sbw_years(c_sbw_mod, dt_results)
   if (nrow(dt_years) == 0) {
     stop("no eligible fit years: check impact_years vs panel end, years, and min_n_year")
   }
-  l_fs <- gf_sbw_formulas(c_sbw)
+  l_fs <- gf_sbw_formulas(c_sbw_mod)
+  if (c_sbw_mod$verbose) {print(l_fs)}
 
-  ## per-year weights (cached on disk)
-  r_w <- gl_sbw_weights(c_sbw, dt, dt_years, l_fs, b_force = b_force)
-  dt[, .ridx := NULL]
+  ## per-year weights (cached on disk), attached under config$wcol
+  r_w <- gl_sbw_weights(c_sbw_mod, dt_results, dt_years, l_fs, b_force = b_force)
 
-  ## per-year fit + balance diag
-  dt_bal <- gd_sbw_bal_summary(dt, c_sbw)
+  ## per-year fit + balance diagnostics
+  dt_bal  <- gd_sbw_bal_summary(dt_results, c_sbw_mod)
+  ## gd_sbw_bal_long(dt_results, c_sbw_mod, v_years = 2012, wcol = "w_sbw")
   dt_diag <- merge(r_w$dt_fit, dt_bal, by = "year")
   setorderv(dt_diag, "year")
+
   if (any(dt_diag$ess < 0.05 * dt_diag$n_fit)) {
     warning("some years have ESS < 5% of n: weights are near-degenerate ",
             "(balance constraints barely feasible). Relax `tols` or simplify ",
             "the balance specification.")
   }
 
-  ## persist: diag + config snapshot + registry row (when any fitting happened)
+  ## persist diagnostics + config snapshot + one registry row (when fitting)
   fwrite(dt_diag, file.path(r_w$dir_run, "diag.csv"))
-  c_spec <- c_sbw
+  c_spec <- c_sbw_mod
   c_spec$dt_panel <- NULL
   saveRDS(c_spec, file.path(r_w$dir_run, "config.rds"))
+  
   if (!r_w$from_cache_all) {
-    dt_reg <- data.table(label = c_sbw$label, hash = r_w$hash, dir_run = r_w$dir_run,
+    dt_reg <- data.table(label = c_sbw_mod$label, hash = r_w$hash,
+                         dir_run = r_w$dir_run,
                          years = paste(dt_years$year, collapse = "|"),
                          n_years = nrow(dt_years), n_obs = sum(dt_diag$n_fit),
                          elapsed_s = r_w$elapsed_s,
                          time = format(Sys.time(), "%Y-%m-%d %H:%M:%S"))
-    fwrite(dt_reg, file.path(c_sbw$dir_cache, "registry.csv"), append = TRUE)
+    fwrite(dt_reg, file.path(c_sbw_mod$dir_cache, "registry.csv"), append = TRUE)
   }
 
-  list(dt = dt, dt_panel = c_sbw$dt_panel, dt_years = dt_years, dt_diag = dt_diag,
-       config = c_sbw,
-       cache = list(dir_cache = c_sbw$dir_cache, dir_run = r_w$dir_run, hash = r_w$hash,
-                    from_cache_all = r_w$from_cache_all, elapsed_fit_s = r_w$elapsed_s))
+  list(dt_panel = c_sbw_mod$dt_panel, dt_results = dt_results, dt_years = dt_years,
+       dt_diag = dt_diag, config = c_sbw_mod,
+       cache = list(dir_cache = c_sbw_mod$dir_cache, dir_run = r_w$dir_run,
+                    hash = r_w$hash, from_cache_all = r_w$from_cache_all,
+                    elapsed_fit_s = r_w$elapsed_s))
 }
 
 
 gd_sbw_registry <- function(dir_cache) {
-  #' read the SBW run registry (most recent run first); empty data.table if none
-
+  #' Read the SBW run registry (most recent run first).
+  #'
+  #' @param dir_cache cache root (config$dir_cache)
+  #' @return data.table of runs; empty data.table if none recorded yet
   p <- file.path(path.expand(dir_cache), "registry.csv")
   if (!file.exists(p)) return(data.table())
-  dt <- fread(p)
-  dt[order(-seq_len(.N))]
+  dt_reg <- fread(p)
+  dt_reg[order(-seq_len(.N))]
 }
 
 
 gf_sbw_did <- function(c_sbw, l_tps = NULL) {
-  #' DiD formula on the weighted panel: c(<exn_X_d{k} / exn_X_dm{k}> across
-  #' treatments) ~ same-year treatments | tid. Default time points: pre
-  #' -(2..L_lag) (l1 is the baseline, dm1 = 0 by construction) and post 1..K.
-
-  c_sbw <- md_sbw_defaults(c_sbw)
-  K <- c_sbw$impact_years
+  #' DiD formula on the weighted panel: c(exn_X_d{k} / exn_X_dm{k} across all
+  #' treatments and time points) ~ <same-year treatments> | <tid>. Default
+  #' time points: pre -(2..L_lag) (l1 is the baseline, dm1 = 0 by
+  #' construction) and post 1..impact_years.
+  #'
+  #' @param c_sbw config (as stored in the result)
+  #' @param l_tps optional integer vector of relative years (excludes 0)
+  #' @return formula
+  K     <- c_sbw$impact_years
   L_lag <- max(c_sbw$n_lag, K)
   l_tps <- l_tps %||% c(-(2:L_lag), seq_len(K))
   if (any(l_tps > K | l_tps < -L_lag | l_tps == 0)) {
