@@ -10,7 +10,7 @@
 ##                 treatment_cols = c("exn_pm", "exn_pi", "exn_oes", "exn_toti"),
 ##                 covariate_cols = "Gender",           # factor: auto dummy expansion
 ##                 n_lag          = 3L,                  # lags of all treatments balanced
-##                 n_lag_cov      = 0L,                  # lags of numeric covariates
+##                 n_lag_cov      = 0L,                  # lags of the covariate set
 ##                 impact_years   = 4L,                  # outcome window d1..dK
 ##                 years          = NULL)                # NULL -> auto (gd_sbw_years)
 ##
@@ -19,13 +19,17 @@
 ##
 ## Stages (each a standalone function):
 ##   md_sbw_defaults / gd_sbw_check   fill defaults / validate config
-##   md_sbw_panel                     lags + leads + d/dm outcome columns
-##   gd_sbw_years                     year eligibility (coverage + min n)
+##   md_sbw_panel                     treatment lags + leads (kept) + d/dm cols
+##   md_sbw_expand_covs               factor covariates -> numeric dummies
+##   md_sbw_cov_lags                  covariate lags (n_lag_cov), info-free lags dropped
+##   gd_sbw_years                     year eligibility (fit cols + outcome coverage)
 ##   gf_sbw_formulas                  optweightMV formula list (one per treatment)
 ##   gf_sbw_hash                      cache key (config spec + years + data content)
-##   gl_sbw_weights                   per-year fits, cached as w_<year>.rds, PSOCK parallel
-##   gd_sbw_bal_*                     balance report (weighted vs raw corr, ESS)
-##   gl_sbw_proc                      orchestrator -> list(dt, dt_years, dt_diag, config, cache)
+##   gl_sbw_weights                   per-year fits (cached as w_<year>.rds),
+##                                    fork-parallel (mclapply), explicit weight attach
+##   gd_sbw_bal_*                     balance report (weighted vs raw corr, ESS);
+##                                    summary + full long table share one code path
+##   gl_sbw_proc                      orchestrator -> list(dt_panel, dt_results, ...)
 ##   gl_sbw_did / gd_sbw_coef_did     DiD outcome model (feols) + coefficient extraction
 
 ## Result of gl_sbw_proc:
@@ -53,16 +57,26 @@
 ## - dt_panel must be a COMPLETE per-artist grid (every year between the
 ##   artist's first and last panel year) and must NOT contain precomputed
 ##   lag/lead columns (the pipeline owns the *_l/*_d/*_dm namespace).
-## - Factor/character covariates are auto-expanded to numeric dummies (all
-##   levels minus the first sorted level = reference) — optweightMV is
-##   infeasible when passed factors directly. Rare levels (< 0.5% or < 100
-##   rows) warn: exact ATE balance with them is usually infeasible (recode).
+## - Covariates: numeric columns and factor/character columns are both
+##   supported. Factors are auto-expanded to numeric dummies (all levels
+##   minus the first sorted level = reference) — optweightMV is infeasible
+##   when passed factors directly. Rare levels (< 0.5% of rows) warn: exact
+##   ATE balance with them is usually infeasible (recode). n_lag_cov lags the
+##   covariate set (numeric columns AND dummies — a lag of a categorical
+##   covariate is a lag of its dummies, so time-varying categorical
+##   covariates are lagged meaningfully). Lags that carry no information
+##   (time-invariant covariate: lag == level value) are dropped. Mixed
+##   numeric + factor covariate sets are fine.
 ## - Covariates that contain the current-year treatment (e.g. a cumulative
 ##   count as of year t) cannot be balanced exactly against that treatment —
 ##   pass the cumulative as of t-1, or rely on the treatment lags.
-## - The osqp solver is single-threaded. n_cores > 1 runs years on a PSOCK
-##   cluster (the fit function + constants are exported to the workers);
-##   set OPENBLAS_NUM_THREADS = 1 (forking + OpenBLAS threads deadlocks).
+## - The osqp solver is single-threaded. n_cores > 1 runs the per-year fits
+##   with parallel::mclapply (forking) on Unix — dt_working is shared
+##   copy-on-write so memory stays near the sequential footprint (a PSOCK
+##   cluster serializes every year slice into a fresh R process, which
+##   ballooned to 10+ GB with n_cores = 3). OPENBLAS_NUM_THREADS is forced
+##   to 1 before forking (forking R while OpenBLAS runs threads deadlocks).
+##   On Windows the code falls back to sequential with a warning.
 ## - eps = osqp solver tolerance (1e-3 ~2x faster than 1e-4, weights
 ##   essentially identical); tols = *balance* tolerance: NULL = exact (the
 ##   optweight default), a scalar = uniform tolerance, or a full
@@ -71,6 +85,10 @@
 ## - min_n_year only matters when years = NULL (auto): the minimum number of
 ##   complete rows a year needs to be kept. Explicitly requested years are
 ##   kept with as few as one complete row.
+## - n_lag (treatment lags / balance horizon) and impact_years (outcome
+##   window) are INDEPENDENT: lags go to n_lag, future leads/d to
+##   impact_years. Rows are only fitted when their whole outcome window is
+##   observed (see gd_sbw_years).
 ## - Moments/interactions are not hard-wired: precompute e.g. I(x^2) or
 ##   product columns and list them in covariate_cols.
 ## =====================================================================
@@ -910,10 +928,11 @@ gd_sbw_bal_summary <- function(dt_results, c_sbw, v_years = NULL, wcol = NULL,
 
 gl_sbw_proc <- function(c_sbw, b_force = FALSE) {
   #' Run the SBW pipeline end-to-end for one config (the orchestrator).
-  #' Stages: validate config -> build working panel -> expand factor
-  #' covariates to dummies -> select eligible years -> build formulas ->
-  #' fit per-year weights (cached) -> attach weights -> per-year balance
-  #' diagnostics -> persist diag/config/registry.
+  #' Stages: validate config -> build working panel (treatment lags/leads/
+  #' d/dm) -> expand factor covariates to numeric dummies -> build covariate
+  #' lags (n_lag_cov) -> select eligible years -> build formulas -> fit
+  #' per-year weights (cached, parallel via fork) -> attach weights ->
+  #' per-year balance diagnostics -> persist diag/config/registry.
   #'
   #' @param c_sbw   config list (see header for the fields and defaults)
   #' @param b_force TRUE to ignore the weight cache and refit all years
@@ -922,7 +941,8 @@ gl_sbw_proc <- function(c_sbw, b_force = FALSE) {
   #'   dt_results = working panel + weights (the analysis table)
   #'   dt_years   = eligible years with complete-row counts
   #'   dt_diag    = per-year fit/balance diagnostics
-  #'   config     = defaulted config (covariate_cols = expanded dummy names)
+  #'   config     = defaulted config (covariate_cols = the FINAL covariate
+  #'                set: numeric + expanded dummies + surviving lags)
   #'   cache      = list(dir_cache, dir_run, hash, from_cache_all, elapsed_fit_s)
   
   c_sbw_mod <- md_sbw_defaults(c_sbw)
