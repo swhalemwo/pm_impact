@@ -84,7 +84,7 @@ md_sbw_defaults <- function(c_sbw) {
   #' @return the completed config list
   l_dflt <- list(
     covariate_cols = character(0), # names of extra covariates to balance
-    n_lag_cov      = 0L,           # lags of numeric covariates to balance
+    n_lag_cov      = 0L,           # lags of the covariate set (numeric + dummies)
     years          = NULL,         # fit years; NULL -> auto (see gd_sbw_years)
     min_n_year     = 10L,          # min complete rows per year for auto years
     estimand       = "ATE",        # optweightMV supports only "ATE"
@@ -153,10 +153,7 @@ gd_sbw_check <- function(c_sbw) {
   l_covs <- c_sbw$covariate_cols
   if (any(!l_covs %in% names(c_sbw$dt_panel))) stop("some covariate_cols not in dt_panel")
   if (length(intersect(l_covs, l_treats)) > 0) stop("covariate_cols must not overlap treatment_cols")
-  if (c_sbw$n_lag_cov > 0 && !all(map_lgl(l_covs, ~is.numeric(c_sbw$dt_panel[[.x]])))) {
-    stop("n_lag_cov > 0 requires all covariate_cols to be numeric ",
-         "(categorical covariates are balanced at level t only)")
-  }
+  if (c_sbw$n_lag_cov < 0) stop("n_lag_cov must be >= 0")
   if (c_sbw$wcol %in% names(c_sbw$dt_panel)) {
     stop(sprintf("wcol '%s' already exists in dt_panel", c_sbw$wcol))
   }
@@ -166,8 +163,8 @@ gd_sbw_check <- function(c_sbw) {
               impact_years = c_sbw$impact_years, min_n_year = c_sbw$min_n_year,
               n_cores = c_sbw$n_cores)
   
-  if (!all(map_lgl(l_ints, ~is.integer(.x)))) {
-    stop("n_lag / n_lag_cov / impact_years / min_n_year / n_cores must be integers")
+  if (!all(map_lgl(l_ints, ~is.numeric(.x) && .x == round(.x)))) {
+    stop("n_lag / n_lag_cov / impact_years / min_n_year / n_cores must be whole numbers")
   }
   if (c_sbw$n_lag < 1 || c_sbw$impact_years < 1 || c_sbw$n_lag_cov < 0 ||
       c_sbw$min_n_year < 1 || c_sbw$n_cores < 1) {
@@ -275,34 +272,20 @@ md_sbw_panel <- function(c_sbw) {
   dt_working <- copy(c_sbw$dt_panel[, c(c_sbw$uid, c_sbw$tid, l_treats, l_covs), with = FALSE])
   setorderv(dt_working, c(c_sbw$uid, c_sbw$tid))
 
-  ## lags of treatments (to max_lag)
+  ## lags of treatments (to max_lag); collapse::L lags within the uid groups
   l_lagcols <- gd_sbw_shiftcols(l_treats, max_lag, "l")
+  dt_working[, (l_lagcols) := collapse::L(.SD, n = 1:max_lag, by = get(c_sbw$uid)), .SDcols = l_treats]
 
-  ## dt_working[, (l_lagcols) := shift(.SD, 1:max_lag, type = "lag"), by = c(c_sbw$uid), .SDcols = l_treats]
-  dt_working[,  (l_lagcols) := collapse::L(.SD, n = 1:max_lag, by = get(c_sbw$uid)), .SDcols = l_treats]
-    
-
-  ## covariate lags (numeric covariates only; enforced in gd_sbw_check)
-  ## CHECK ME, not fully tested
-  ## covariate lagging not sufficiently flexible me thinks: difference between time-invariant and categorical
-  if (c_sbw$n_lag_cov > 0) {
-    l_covlagcols <- gd_sbw_shiftcols(l_covs, c_sbw$n_lag_cov, "l")
-    ## dt_working[, (l_covlagcols) := shift(.SD, 1:c_sbw$n_lag_cov, type = "lag"),
-    ##            by = c(c_sbw$uid), .SDcols = l_covs]
-    dt_working[, (l_covlagcols) := shift(.SD, n = 1:c_sbw$n_lag_cov, by = get(c_sbw$uid)), .SDcols = l_covs]
-  }
-
-  ## leads of treatments (intermediate)
+  ## leads of treatments (kept in the panel; also used for d{k})
   l_fcols <- gd_sbw_shiftcols(l_treats, K, "f")
-  ## dt_working[, (l_fcols) := shift(.SD, 1:K, type = "lead"), by = c(c_sbw$uid), .SDcols = l_treats]
-  dt_working[, (l_fcols) := collapse::L(.SD, n=-(1:K), by = get(c_sbw$uid)), .SDcols = l_treats]
+  dt_working[, (l_fcols) := collapse::L(.SD, n = -(1:K), by = get(c_sbw$uid)), .SDcols = l_treats]
 
   ## d{k} = lead{k} - l1
   l_l1cols <- gd_sbw_shiftcols(l_treats, 1, "l")
   l_dcols  <- sprintf("%s_d%d", rep(l_treats, each = K), seq_len(K))
   dt_working[, (l_dcols) := map2(l_fcols, rep(l_l1cols, each = K), ~get(.x) - get(.y))]
 
-  ## dm{k} = lag{k} - l1  (k = 2..L_lag)
+  ## dm{k} = lag{k} - l1  (k = 2..max_lag)
   if (max_lag > 1) {
     l_dmcols  <- sprintf("%s_dm%d", rep(l_treats, each = max_lag - 1), 2:max_lag)
     ## source lags: every column except each treatment's _l1 (positions
@@ -311,8 +294,6 @@ md_sbw_panel <- function(c_sbw) {
     dt_working[, (l_dmcols) := map2(l_dmsrcs, rep(l_l1cols, each = max_lag - 1), ~get(.x) - get(.y))]
   }
 
-  ## leads were intermediate -> drop
-  ## dt_working[, (l_fcols) := NULL]
   return(dt_working)
 }
 
@@ -392,30 +373,79 @@ md_sbw_expand_covs <- function(dt_working, l_covs) {
 }
 
 
+md_sbw_cov_lags <- function(dt_working, c_sbw) {
+  #' Build covariate lags. Runs AFTER md_sbw_expand_covs, so every covariate
+  #' in config$covariate_cols is numeric (raw numeric columns or factor
+  #' dummies) and can be lagged with a plain shift. Adds {cov}_l1..l{n_lag_cov}
+  #' to the panel and rewrites config$covariate_cols to the FINAL covariate
+  #' set (levels + surviving lags) — gl_sbw_balcols / gf_sbw_formulas then
+  #' consume that set directly.
+  #'
+  #' A lag column is DROPPED when it carries no information: for a
+  #' time-invariant covariate (constant within artist, e.g. Gender or
+  #' BirthYear) the lag is identical to the level value, so balancing it
+  #' would only duplicate an existing constraint. Time-varying covariates
+  #' (numeric or categorical dummies) keep their lags.
+  #'
+  #' @param dt_working working panel with expanded (numeric) covariates
+  #' @param c_sbw      defaulted config (covariate_cols already expanded)
+  #' @return list(dt = dt_working with covariate lag columns added,
+  #'              covs = the final covariate set to balance)
+  if (c_sbw$n_lag_cov < 1 || length(c_sbw$covariate_cols) == 0) {
+    return(list(dt = dt_working, covs = c_sbw$covariate_cols))
+  }
+
+  l_covs <- c_sbw$covariate_cols
+  n_lag  <- c_sbw$n_lag_cov
+  l_all  <- gd_sbw_shiftcols(l_covs, n_lag, "l")     ## cov-major, lag-inner
+
+  dt_working[, (l_all) := collapse::L(.SD, n = 1:n_lag, by = get(c_sbw$uid)),
+             .SDcols = l_covs]
+
+  ## get all time-varying columns  
+  l_keep <- varying(dt_working, by = dt_working[, get(c_sbw$uid)])[l_all]
+
+  ## ## drop lags that are identical to their level column (time-invariant cov)
+  ## l_keep <- map_lgl(l_all, function(lag_col) {
+  ##   cov_col <- sub("_l[0-9]+$", "", lag_col)
+  ##   any(dt_working[[lag_col]] != dt_working[[cov_col]], na.rm = TRUE)
+  ## })
+  
+  l_drop <- l_all[!l_keep]
+  if (length(l_drop) > 0) dt_working[, (l_drop) := NULL]
+
+  list(dt = dt_working, covs = c(l_covs, l_all[l_keep]))
+}
+
+
 gd_sbw_years <- function(c_sbw, dt_working) {
-  #' Eligible fit years: years with at least one complete row on all fit
-  #' columns AND full outcome coverage (year + impact_years <= last panel
-  #' year, so every fitted row can be matched with its d1..dK outcomes).
+  #' Eligible fit years. A year is eligible when it has at least one row that
+  #' is complete on EVERYTHING the pipeline needs from that row: current
+  #' treatments, balance columns (treatment lags + covariate set) AND the
+  #' future outcome leads f1..fK (the coverage gate — per row, so artists
+  #' whose panel ends within the outcome window are excluded automatically;
+  #' no global "last year - K" cutoff is needed). This is the same row
+  #' definition gl_sbw_weights later fits on, so every weighted row has its
+  #' d1..dK outcomes.
   #' With config years = NULL additionally require n_use >= min_n_year;
   #' explicitly requested years are honored with >= 1 complete row (requested
   #' but ineligible years are dropped with a warning).
   #'
-  #' @param c_sbw      defaulted config
+  #' @param c_sbw      defaulted config (covariate set final)
   #' @param dt_working working panel (md_sbw_panel output)
   #' @return data.table with columns (year, n_use) for the eligible years,
   #'   sorted ascending
 
   tid_col  <- c_sbw$tid
   K         <- c_sbw$impact_years
-  l_fitcols <- c(c_sbw$treatment_cols, # treatment cols
-                 gl_sbw_balcols(c_sbw), # past treatment cols
-                 gd_sbw_shiftcols(c_sbw$treatment_cols, K, "f")) # future impact
+  l_fitcols <- c(c_sbw$treatment_cols,                       # treatments at t
+                 gl_sbw_balcols(c_sbw),                      # lagged treatments + covariates
+                 gd_sbw_shiftcols(c_sbw$treatment_cols, K, "f")) # future outcome leads
 
   dt_years <- dt_working[, .(n_use = sum(complete.cases(.SD))), by = c(tid_col), .SDcols = l_fitcols] %>%
     .[n_use >= 1]
 
   setnames(dt_years, tid_col, "year")
-  ## dt_years <- dt_years[n_use >= 1 & year <= max(dt_working[[tid_col]]) - K]
 
   v_requested <- c_sbw$years
   if (length(v_requested) > 0) {
@@ -429,6 +459,7 @@ gd_sbw_years <- function(c_sbw, dt_working) {
     dt_years <- dt_years[n_use >= c_sbw$min_n_year]
   }
   dt_years[order(year)]
+  
 }
 
 
@@ -438,7 +469,7 @@ gf_sbw_hash <- function(c_sbw, dt_years, dt_working) {
   #' working-panel columns. Numerics are rounded to 8 digits first to keep
   #' the hash stable across float noise.
   #'
-  #' @param c_sbw      defaulted config (covariate_cols expanded)
+  #' @param c_sbw      defaulted config (covariate set final)
   #' @param dt_years   eligible years table (gd_sbw_years output)
   #' @param dt_working working panel (its lag/lead columns determine the fit)
   #' @return md5 hex string
@@ -450,7 +481,13 @@ gf_sbw_hash <- function(c_sbw, dt_years, dt_working) {
                                               paste(l_spec[[.x]], collapse = "|"))) %>%
     paste(collapse = ";")
 
-  l_cols <- unique(c(c_sbw$uid, c_sbw$tid, c_sbw$treatment_cols, c_sbw$covariate_cols))
+  ## content of all data columns the fit depends on: ids, treatments,
+  ## covariate set AND the future outcome leads (they define the fitted row
+  ## population — the coverage pattern is part of what the weights are
+  ## fitted on)
+  l_cols <- unique(c(c_sbw$uid, c_sbw$tid, c_sbw$treatment_cols,
+                     c_sbw$covariate_cols,
+                     gd_sbw_shiftcols(c_sbw$treatment_cols, c_sbw$impact_years, "f")))
   dt0 <- dt_working[, ..l_cols]
   data_str <- map_chr(dt0, function(x) {
     if (is.numeric(x)) digest::digest(round(x, 8), algo = "md5")
