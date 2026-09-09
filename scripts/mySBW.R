@@ -102,6 +102,10 @@ md_sbw_defaults <- function(c_sbw) {
   #' @return the completed config list
   l_dflt <- list(
     covariate_cols = character(0), # names of extra covariates to balance
+    outcome_cols   = character(0), # additional future-outcome variables (NOT
+                                   # balanced, NOT treatment); their leads
+                                   # f{k}/d{k}/dm{k} are built like the
+                                   # treatments' so gl_sbw_did can model them
     n_lag_cov      = 0L,           # lags of the covariate set (numeric + dummies)
     years          = NULL,         # fit years; NULL -> auto (see gd_sbw_years)
     min_n_year     = 10L,          # min complete rows per year for auto years
@@ -172,6 +176,25 @@ gd_sbw_check <- function(c_sbw) {
   if (any(!l_covs %in% names(c_sbw$dt_panel))) stop("some covariate_cols not in dt_panel")
   if (length(intersect(l_covs, l_treats)) > 0) stop("covariate_cols must not overlap treatment_cols")
   if (c_sbw$n_lag_cov < 0) stop("n_lag_cov must be >= 0")
+
+  ## outcomes (additional future-outcome variables, not balanced)
+  l_out <- c_sbw$outcome_cols
+  if (any(!l_out %in% names(c_sbw$dt_panel))) stop("some outcome_cols not in dt_panel")
+  if (!all(map_lgl(l_out, ~is.numeric(c_sbw$dt_panel[[.x]])))) {
+    stop("outcome_cols must be numeric (future outcome variables)")
+  }
+  l_over <- intersect(l_out, l_treats)
+  if (length(l_over) > 0) {
+    stop(sprintf("outcome_cols overlap treatment_cols: %s — treatments get ",
+                 paste(l_over, collapse = ", ")),
+         "their own d/dm columns automatically; pass only ADDITIONAL outcomes")
+  }
+  l_over_cov <- intersect(l_out, l_covs)
+  if (length(l_over_cov) > 0) {
+    stop(sprintf("outcome_cols overlap covariate_cols: %s — a variable cannot ",
+                 paste(l_over_cov, collapse = ", ")),
+         "be both balanced-on and modeled as an outcome; use separate columns")
+  }
   if (c_sbw$wcol %in% names(c_sbw$dt_panel)) {
     stop(sprintf("wcol '%s' already exists in dt_panel", c_sbw$wcol))
   }
@@ -251,19 +274,58 @@ gf_sbw_formulas <- function(c_sbw) {
 }
 
 
+md_sbw_shifts_for <- function(dt_working, l_dvs, n_lag, n_lead, uid_col) {
+  #' Add the shift family for one set of variables to the working panel:
+  #'   {dv}_l1..l{n_lag}   lags
+  #'   {dv}_f1..f{n_lead}  future leads (kept: raw future values)
+  #'   {dv}_d{k}  = lead{k} - l1       (k = 1..n_lead)  DiD outcome
+  #'   {dv}_dm{k} = lag{k} - l1        (k = 2..n_lag)    placebo pre-period
+  #' Same construction for the treatments and for the additional
+  #' outcome_cols; the difference is only in what the caller later balances
+  #' or models. Operates on dt_working by reference.
+  #'
+  #' @param dt_working working panel (md_sbw_panel output)
+  #' @param l_dvs     variable names to shift (treatments or outcomes)
+  #' @param n_lag     number of lags (== config$n_lag)
+  #' @param n_lead    number of future leads (== config$impact_years)
+  #' @param uid_col   unit id column name (lag/lead within artist)
+  #' @return dt_working (by reference)
+  l_lag <- gd_sbw_shiftcols(l_dvs, n_lag, "l")
+  l_f   <- gd_sbw_shiftcols(l_dvs, n_lead, "f")
+  dt_working[, (l_lag) := collapse::L(.SD, n = 1:n_lag, by = get(uid_col)),
+             .SDcols = l_dvs]
+  dt_working[, (l_f) := collapse::L(.SD, n = -(1:n_lead), by = get(uid_col)),
+             .SDcols = l_dvs]
+
+  l1  <- gd_sbw_shiftcols(l_dvs, 1, "l")
+  l_d <- sprintf("%s_d%d", rep(l_dvs, each = n_lead), seq_len(n_lead))
+  dt_working[, (l_d) := map2(l_f, rep(l1, each = n_lead), ~get(.x) - get(.y))]
+
+  if (n_lag > 1) {
+    l_dm     <- sprintf("%s_dm%d", rep(l_dvs, each = n_lag - 1), 2:n_lag)
+    ## source lags: every column except each dv's _l1 (positions
+    ## 1, 1+n_lag, ... in the col-major name order)
+    l_dmsrcs <- l_lag[-seq(1, length(l_lag), by = n_lag)]
+    dt_working[, (l_dm) := map2(l_dmsrcs, rep(l1, each = n_lag - 1),
+                                ~get(.x) - get(.y))]
+  }
+  dt_working
+}
+
+
 md_sbw_panel <- function(c_sbw) {
   #' Build the working panel from the base dt_panel (a lean copy; the input
-  #' is never modified): keeps uid/tid/treatments/covariates and adds
-  #'   - treatment lags exn_X_l1..l{n_lag}   (n_lag only; NOT tied to
-  #'     impact_years — lags beyond the balance horizon would anyway be
-  #'     unbalanced and only serve as placebo pre-periods)
-  #'   - treatment leads exn_X_f1..f{K}      (K = impact_years) — KEPT in the
-  #'     panel: raw future values are useful in their own right (e.g. Poisson
-  #'     outcome models) and gd_sbw_years uses them for outcome-coverage
-  #'     checks
-  #'   - outcome columns exn_X_d{k}  = lead k - l1  (k = 1..K)
-  #'   - outcome columns exn_X_dm{k} = lag k - l1   (k = 2..n_lag; dm1 = 0 is
-  #'     the DiD baseline by construction and is not stored)
+  #' is never modified): keeps uid/tid/treatments/covariates/outcomes and
+  #' adds, for the treatment AND the additional outcome variables:
+  #'   - lags {v}_l1..l{n_lag}    (n_lag only; NOT tied to impact_years)
+  #'   - leads {v}_f1..f{K}       (K = impact_years) — KEPT: raw future
+  #'     values are useful in their own right (e.g. Poisson outcome models)
+  #'   - {v}_d{k}  = lead{k} - l1 (k = 1..K)    DiD outcomes
+  #'   - {v}_dm{k} = lag{k} - l1  (k = 2..n_lag; dm1 = 0 = baseline)
+  #' Outcome leads/diffs of artist-years near the panel end are NA (dropped
+  #' per-LHS by the outcome model); outcomes are NOT part of the balance or
+  #' the fit-completeness gate, so adding outcome_cols never changes the
+  #' weights.
   #' Covariates are NOT lagged here — factor covariates must first be
   #' expanded to numeric dummies (md_sbw_expand_covs) and their lags are
   #' built afterwards (md_sbw_cov_lags), so that a lag of a factor level is a
@@ -274,16 +336,17 @@ md_sbw_panel <- function(c_sbw) {
 
   l_treats <- c_sbw$treatment_cols
   l_covs   <- c_sbw$covariate_cols
+  l_out    <- c_sbw$outcome_cols
   K        <- c_sbw$impact_years
   max_lag  <- c_sbw$n_lag
+  l_dvs    <- c(l_treats, l_out)
 
   ## generated names must not collide with base panel columns (the pipeline
   ## owns the *_l/*_f/*_d/*_dm namespace)
-  l_new <- c(gd_sbw_shiftcols(l_treats, max_lag, "l"),  # lags
-             gd_sbw_shiftcols(l_treats, K, "f"),        # leads
-             sprintf("%s_d%d", rep(l_treats, each = K), seq_len(K)), # forward diffs, backward diffs below
-             if (max_lag > 1) sprintf("%s_dm%d", rep(l_treats, each = max_lag - 1), 2:max_lag) else character(0))
-  
+  l_new <- c(gd_sbw_shiftcols(l_dvs, max_lag, "l"),       # lags
+             gd_sbw_shiftcols(l_dvs, K, "f"),             # leads
+             sprintf("%s_d%d", rep(l_dvs, each = K), seq_len(K)),  # forward diffs
+             if (max_lag > 1) sprintf("%s_dm%d", rep(l_dvs, each = max_lag - 1), 2:max_lag) else character(0))  # backward diffs
   l_clash <- intersect(l_new, names(c_sbw$dt_panel))
   if (length(l_clash) > 0) {
     stop(sprintf("dt_panel already contains pipeline-generated columns: %s. ",
@@ -291,32 +354,16 @@ md_sbw_panel <- function(c_sbw) {
          "Pass the base panel (no precomputed lags/leads).")
   }
 
-  dt_working <- copy(c_sbw$dt_panel[, c(c_sbw$uid, c_sbw$tid, l_treats, l_covs), with = FALSE])
+  dt_working <- copy(c_sbw$dt_panel[,
+    c(c_sbw$uid, c_sbw$tid, l_dvs, l_covs), with = FALSE])
   setorderv(dt_working, c(c_sbw$uid, c_sbw$tid))
 
-  ## lags of treatments (to max_lag); collapse::L lags within the uid groups
-  l_lagcols <- gd_sbw_shiftcols(l_treats, max_lag, "l")
-  dt_working[, (l_lagcols) := collapse::L(.SD, n = 1:max_lag, by = get(c_sbw$uid)), .SDcols = l_treats]
-
-  ## leads of treatments (kept in the panel; also used for d{k})
-  l_fcols <- gd_sbw_shiftcols(l_treats, K, "f")
-  dt_working[, (l_fcols) := collapse::L(.SD, n = -(1:K), by = get(c_sbw$uid)), .SDcols = l_treats]
-
-  ## d{k} = lead{k} - l1
-  l_l1cols <- gd_sbw_shiftcols(l_treats, 1, "l")
-  l_dcols  <- sprintf("%s_d%d", rep(l_treats, each = K), seq_len(K))
-  dt_working[, (l_dcols) := map2(l_fcols, rep(l_l1cols, each = K), ~get(.x) - get(.y))]
-
-  ## dm{k} = lag{k} - l1  (k = 2..max_lag)
-  if (max_lag > 1) {
-    l_dmcols  <- sprintf("%s_dm%d", rep(l_treats, each = max_lag - 1), 2:max_lag)
-    ## source lags: every column except each treatment's _l1 (positions
-    ## 1, 1+max_lag, ... in the col-major name order)
-    l_dmsrcs  <- l_lagcols[-seq(1, length(l_lagcols), by = max_lag)]
-    dt_working[, (l_dmcols) := map2(l_dmsrcs, rep(l_l1cols, each = max_lag - 1), ~get(.x) - get(.y))]
+  ## shift family for treatments and for additional outcomes
+  dt_working <- md_sbw_shifts_for(dt_working, l_treats, max_lag, K, c_sbw$uid)
+  if (length(l_out) > 0) {
+    dt_working <- md_sbw_shifts_for(dt_working, l_out, max_lag, K, c_sbw$uid)
   }
-
-  return(dt_working)
+  dt_working
 }
 
 
@@ -491,10 +538,14 @@ gf_sbw_hash <- function(c_sbw, dt_years, dt_working) {
   #' @param c_sbw      defaulted config (covariate set final)
   #' @param dt_years   eligible years table (gd_sbw_years output)
   #' @param dt_working working panel (its lag/lead columns determine the fit)
-  #' @return md5 hex string
+  #' @return md5 hex string. NOTE: outcome_cols are deliberately excluded
+  #'   from the key — the weights never touch them, so the outcome set can
+  #'   change without refitting.
   c_spec <- c_sbw
   c_spec$dt_panel <- NULL
   c_spec$label <- NULL
+  c_spec$outcome_cols <- NULL   ## weights do not depend on the outcome set:
+                               ## adding/changing outcomes must NOT invalidate the cache
   l_spec <- c_spec[order(names(c_spec))]
   spec_str <- map_chr(names(l_spec), ~sprintf("%s=%s", .x,
                                               paste(l_spec[[.x]], collapse = "|"))) %>%
@@ -1080,20 +1131,36 @@ gd_sbw_registry <- function(dir_cache) {
 }
 
 
-gf_sbw_did <- function(c_sbw, l_tps = NULL) {
-  #' DiD formula on the weighted panel: c(exn_X_d{k} / exn_X_dm{k} across all
-  #' treatments and time points) ~ <same-year treatments> | <tid>.
+gf_sbw_did <- function(c_sbw, l_tps = NULL, l_dvs = NULL) {
+  #' DiD formula on the weighted panel: c({dv}_d{k} / {dv}_dm{k} across all
+  #' selected dvs and time points) ~ <same-year treatments> | <tid>. The RHS
+  #' is always the treatment set — that is what "effect of exhibition on
+  #' outcome Y" means; a dv never enters the RHS.
+  #'
+  #' dvs default to the treatment_cols PLUS the outcome_cols of the config
+  #' (all variables whose d/dm columns were built by md_sbw_panel), so e.g.
+  #' auction turnover is modeled automatically once it is listed in
+  #' outcome_cols; pass l_dvs = "auc_turnover" to estimate only that outcome.
   #'
   #' Time-point defaults are INDEPENDENT for the pre and post side, matching
-  #' the now-independent n_lag and impact_years: pre periods -(2..n_lag)
-  #' (l1 is the baseline, dm1 = 0 by construction and never included) and
-  #' post periods 1..impact_years. Sorted ascending afterwards.
+  #' the independent n_lag and impact_years: pre periods -(2..n_lag) (l1 is
+  #' the baseline, dm1 = 0 by construction and never included) and post
+  #' periods 1..impact_years. Sorted ascending afterwards.
   #'
   #' @param c_sbw config (as stored in the result)
   #' @param l_tps optional integer vector of relative years (excludes 0)
+  #' @param l_dvs optional dv variable names (subset of treatment_cols +
+  #'   outcome_cols); NULL = all treatments + outcomes
   #' @return formula
   K       <- c_sbw$impact_years
   max_lag <- c_sbw$n_lag
+  l_all   <- c(c_sbw$treatment_cols, c_sbw$outcome_cols)
+  l_dvs   <- l_dvs %||% l_all
+  l_unknown <- setdiff(l_dvs, l_all)
+  if (length(l_unknown) > 0) {
+    stop(sprintf("unknown dv(s): %s — dvs must be in treatment_cols or outcome_cols",
+                 paste(l_unknown, collapse = ", ")))
+  }
 
   if (is.null(l_tps)) l_tps <- sort(c(-(2:max_lag), seq_len(K)))
   if (any(l_tps > K | l_tps < -max_lag | l_tps == 0)) {
@@ -1101,36 +1168,39 @@ gf_sbw_did <- function(c_sbw, l_tps = NULL) {
                  -max_lag, K, K))
   }
 
-  l_dvs <- map(c_sbw$treatment_cols, function(treat_col) {
-    sprintf("%s_%s%d", treat_col, fifelse(l_tps > 0, "d", "dm"), abs(l_tps))
+  l_dvs_cols <- map(l_dvs, function(dv_col) {
+    sprintf("%s_%s%d", dv_col, fifelse(l_tps > 0, "d", "dm"), abs(l_tps))
   }) %>% unlist
 
-  sprintf("c(%s) ~ %s | %s", paste(l_dvs, collapse = ", "),
+  sprintf("c(%s) ~ %s | %s", paste(l_dvs_cols, collapse = ", "),
           paste(c_sbw$treatment_cols, collapse = " + "), c_sbw$tid) %>% as.formula
-
 }
 
 
-gl_sbw_did <- function(r_sbw, l_tps = NULL, ...) {
+gl_sbw_did <- function(r_sbw, l_tps = NULL, l_dvs = NULL, ...) {
   #' Pooled DiD on the SBW-weighted panel:
-  #'   feols(c(<d/dm outcomes>) ~ <same-year treatments> | <tid>,
-  #'         data = dt_results, weights = ~wcol, cluster = ~uid)
+  #'   feols(c(<d/dm outcomes of the selected dvs>) ~ <same-year treatments>
+  #'         | <tid>, data = dt_results, weights = ~wcol, cluster = ~uid)
   #' The result is a fixest_multi object; extract coefficients with
   #' gd_sbw_coef_did (year fixed effects make this the meta-analytic average
-  #' of the per-year fits).
+  #' of the per-year fits). Weights are reused as-is for any dv — they were
+  #' fitted on treatments/covariates only, so modeling an additional outcome
+  #' needs no refit.
   #'
   #' @param r_sbw result of gl_sbw_proc
   #' @param l_tps optional time points (gf_sbw_did)
+  #' @param l_dvs optional dv variable names; NULL = treatments + outcomes
   #' @param ...   further feols arguments (vcov, etc.)
   #' @return fixest_multi model object
   c_sbw <- r_sbw$config
 
-  f_did <- gf_sbw_did(c_sbw, l_tps)
+  f_did <- gf_sbw_did(c_sbw, l_tps, l_dvs)
+  if (r_sbw$config$verbose) {print(f_did)}
   
+
   feols(f_did, data = r_sbw$dt_results,
         weights = as.formula(sprintf("~ %s", c_sbw$wcol)),
         cluster = as.formula(sprintf("~ %s", c_sbw$uid)), ...)
-
 }
 
 
