@@ -386,7 +386,8 @@ gd_test_did <- function() {
 # === small real-data smoke (subset of the foster panel) ===
 gd_test_real <- function() {
   dt_f <- fread("~/Dropbox/phd/papers/foster/misc/dt_atyear_foster.csv",
-                select = c("PeopleID", "year", "Gender", "exn_pm", "exn_pi", "exn_oes"))
+                select = c("PeopleID", "year", "Gender", "exn_pm", "exn_pi", "exn_oes",
+                           "auc_turnover"))
   set.seed(3)
   l_ids <- sample(unique(dt_f$PeopleID), 1500)
   dt_fs <- dt_f[PeopleID %in% l_ids & year <= 2015]
@@ -398,6 +399,7 @@ gd_test_real <- function() {
     label = "real_smoke", dt_panel = dt_fs, uid = "PeopleID", tid = "year",
     treatment_cols = c("exn_pm", "exn_pi", "exn_oes"),
     covariate_cols = "Gender",          ## factor covariate: exercises the dummy expansion
+    outcome_cols = "auc_turnover",      ## real additional outcome (auction turnover)
     n_lag = 2L, impact_years = 2L,
     years = 2012:2013, min_n_year = 100L,
     dir_cache = DIR_CACHE_TEST)
@@ -409,6 +411,14 @@ gd_test_real <- function() {
   expect_true(all(r$dt_diag$max_cor_w < 0.05), info = "real balance ok")
   expect_true(all(r$dt_diag$ess > 0.3 * r$dt_diag$n_fit), info = "real ESS healthy")
   expect_true("w_sbw" %in% names(r$dt_results), info = "real weights attached")
+
+  ## the real outcome got its shift columns and is estimable via gl_sbw_did
+  expect_true(all(c("auc_turnover_f1", "auc_turnover_d1", "auc_turnover_dm2") %in%
+                  names(r$dt_results)), info = "real outcome shift columns present")
+  r_did_o <- t_test("real did outcome", gl_sbw_did(r, l_dvs = "auc_turnover"))
+  dt_co <- gd_sbw_coef_did(r_did_o)
+  expect_equal(unique(dt_co$dv), "auc_turnover", info = "real outcome-only model")
+  expect_true(any(is.finite(dt_co$estimate)), info = "real outcome coefficients estimated")
 }
 
 # === cached weight files carry (uid, tid) row identity + PSOCK parallel fit ===
