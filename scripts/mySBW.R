@@ -9,6 +9,8 @@
 ##                 uid            = "PeopleID", tid     = "year",
 ##                 treatment_cols = c("exn_pm", "exn_pi", "exn_oes", "exn_toti"),
 ##                 covariate_cols = "Gender",           # factor: auto dummy expansion
+##                 outcome_cols   = "auc_turnover",     # ADDITIONAL future outcomes
+##                                                     # (not balanced): f/d/dm built
 ##                 n_lag          = 3L,                  # lags of all treatments balanced
 ##                 n_lag_cov      = 0L,                  # lags of the covariate set
 ##                 impact_years   = 4L,                  # outcome window d1..dK
@@ -19,7 +21,8 @@
 ##
 ## Stages (each a standalone function):
 ##   md_sbw_defaults / gd_sbw_check   fill defaults / validate config
-##   md_sbw_panel                     treatment lags + leads (kept) + d/dm cols
+##   md_sbw_shifts_for                add lags/leads/d/dm for one variable set
+##   md_sbw_panel                     treatment + outcome lags/leads/d/dm cols
 ##   md_sbw_expand_covs               factor covariates -> numeric dummies
 ##   md_sbw_cov_lags                  covariate lags (n_lag_cov), info-free lags dropped
 ##   gd_sbw_years                     year eligibility (fit cols + outcome coverage)
@@ -34,8 +37,9 @@
 
 ## Result of gl_sbw_proc:
 ##   $dt_panel   original input panel, untouched (identical to config$dt_panel)
-##   $dt_results working panel: uid/tid + treatment/covariate columns + built
-##               lags (l1..) + outcome columns (d{k} / dm{k}) + the weight
+##   $dt_results working panel: uid/tid + treatment/covariate/outcome columns
+##               + built lags (l1..) + leads (f1..) + outcome columns
+##               (d{k} / dm{k}) for treatments AND outcome_cols + the weight
 ##               column (wcol); one row per (uid, tid), weight NA outside the
 ##               fitted (complete) rows
 ##   $dt_years   eligible fit years with complete-row counts (n_use)
@@ -89,6 +93,14 @@
 ##   window) are INDEPENDENT: lags go to n_lag, future leads/d to
 ##   impact_years. Rows are only fitted when their whole outcome window is
 ##   observed (see gd_sbw_years).
+## - outcome_cols are additional future-outcome variables (e.g. auction
+##   turnover) that are NOT balanced and NOT part of the fit-completeness
+##   gate: they only get the same f/d/dm shift columns as the treatments, so
+##   gl_sbw_did can estimate treatment effects on them. Adding outcomes never
+##   changes the weights (and never invalidates the cache). They must be
+##   numeric and disjoint from treatments and covariates (treatments already
+##   get their own d/dm). No automatic transform: apply asinh/bin yourself to
+##   the input column if you want it.
 ## - Moments/interactions are not hard-wired: precompute e.g. I(x^2) or
 ##   product columns and list them in covariate_cols.
 ## =====================================================================
