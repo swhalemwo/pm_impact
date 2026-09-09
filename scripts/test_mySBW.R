@@ -47,6 +47,7 @@ gd_syn_dt <- function(n_artists = 2500, years = 2006:2014, seed = 7) {
                Gender = sample(c("Male", "Female"), 1),
                BirthYear = byr,
                ar1 = round(ar1, 3),
+               auc_turnover = cumsum(pm + pi),   ## deterministic "auction" proxy
                exn_all_cum_ihs = asinh(cumsum(pm + pi + oes + toti)))
   })
 }
@@ -446,6 +447,71 @@ gd_test_cache_format_and_parallel <- function() {
   expect_true(max(abs(dt_m$w_sbw_seq - dt_m$w_sbw_par)) < 1e-6, info = "sequential == parallel weights")
 }
 
+# === additional outcome variables (outcome_cols) ===
+gd_test_outcome <- function() {
+  dt <- gd_syn_dt(2500, 2006:2014)
+
+  ## config validation
+  expect_error(gd_sbw_check(md_sbw_defaults(
+    gd_syn_config(dt, outcome_cols = "not_a_col"))),
+    pattern = "outcome_cols not in dt_panel", info = "outcome col must exist")
+  expect_error(gd_sbw_check(md_sbw_defaults(
+    gd_syn_config(dt, outcome_cols = "exn_pm"))),
+    pattern = "overlap treatment_cols", info = "outcome must not be a treatment")
+  expect_error(gd_sbw_check(md_sbw_defaults(
+    gd_syn_config(dt, outcome_cols = "Gender"))),
+    pattern = "outcome_cols must be numeric", info = "outcome must be numeric")
+  expect_error(gd_sbw_check(md_sbw_defaults(
+    gd_syn_config(dt, covariate_cols = "ar1", outcome_cols = "ar1"))),
+    pattern = "overlap covariate_cols", info = "outcome must not be a covariate")
+
+  ## hand-checked shift columns for an outcome
+  dt_h <- data.table(PeopleID = rep(1:2, each = 6), year = rep(2001:2006, 2),
+                     exn_pm = c(1, 2, 3, 4, 5, 6, 0, 0, 0, 0, 0, 0),
+                     auc = c(10, 12, 15, 19, 24, 30, 100, 90, 81, 73, 66, 60))
+  c_h <- gd_syn_config(dt_h, treatment_cols = "exn_pm", outcome_cols = "auc",
+                       covariate_cols = NULL, years = 2003:2004, label = "out_hand",
+                       n_lag = 2L, impact_years = 2L)
+  dt_p <- md_sbw_panel(c_h)
+  a1 <- dt_p[PeopleID == 1]
+  expect_equal(a1[year == 2003, auc_l1], 12, info = "outcome lag1")
+  expect_equal(a1[year == 2003, auc_l2], 10, info = "outcome lag2")
+  expect_true(all(c("auc_f1", "auc_f2") %in% names(dt_p)), info = "outcome leads kept")
+  expect_equal(a1[year == 2003, auc_f1], 19, info = "outcome lead f1")
+  expect_equal(a1[year == 2003, auc_f2], 24, info = "outcome lead f2")
+  expect_equal(a1[year == 2003, auc_d1], 7, info = "outcome d1 = f1 - l1")
+  expect_equal(a1[year == 2003, auc_d2], 12, info = "outcome d2 = f2 - l1")
+  expect_equal(a1[year == 2003, auc_dm2], -2, info = "outcome dm2 = l2 - l1")
+
+  ## weights are invariant to adding an outcome (no cache invalidation)
+  ## same label: outcome difference must not change the hash/cache dir
+  c0 <- gd_syn_config(dt, years = 2009:2010, label = "test_out")
+  c1 <- gd_syn_config(dt, years = 2009:2010, label = "test_out",
+                      outcome_cols = "auc_turnover")
+  r0 <- gl_sbw_proc(c0)
+  r1 <- gl_sbw_proc(c1)
+  expect_true(r1$cache$dir_run == r0$cache$dir_run,
+              info = "same cache dir with and without outcome (hash unaffected)")
+  expect_equal(r0$dt_results$w_sbw, r1$dt_results$w_sbw,
+               info = "weights identical with/without outcome")
+  expect_equal(r0$dt_years$n_use, r1$dt_years$n_use,
+               info = "fit population unchanged by outcome")
+
+  ## outcome in the dt_results + estimable via gl_sbw_did
+  expect_true(all(c("auc_turnover_f1", "auc_turnover_d1", "auc_turnover_dm2") %in%
+                  names(r1$dt_results)), info = "outcome shift columns in results")
+  r_did_all <- gl_sbw_did(r1)      ## default: treatments + outcome dvs
+  dt_c <- gd_sbw_coef_did(r_did_all)
+  expect_true("auc_turnover" %in% unique(dt_c$dv), info = "outcome dv in default model")
+  expect_equal(nrow(dt_c), 5 * 4 * 3, info = "4 treats + 1 outcome x 3 tps x 4 terms")
+  r_did_o <- gl_sbw_did(r1, l_dvs = "auc_turnover")
+  dt_co <- gd_sbw_coef_did(r_did_o)
+  expect_equal(unique(dt_co$dv), "auc_turnover", info = "subset model to outcome only")
+  expect_equal(nrow(dt_co), 1 * 4 * 3, info = "outcome-only model dimensions")
+  expect_error(gl_sbw_did(r1, l_dvs = "not_a_dv"), pattern = "unknown dv",
+               info = "unknown dv errors")
+}
+
 # === run everything ===
 cat("\n--- config checks ---\n");       gd_test_check()
 cat("\n--- formulas ---\n");            gd_test_formulas()
@@ -456,6 +522,7 @@ cat("\n--- year eligibility ---\n");    gd_test_years()
 cat("\n--- end-to-end pipeline ---\n"); gd_test_proc()
 cat("\n--- balance long ---\n");        gd_test_bal_long()
 cat("\n--- DiD ---\n");                 gd_test_did()
+cat("\n--- outcomes ---\n");            gd_test_outcome()
 cat("\n--- cache format + parallel ---\n"); gd_test_cache_format_and_parallel()
 cat("\n--- real-data smoke ---\n");     gd_test_real()
 
