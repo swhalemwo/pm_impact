@@ -33,7 +33,8 @@
 ##   gd_sbw_bal_*                     balance report (weighted vs raw corr, ESS);
 ##                                    summary + full long table share one code path
 ##   gl_sbw_proc                      orchestrator -> list(dt_panel, dt_results, ...)
-##   gl_sbw_did / gd_sbw_coef_did     DiD outcome model (feols) + coefficient extraction
+##   gl_sbw_did / gd_sbw_coef_did     DiD outcome model (feols) + coefficient
+##                                    extraction (incl. no_treatment level)
 
 ## Result of gl_sbw_proc:
 ##   $dt_panel   original input panel, untouched (identical to config$dt_panel)
@@ -1145,9 +1146,24 @@ gd_sbw_registry <- function(dir_cache) {
 
 gf_sbw_did <- function(c_sbw, l_tps = NULL, l_dvs = NULL) {
   #' DiD formula on the weighted panel: c({dv}_d{k} / {dv}_dm{k} across all
-  #' selected dvs and time points) ~ <same-year treatments> | <tid>. The RHS
-  #' is always the treatment set — that is what "effect of exhibition on
-  #' outcome Y" means; a dv never enters the RHS.
+  #' selected dvs and time points) ~ 0 + factor(<tid>) + <same-year
+  #' treatments>. The RHS is always the treatment set — that is what "effect
+  #' of exhibition on outcome Y" means; a dv never enters the RHS.
+  #'
+  #' The time dimension enters as an explicit factor WITHOUT an intercept
+  #' (0 + factor(tid)) rather than absorbed (| tid). Reasons:
+  #'   - the year dummy coefficients ARE the no-treatment level per year
+  #'     (the fitted mean at X = 0), so a single pooled no-treatment
+  #'     intercept with a standard error becomes available (see
+  #'     gd_sbw_coef_did); fixef(| tid) only gives the levels, not their SEs;
+  #'   - treatment coefficients are numerically identical to the absorbed
+  #'     specification (verified to machine precision);
+  #'   - both parametrizations keep the year effects, which are needed here:
+  #'     the weights are fitted per year, no-treatment drift varies by year,
+  #'     and the differenced outcome already removes common within-year
+  #'     shocks (the IKW estimator implicitly does the same).
+  #' Cost of the explicit factor is negligible because tid = year has only a
+  #' handful of levels (absorption would matter only with many periods).
   #'
   #' dvs default to the treatment_cols PLUS the outcome_cols of the config
   #' (all variables whose d/dm columns were built by md_sbw_panel), so e.g.
@@ -1184,20 +1200,22 @@ gf_sbw_did <- function(c_sbw, l_tps = NULL, l_dvs = NULL) {
     sprintf("%s_%s%d", dv_col, fifelse(l_tps > 0, "d", "dm"), abs(l_tps))
   }) %>% unlist
 
-  sprintf("c(%s) ~ %s | %s", paste(l_dvs_cols, collapse = ", "),
-          paste(c_sbw$treatment_cols, collapse = " + "), c_sbw$tid) %>% as.formula
+  sprintf("c(%s) ~ 0 + factor(%s) + %s", paste(l_dvs_cols, collapse = ", "),
+          c_sbw$tid, paste(c_sbw$treatment_cols, collapse = " + ")) %>% as.formula
 }
 
 
 gl_sbw_did <- function(r_sbw, l_tps = NULL, l_dvs = NULL, ...) {
   #' Pooled DiD on the SBW-weighted panel:
-  #'   feols(c(<d/dm outcomes of the selected dvs>) ~ <same-year treatments>
-  #'         | <tid>, data = dt_results, weights = ~wcol, cluster = ~uid)
+  #'   feols(c(<d/dm outcomes of the selected dvs>) ~ 0 + factor(<tid>)
+  #'         + <same-year treatments>, data = dt_results, weights = ~wcol,
+  #'         cluster = ~uid)
   #' The result is a fixest_multi object; extract coefficients with
-  #' gd_sbw_coef_did (year fixed effects make this the meta-analytic average
-  #' of the per-year fits). Weights are reused as-is for any dv — they were
-  #' fitted on treatments/covariates only, so modeling an additional outcome
-  #' needs no refit.
+  #' gd_sbw_coef_did (the year dummies make this the meta-analytic average of
+  #' the per-year fits and give the no-treatment level, see gd_sbw_notreat_one).
+  #' Weights are reused as-is for any dv — they were fitted on
+  #' treatments/covariates only, so modeling an additional outcome needs no
+  #' refit.
   #'
   #' @param r_sbw result of gl_sbw_proc
   #' @param l_tps optional time points (gf_sbw_did)
@@ -1216,22 +1234,88 @@ gl_sbw_did <- function(r_sbw, l_tps = NULL, l_dvs = NULL, ...) {
 }
 
 
+gd_sbw_notreat_one <- function(m) {
+  #' Pooled no-treatment level for ONE fitted LHS model, with a standard
+  #' error. gf_sbw_did parametrizes the time dimension as 0 + factor(tid), so
+  #' the fit has no intercept and each factor(tid)YYYY coefficient is exactly
+  #' the fitted mean at zero treatment (the no-treatment level) of that year.
+  #' The pooled value is their EQUAL-weighted mean (equal weight = each
+  #' fitted year counts the same, matching mean(fixef()) of the absorbed
+  #' parametrization); its SE is the delta-method sqrt(c' V c) on the model's
+  #' vcov (clustered as the model was fitted).
+  #'
+  #' @param m one fixest model (a single LHS of the multi-LHS DiD fit)
+  #' @return single-row data.table (term, estimate, std.error, n_year)
+  b    <- coef(m)
+  l_yr <- grep("^factor\\(.*\\)", names(b), value = TRUE)
+  if (length(l_yr) == 0) {
+    stop("gd_sbw_notreat_one: model has no factor(tid) terms — ",
+         "fit it with the 0 + factor(tid) specification (gf_sbw_did)")
+  }
+
+  V    <- vcov(m)
+  cvec <- setNames(numeric(length(b)), names(b))
+  cvec[l_yr] <- 1 / length(l_yr)   ## equal weight over the fitted years
+
+  data.table(term = "no_treatment",
+             estimate = sum(cvec * b),
+             std.error = as.numeric(sqrt(drop(t(cvec) %*% V %*% cvec)))
+             ## n_year = length(l_yr)
+             )
+
+}
+
+
+gd_sbw_lhs_parts <- function(mdl_name) {
+  #' Split a fixest LHS name ("lhs: exn_pi_d3") into dv ("exn_pi") and
+  #' relative year tp (3; negative for the dm pre-periods, e.g. dm2 -> -2).
+  #'
+  #' @param mdl_name character LHS name
+  #' @return single-row data.table (dv, tp)
+  v_tp <- sub("^lhs: ", "", mdl_name)
+  data.table(dv = sub("_(d|dm)[0-9]+$", "", v_tp),
+             tp = ifelse(grepl("_dm", v_tp), -1, 1) *
+                  as.integer(sub("^.*_(d|dm)([0-9]+)$", "\\2", v_tp)))
+}
+
+
 gd_sbw_coef_did <- function(rx) {
   #' Extract coefficients from a fixest multi-LHS DiD model (gl_sbw_did).
   #'
+  #' Returns one row per (dv, tp, term). The year-factor coefficients of the
+  #' 0 + factor(tid) parametrization are collapsed into a single
+  #' "no_treatment" row per LHS: the pooled no-treatment level (equal-weight
+  #' mean over the fitted years) with a delta-method SE, so it can be drawn
+  #' as a reference line/point alongside the treatment coefficients. All
+  #' other terms (the treatment coefficients) are returned as-is.
+  #'
   #' @param rx fixest_multi object (or any list-like with a tidy method)
   #' @return data.table with columns
-  #'   (mdl, term, estimate, std.error, statistic, p.value, dv, tp)
-  #'   where dv is the outcome treatment type (exn_pm, ...) and tp is the
-  #'   relative year (negative = pre-period dm, positive = post-period d)
-  dt_coef <- map(rx, tidy) %>% rbindlist(idcol = "mdl")
+  #'   (mdl, term, estimate, std.error, statistic, p.value, dv, tp, n_year)
+  #'   where dv is the outcome variable (exn_pm, auc_turnover, ...), tp is the
+  #'   relative year (negative = pre-period dm, positive = post-period d),
+  #'   term is the regressor ("exn_pm", ...) or "no_treatment", and n_year is
+  #'   the number of fitted years behind a no_treatment row (NA otherwise)
+  l_mdl <- names(rx)
+  dt_coef <- map(seq_along(rx), ~tidy(rx[[.x]])) %>%
+    rbindlist(idcol = "mdl_idx")
+  dt_coef <- cbind(dt_coef, gd_sbw_lhs_parts(l_mdl[dt_coef$mdl_idx]))
 
-  dt_coef[, tp_prep := sub("^lhs: ", "", mdl)] %>%
-    .[, `:=`(dv = sub("_(d|dm)[0-9]+$", "", tp_prep),
-             tdir = fifelse(grepl("_dm", tp_prep), -1, 1),
-             tlen = as.integer(sub("^.*_(d|dm)([0-9]+)$", "\\2", tp_prep)))] %>%
-    .[, tp := tdir * tlen] %>%
-    .[, `:=`(tdir = NULL, tlen = NULL)]
+  ## collapse the year-factor rows into a pooled no-treatment row per LHS
+  dt_nt <- map(seq_along(rx), function(i) {
+    cbind(data.table(mdl_idx = i), gd_sbw_notreat_one(rx[[i]]))
+  }) %>% rbindlist
 
-  return(dt_coef)
+  ## add t/p values for intercepts
+  dt_nt2 <- cbind(dt_nt, gd_sbw_lhs_parts(l_mdl[dt_nt$mdl_idx])) %>%
+    .[, `:=`(statistic = estimate / std.error,
+             p.value = 2 * (1 - pnorm(abs(estimate / std.error))))]
+    
+
+  ## gd_sbw_notreat_one(rx[[16]])
+
+  rbind(dt_coef[!grepl("^factor\\(", term)], dt_nt2, fill = TRUE) %>%
+      .[order(mdl_idx, term, tp),
+      .(mdl = l_mdl[mdl_idx], term, estimate, std.error, statistic, p.value, dv, tp)]
+
 }
