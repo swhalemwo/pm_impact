@@ -372,15 +372,86 @@ gd_test_did <- function() {
   c_sbw <- gd_syn_config(dt, years = 2009:2010)
   r <- gl_sbw_proc(c_sbw)
 
+  ## formula uses the explicit no-intercept year factor (not | year)
+  f_did <- gf_sbw_did(r$config, l_tps = c(-2, 1, 2), l_dvs = "exn_pm")
+  expect_true(grepl("0 \\+ factor\\(year\\)", paste(deparse(f_did), collapse = "")),
+              info = "formula has 0 + factor(year)")
+  expect_false(grepl("\\|", paste(deparse(f_did), collapse = "")),
+               info = "formula has no absorbed FE")
+
   r_did <- t_test("did fit", gl_sbw_did(r))
   expect_true(inherits(r_did, "fixest_multi"), info = "fixest multi-LHS object")
+  ## gl_sbw_did attaches the config (with tid) so gd_sbw_coef_did can locate
+  ## the year-factor terms without guessing from names
+  expect_true(!is.null(attr(r_did, "c_sbw")) && !is.null(attr(r_did, "c_sbw")$tid),
+              info = "config attached to the fitted model")
+
   dt_c <- gd_sbw_coef_did(r_did)
-  expect_true(all(c("mdl", "term", "estimate", "std.error", "tp", "dv") %in% names(dt_c)),
-              info = "coef table columns")
-  expect_equal(nrow(dt_c), 4 * 4 * 3, info = "4 dvs x 3 tps x 4 terms")
+  expect_true(all(c("mdl", "term", "estimate", "std.error", "tp", "dv") %in%
+                  names(dt_c)), info = "coef table columns")
+  ## per LHS: 4 treatment terms + 1 pooled no_treatment; 4 dvs x 3 tps
+  expect_equal(nrow(dt_c), 4 * 3 * 5, info = "4 dvs x 3 tps x (4 treats + no_treatment)")
   expect_true(all(c(-2, 1, 2) %in% unique(dt_c$tp)), info = "pre and post time points")
   ## pre-period (dm2) coefficients ~ 0 once lags are balanced
-  expect_true(max(abs(dt_c[tp == -2, estimate])) < 0.1, info = "pre period flat (weighted)")
+  expect_true(max(abs(dt_c[tp == -2 & term != "no_treatment", estimate])) < 0.1,
+              info = "pre period flat (weighted)")
+  ## no year-factor coefficient rows leak into the output
+  expect_false(any(grepl("factor\\(", dt_c$term)), info = "no raw factor rows in output")
+
+  ## no_treatment: one row per (dv, tp), finite SE
+  dt_nt <- dt_c[term == "no_treatment"]
+  expect_equal(nrow(dt_nt), 4 * 3, info = "one no_treatment row per (dv, tp)")
+  expect_true(all(is.finite(dt_nt$estimate)), info = "no_treatment estimates finite")
+  expect_true(all(is.finite(dt_nt$std.error)), info = "no_treatment SE finite")
+  ## explicit config path gives the same table
+  dt_c_b <- gd_sbw_coef_did(r_did, c_sbw = r$config)
+  expect_equal(as.data.frame(dt_c_b), as.data.frame(dt_c),
+               info = "explicit c_sbw equals the attached-config path")
+
+  ## no_treatment equals the equal-weight mean of the year-factor coefficients
+  ## (= mean(fixef()) of the absorbed parametrization), and treatment coefs are
+  ## unchanged vs the absorbed spec
+  l_tr <- r$config$treatment_cols
+  f_lhs <- "c(exn_pm_d1, exn_pm_d2)"
+  f_tr  <- paste(l_tr, collapse = " + ")
+  m_fac <- feols(as.formula(sprintf("%s ~ 0 + factor(year) + %s", f_lhs, f_tr)),
+                 r$dt_results, weights = ~w_sbw, cluster = ~PeopleID)
+  m_fe  <- feols(as.formula(sprintf("%s ~ %s | year", f_lhs, f_tr)),
+                 r$dt_results, weights = ~w_sbw, cluster = ~PeopleID)
+  expect_true(all(sapply(seq_along(m_fe), function(i)
+    all(abs(coef(m_fe[[i]])[l_tr] - coef(m_fac[[i]])[l_tr]) < 1e-8))),
+    info = "treatment coefs identical to absorbed | year spec")
+  for (i in 1:2) {
+    lvl_mean <- as.numeric(mean(coef(m_fac[[i]])[grep("^factor", names(coef(m_fac[[i]])))]))
+    expect_equal(as.numeric(dt_nt[dv == "exn_pm" & tp == i, estimate]), lvl_mean,
+                 info = sprintf("no_treatment == mean year level (d%d)", i))
+  }
+
+  ## single-year config: no_treatment still identified (factor has one level)
+  c_1y <- gd_syn_config(dt, years = 2010, label = "test_did_1y", n_lag = 2L, impact_years = 2L)
+  r_1y <- gl_sbw_proc(c_1y)
+  dt_c1 <- gd_sbw_coef_did(gl_sbw_did(r_1y, l_tps = 1:2, l_dvs = "exn_pm"))
+  expect_true(all(is.finite(dt_c1[term == "no_treatment", std.error])),
+              info = "single-year no_treatment SE finite")
+
+  ## robustness: another factor in the model must not be taken for the year
+  ## factor (gd_sbw_notreat_one matches the exact "factor(<tid>)" prefix)
+  dt_r <- copy(r$dt_results)
+  dt_r[, g_fac := factor(PeopleID %% 3)]
+  m_twofac <- feols(exn_pm_d1 ~ 0 + factor(year) + g_fac + exn_pm + exn_pi + exn_oes + exn_toti,
+                    dt_r, weights = ~w_sbw, cluster = ~PeopleID)
+  b <- coef(m_twofac)
+  l_year_only <- names(b)[startsWith(names(b), "factor(year)")]
+  expect_true(all(startsWith(l_year_only, "factor(year)")), info = "year terms identified")
+  expect_false(any(startsWith(l_year_only, "factor(g_fac)")), info = "g_fac not matched as year")
+  r_nt <- gd_sbw_notreat_one(m_twofac, tid = "year")
+  expect_equal(r_nt$estimate, as.numeric(mean(b[startsWith(names(b), "factor(year)")])),
+               info = "notreat uses only the year-level coefficients")
+  e_no <- tryCatch(gd_sbw_coef_did(structure(list(m_twofac), names = "lhs: exn_pm_d1",
+                                             class = "fixest_multi")),
+                   error = function(e) conditionMessage(e))
+  expect_true(is.character(e_no) && grepl("no config", e_no),
+              info = "informative error when no config is attached")
 }
 
 # === small real-data smoke (subset of the foster panel) ===
@@ -513,11 +584,14 @@ gd_test_outcome <- function() {
   r_did_all <- gl_sbw_did(r1)      ## default: treatments + outcome dvs
   dt_c <- gd_sbw_coef_did(r_did_all)
   expect_true("auc_turnover" %in% unique(dt_c$dv), info = "outcome dv in default model")
-  expect_equal(nrow(dt_c), 5 * 4 * 3, info = "4 treats + 1 outcome x 3 tps x 4 terms")
+  ## per LHS: 4 treatment terms + 1 no_treatment; 5 dvs x 3 tps
+  expect_equal(nrow(dt_c), 5 * 3 * 5, info = "5 dvs x 3 tps x (4 treats + no_treatment)")
   r_did_o <- gl_sbw_did(r1, l_dvs = "auc_turnover")
   dt_co <- gd_sbw_coef_did(r_did_o)
   expect_equal(unique(dt_co$dv), "auc_turnover", info = "subset model to outcome only")
-  expect_equal(nrow(dt_co), 1 * 4 * 3, info = "outcome-only model dimensions")
+  expect_equal(nrow(dt_co), 1 * 3 * 5, info = "outcome-only model dimensions")
+  expect_true(all(is.finite(dt_co[term == "no_treatment", std.error])),
+              info = "outcome no_treatment SE finite")
   expect_error(gl_sbw_did(r1, l_dvs = "not_a_dv"), pattern = "unknown dv",
                info = "unknown dv errors")
 }
