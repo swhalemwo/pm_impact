@@ -130,13 +130,13 @@ gd_coef_did <- function(rx) {
 
 #' visualize dt_coef_did
 #' @param dt_coef_did data.table of did coefs produced by gd_coef_did
-gp_coef_did <- function(dt_coef_did) {
+gp_coef_did <- function(dt_coef_did, ciscl = 1.96) {
   
   dt_coef_did %>%
     ## .[grepl("exn_", term)] %>% 
-    ggplot(aes(x=tp, y = estimate, color = term,
-               ymin = estimate - 1.96*std.error, ymax = estimate + 1.96*std.error)) +
-               ## ymin = estimate - 1.385*std.error, ymax = estimate + 1.385*std.error)) +
+    ggplot(aes(x=factor(tp), y = estimate, color = term,
+               ## ymin = estimate - 1.96*std.error, ymax = estimate + 1.96*std.error)) +
+               ymin = estimate - ciscl*std.error, ymax = estimate + ciscl*std.error)) +
     geom_point() + geom_errorbar() +
     facet_wrap(~dv, scales = "free_y")
       
