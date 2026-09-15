@@ -308,6 +308,88 @@ gd_test_years <- function() {
   expect_equal(dt_y2$year, c(2009, 2011), info = "explicit eligible years kept")
 }
 
+
+# === fit-population eligibility filter (elig_col / elig_min) ===
+gd_test_elig <- function() {
+  dt <- copy(gd_syn_dt(600, 2006:2014, seed = 5))
+  setorder(dt, PeopleID, year)
+  ## monotone "cumulative exhibitions strictly BEFORE t" — the eligibility
+  ## use case; the project panel's exn_all_cum has exactly this definition
+  dt[, exn_all_cum := cumsum(exn_pm + exn_pi + exn_oes + exn_toti) -
+                      (exn_pm + exn_pi + exn_oes + exn_toti), by = PeopleID]
+  THR <- 3L
+
+  ## --- validation ---
+  expect_error(gd_sbw_check(md_sbw_defaults(gd_syn_config(dt, elig_col = "exn_all_cum"))),
+               pattern = "same length", info = "elig_col/elig_min same length")
+  expect_error(gd_sbw_check(md_sbw_defaults(
+    gd_syn_config(dt, elig_col = "not_a_col", elig_min = 1))),
+    pattern = "not in dt_panel", info = "elig_col must exist")
+  expect_error(gd_sbw_check(md_sbw_defaults(
+    gd_syn_config(dt, elig_col = "Gender", elig_min = 1))),
+    pattern = "numeric", info = "elig_col must be numeric")
+  expect_error(gd_sbw_check(md_sbw_defaults(
+    gd_syn_config(dt, elig_col = "exn_all_cum", elig_min = NA_real_))),
+    pattern = "without NAs", info = "elig_min must be complete")
+
+  ## --- mask semantics ---
+  c_no <- gd_syn_config(dt, years = 2009:2010, min_n_year = 1L)
+  c_el <- gd_syn_config(dt, years = 2009:2010, min_n_year = 1L,
+                        elig_col = "exn_all_cum", elig_min = THR)
+  cf_no <- gd_prep_cfg(c_no); cf_el <- gd_prep_cfg(c_el)
+  b_no <- gd_sbw_fitmask(cf_no$dt, cf_no$cfg)
+  b_el <- gd_sbw_fitmask(cf_el$dt, cf_el$cfg)
+
+  ## without elig the mask is exactly the old completeness gate
+  l_fitcols <- c(cf_no$cfg$treatment_cols, gl_sbw_balcols(cf_no$cfg),
+                 gd_sbw_shiftcols(cf_no$cfg$treatment_cols, cf_no$cfg$impact_years, "f"))
+  expect_equal(b_no, complete.cases(cf_no$dt[, .SD, .SDcols = l_fitcols]),
+               info = "no elig -> mask == completeness gate")
+  ## with elig it is completeness AND (elig_col >= elig_min): elig only removes
+  expect_equal(b_el, b_no & cf_el$dt$exn_all_cum >= THR,
+               info = "mask == completeness AND elig")
+  expect_true(sum(b_el) < sum(b_no), info = "eligibility removes fit rows")
+
+  ## --- KEY property: elig keeps the rows that PRE-FILTERING the panel loses,
+  ## because the pre-threshold years stay in the panel as lag donors ---
+  dt_pref <- copy(dt)[exn_all_cum >= THR]
+  c_pref <- gd_syn_config(dt_pref, years = 2009:2010, min_n_year = 1L,
+                          label = "test_elig_pref")
+  cf_pref <- gd_prep_cfg(c_pref)
+  b_pref <- gd_sbw_fitmask(cf_pref$dt, cf_pref$cfg)
+  expect_true(sum(b_pref) < sum(b_el),
+              info = "panel pre-filter keeps strictly fewer fit rows than elig")
+  ## the pre-filtered fit rows are a subset of the elig fit rows ...
+  d_el   <- cf_el$dt[b_el, .(PeopleID, year)]
+  d_pref <- cf_pref$dt[b_pref, .(PeopleID, year)]
+  expect_equal(nrow(d_pref[!d_el, on = c("PeopleID", "year")]), 0L,
+               info = "pre-filtered fit rows subset of elig fit rows")
+  ## ... and the extra rows are above the threshold but incomplete after the
+  ## pre-filter (NA lags from the truncated panel start)
+  d_extra <- d_el[!d_pref, on = c("PeopleID", "year")]
+  expect_true(nrow(d_extra) > 0, info = "elig-only rows exist")
+  expect_true(all(cf_el$dt[d_extra, on = c("PeopleID", "year"), exn_all_cum] >= THR),
+              info = "elig-only rows are above the threshold")
+  expect_true(all(is.na(cf_pref$dt[d_extra, on = c("PeopleID", "year"), exn_pm_l2])),
+              info = "those rows lose their lags under panel pre-filtering")
+
+  ## --- end-to-end: weights only on eligible rows; elig_min enters the key ---
+  r_el <- t_test("elig fit", gl_sbw_proc(c_el))
+  expect_true(all(r_el$dt_diag$status == "solved"), info = "eligibility fit solves")
+  expect_true(all(r_el$dt_results[!is.na(w_sbw), exn_all_cum] >= THR),
+              info = "no weight below the eligibility threshold")
+  expect_equal(sum(!is.na(r_el$dt_results$w_sbw)), sum(r_el$dt_years$n_use),
+               info = "weighted rows == n_use (elig)")
+  ## the DiD runs on the eligible population only
+  dt_c <- gd_sbw_coef_did(gl_sbw_did(r_el, l_tps = 1:2, l_dvs = "exn_pm"))
+  expect_true(all(is.finite(dt_c$estimate)), info = "DiD on the elig sample is estimable")
+
+  c_el2 <- gd_syn_config(dt, years = 2009:2010, min_n_year = 1L,
+                         elig_col = "exn_all_cum", elig_min = THR + 1)
+  r_el2 <- gl_sbw_proc(c_el2)
+  expect_false(r_el2$cache$dir_run == r_el$cache$dir_run,
+               info = "elig_min enters the cache key")
+}
 # === end-to-end pipeline + caching + registry ===
 gd_test_proc <- function() {
   dt <- gd_syn_dt(2500, 2006:2014)
@@ -603,6 +685,7 @@ cat("\n--- covariate expansion ---\n"); gd_test_covexp()
 cat("\n--- panel builder ---\n");       gd_test_panel()
 cat("\n--- covariate lags ---\n");     gd_test_covlags()
 cat("\n--- year eligibility ---\n");    gd_test_years()
+cat("\n--- fit-population eligibility ---\n"); gd_test_elig()
 cat("\n--- end-to-end pipeline ---\n"); gd_test_proc()
 cat("\n--- balance long ---\n");        gd_test_bal_long()
 cat("\n--- DiD ---\n");                 gd_test_did()

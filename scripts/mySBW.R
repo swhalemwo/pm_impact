@@ -14,6 +14,8 @@
 ##                 n_lag          = 3L,                  # lags of all treatments balanced
 ##                 n_lag_cov      = 0L,                  # lags of the covariate set
 ##                 impact_years   = 4L,                  # outcome window d1..dK
+##                 elig_col       = NULL,                # optional fit-population
+##                 elig_min       = NULL,                # filter (see below)
 ##                 years          = NULL)                # NULL -> auto (gd_sbw_years)
 ##
 ##   r_sbw <- gl_sbw_proc(c_sbw)    # fit weights (cached per year on disk)
@@ -25,6 +27,7 @@
 ##   md_sbw_panel                     treatment + outcome lags/leads/d/dm cols
 ##   md_sbw_expand_covs               factor covariates -> numeric dummies
 ##   md_sbw_cov_lags                  covariate lags (n_lag_cov), info-free lags dropped
+##   gd_sbw_fitmask                   weight-fit row mask (completeness + elig filter)
 ##   gd_sbw_years                     year eligibility (fit cols + outcome coverage)
 ##   gf_sbw_formulas                  optweightMV formula list (one per treatment)
 ##   gf_sbw_hash                      cache key (config spec + years + data content)
@@ -102,6 +105,20 @@
 ##   numeric and disjoint from treatments and covariates (treatments already
 ##   get their own d/dm). No automatic transform: apply asinh/bin yourself to
 ##   the input column if you want it.
+## - elig_col / elig_min optionally restrict the FIT POPULATION (which rows
+##   get weights) WITHOUT shortening anyone's observed history: a row is
+##   fitted only where elig_col[i] >= elig_min[i] for every i (both empty =
+##   no restriction; the columns must be numeric and are kept in the working
+##   panel for this purpose). The test runs AFTER the lags are built, so rows
+##   below the threshold stay in the panel and keep serving as lag/lead
+##   donors — an artist's first rows above the threshold still have their
+##   full n_lag lags. Filtering dt_panel *before* passing it does the same
+##   substantive restriction but ALSO deletes those donor rows, silently
+##   truncating every retained artist's history at its start: with n_lag = 4
+##   that keeps only rows that already cleared the threshold at t-4, i.e. a
+##   DIFFERENT (smaller) estimand. Use elig_col/elig_min when the histories
+##   must stay intact (e.g. the Artfacts ">=10 exhibitions" sample:
+##   elig_col = "exn_all_cum", elig_min = 10).
 ## - Moments/interactions are not hard-wired: precompute e.g. I(x^2) or
 ##   product columns and list them in covariate_cols.
 ## =====================================================================
@@ -120,6 +137,9 @@ md_sbw_defaults <- function(c_sbw) {
                                    # f{k}/d{k}/dm{k} are built like the
                                    # treatments' so gl_sbw_did can model them
     n_lag_cov      = 0L,           # lags of the covariate set (numeric + dummies)
+    elig_col       = character(0), # fit-population filter: columns whose value
+    elig_min       = numeric(0),   # must reach elig_min (row-wise >=), applied
+                                   # AFTER the shifts are built (see header)
     years          = NULL,         # fit years; NULL -> auto (see gd_sbw_years)
     min_n_year     = 10L,          # min complete rows per year for auto years
     estimand       = "ATE",        # optweightMV supports only "ATE"
@@ -208,6 +228,25 @@ gd_sbw_check <- function(c_sbw) {
                  paste(l_over_cov, collapse = ", ")),
          "be both balanced-on and modeled as an outcome; use separate columns")
   }
+  ## fit-population filter (elig_col >= elig_min, applied after the shifts)
+  if (length(c_sbw$elig_col) != length(c_sbw$elig_min)) {
+    stop("elig_col and elig_min must have the same length (one minimum per column)")
+  }
+  if (length(c_sbw$elig_col) > 0) {
+    if (!is.character(c_sbw$elig_col)) {
+      stop("elig_col must be a character vector of column names")
+    }
+    l_miss_e <- setdiff(c_sbw$elig_col, names(c_sbw$dt_panel))
+    if (length(l_miss_e) > 0) {
+      stop(sprintf("some elig_col not in dt_panel: %s", paste(l_miss_e, collapse = ", ")))
+    }
+    if (!is.numeric(c_sbw$elig_min) || anyNA(c_sbw$elig_min)) {
+      stop("elig_min must be a numeric vector without NAs")
+    }
+    if (!all(map_lgl(c_sbw$elig_col, ~is.numeric(c_sbw$dt_panel[[.x]])))) {
+      stop("elig_col must name numeric columns of dt_panel (compared with >=)")
+    }
+  }
   if (c_sbw$wcol %in% names(c_sbw$dt_panel)) {
     stop(sprintf("wcol '%s' already exists in dt_panel", c_sbw$wcol))
   }
@@ -264,6 +303,38 @@ gl_sbw_balcols <- function(c_sbw) {
   #' @return character vector of column names
   c(gd_sbw_shiftcols(c_sbw$treatment_cols, c_sbw$n_lag, "l"),
     c_sbw$covariate_cols)
+}
+
+gd_sbw_fitmask <- function(dt_working, c_sbw) {
+  #' Logical mask of the rows that belong to the WEIGHT-FIT population: rows
+  #' complete on every column the fit needs (current treatments, balance
+  #' columns, future outcome leads) AND satisfying the optional
+  #' fit-population filter c_sbw$elig_col / c_sbw$elig_min (a row is fitted
+  #' only where elig_col[i] >= elig_min[i] for every i).
+  #'
+  #' The filter is applied HERE, i.e. after the lags/leads have been built,
+  #' NOT by pre-filtering dt_panel: rows below the threshold then stay in the
+  #' panel and keep serving as lag/lead donors, so an artist's first rows
+  #' above the threshold still carry their full n_lag lags. Pre-filtering
+  #' dt_panel removes those donor rows too and silently drops the first n_lag
+  #' post-threshold years of every retained artist (with n_lag = 4 that keeps
+  #' only rows that already cleared the threshold at t-4 — a different,
+  #' smaller estimand; see the file header).
+  #'
+  #' @param dt_working working panel (md_sbw_panel output; must still carry
+  #'   the elig_col columns)
+  #' @param c_sbw      defaulted config (covariate set final)
+  #' @return logical vector, one entry per row of dt_working
+  l_fitcols <- c(c_sbw$treatment_cols, gl_sbw_balcols(c_sbw),
+                 gd_sbw_shiftcols(c_sbw$treatment_cols, c_sbw$impact_years, "f"))
+  b_ok <- complete.cases(dt_working[, .SD, .SDcols = l_fitcols])
+  if (length(c_sbw$elig_col) > 0) {
+    
+    l_elig <- map2(c_sbw$elig_col, c_sbw$elig_min, ~!is.na(dt_working[[.x]]) & dt_working[[.x]] >= .y)
+    
+    b_ok <- Reduce(`&`, c(list(b_ok), l_elig))
+  }
+  b_ok
 }
 
 
@@ -368,7 +439,7 @@ md_sbw_panel <- function(c_sbw) {
   }
 
   dt_working <- copy(c_sbw$dt_panel[,
-    c(c_sbw$uid, c_sbw$tid, l_dvs, l_covs), with = FALSE])
+    unique(c(c_sbw$uid, c_sbw$tid, l_dvs, l_covs, c_sbw$elig_col)), with = FALSE])
   setorderv(dt_working, c(c_sbw$uid, c_sbw$tid))
 
   ## shift family for treatments and for additional outcomes
@@ -513,16 +584,33 @@ gd_sbw_years <- function(c_sbw, dt_working) {
   #' @param c_sbw      defaulted config (covariate set final)
   #' @param dt_working working panel (md_sbw_panel output)
   #' @return data.table with columns (year, n_use) for the eligible years,
-  #'   sorted ascending
+  #'   sorted ascending. n_use counts the WEIGHT-FIT rows (gd_sbw_fitmask:
+  #'   complete fit columns + the elig_col/elig_min filter), so with an
+  #'   eligibility filter a year's n_use can be 0 even where complete rows
+  #'   exist.
 
   tid_col  <- c_sbw$tid
   K         <- c_sbw$impact_years
   l_fitcols <- c(c_sbw$treatment_cols,                       # treatments at t
                  gl_sbw_balcols(c_sbw),                      # lagged treatments + covariates
                  gd_sbw_shiftcols(c_sbw$treatment_cols, K, "f")) # future outcome leads
+  l_sdcols  <- unique(c(l_fitcols, c_sbw$elig_col))
 
-  dt_years <- dt_working[, .(n_use = sum(complete.cases(.SD))), by = c(tid_col), .SDcols = l_fitcols] %>%
+  dt_years <- dt_working[, .(n_use = sum(gd_sbw_fitmask(.SD, c_sbw))),
+                         by = c(tid_col), .SDcols = l_sdcols] %>%
     .[n_use >= 1]
+
+
+  ## gd_sbw_fitmask(dt_working[year == 2010, .SD, .SDcols = l_sdcols], c_sbw)
+  ## dt_slice <- gd_sbw_year_slice(dt_working, 2010, c_sbw)
+  ## dt_cross <- dt_atyear_foster[exn_all_cum >= 10, .(year_cross = min(year)), PeopleID]
+
+  ## dt_check <- join(dt_slice, dt_cross, on = "PeopleID") %>%
+  ##   .[, time_since_cross := year - year_cross]
+
+  ## dt_check[, .N, time_since_cross] %>% .[order(time_since_cross)] # ok lgtm
+
+  
 
   setnames(dt_years, tid_col, "year")
 
@@ -570,6 +658,7 @@ gf_sbw_hash <- function(c_sbw, dt_years, dt_working) {
   ## fitted on)
   l_cols <- unique(c(c_sbw$uid, c_sbw$tid, c_sbw$treatment_cols,
                      c_sbw$covariate_cols,
+                     c_sbw$elig_col,
                      gd_sbw_shiftcols(c_sbw$treatment_cols, c_sbw$impact_years, "f")))
   dt0 <- dt_working[, ..l_cols]
   data_str <- map_chr(dt0, function(x) {
@@ -634,9 +723,9 @@ gd_sbw_year_slice <- function(dt_working, year, c_sbw) {
   l_cols <- c(c_sbw$uid, c_sbw$tid, c_sbw$treatment_cols,
               gl_sbw_balcols(c_sbw),
               gd_sbw_shiftcols(c_sbw$treatment_cols, c_sbw$impact_years, "f"))
-  l_fitcols <- setdiff(l_cols, c(c_sbw$uid, c_sbw$tid))
-  dt_year <- dt_working[get(c_sbw$tid) == v_year, .SD, .SDcols = l_cols]
-  dt_year[complete.cases(dt_year[, .SD, .SDcols = l_fitcols])]
+  l_sdcols <- unique(c(l_cols, c_sbw$elig_col))
+  dt_year <- dt_working[get(c_sbw$tid) == v_year, .SD, .SDcols = l_sdcols]
+  dt_year[gd_sbw_fitmask(dt_year, c_sbw), .SD, .SDcols = l_cols]
 }
 
 
