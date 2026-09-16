@@ -10,50 +10,52 @@ gd_atyear_foster <- function(dt_atyear_raw, c_filters_atyear) {
     
     l_cols_exn <- keep(names(dt_atyear_raw_fltrd),  ~grepl("exn_", .x))
 
-    l_cols_exn_s5 <- paste0(l_cols_exn, "_s5") # previous
-    l_cols_exn_n5 <- paste0(l_cols_exn, "_n5") # next
+    ## l_cols_exn_s5 <- paste0(l_cols_exn, "_s5") # previous
+    ## l_cols_exn_n5 <- paste0(l_cols_exn, "_n5") # next
     
-    l_cols_exn_s4 <- paste0(l_cols_exn, "_s4") # previous
-    l_cols_exn_s3 <- paste0(l_cols_exn, "_s3")
+    ## l_cols_exn_s4 <- paste0(l_cols_exn, "_s4") # previous
+    ## l_cols_exn_s3 <- paste0(l_cols_exn, "_s3")
 
     l_cols_exn_cum <- paste0(l_cols_exn, "_cum")
 
     dt_atyear_lagprep1 <- dt_atyear_raw_fltrd %>% copy %>% # .[PeopleID == 44] %>% 
-        .[, (l_cols_exn_s5) := frollsum(.SD, n=6, fill = NA), PeopleID, .SDcols = l_cols_exn] %>%
-        .[, (l_cols_exn_s5) := map(l_cols_exn, ~.SD[, get(paste0(.x, "_s5")) - get(.x)])] %>%
-        .[, (l_cols_exn_s4) := frollsum(.SD, n=5, fill = NA), PeopleID, .SDcols = l_cols_exn] %>%
-        .[, (l_cols_exn_s4) := map(l_cols_exn, ~.SD[, get(paste0(.x, "_s4")) - get(.x)])] %>%
-        .[, (l_cols_exn_s3) := frollsum(.SD, n=4, fill = NA), PeopleID, .SDcols = l_cols_exn] %>%
-        .[, (l_cols_exn_s3) := map(l_cols_exn, ~.SD[, get(paste0(.x, "_s3")) - get(.x)])] %>%        
-        .[, (l_cols_exn_n5) := frollsum(.SD, n = 6, fill = NA, align = "left"), PeopleID,.SDcols=l_cols_exn] %>%
-        .[, (l_cols_exn_n5) := map(l_cols_exn, ~.SD[, get(paste0(.x, "_n5")) - get(.x)])] %>%
+        ## .[, (l_cols_exn_s5) := frollsum(.SD, n=6, fill = NA), PeopleID, .SDcols = l_cols_exn] %>%
+        ## .[, (l_cols_exn_s5) := map(l_cols_exn, ~.SD[, get(paste0(.x, "_s5")) - get(.x)])] %>%
+        ## .[, (l_cols_exn_s4) := frollsum(.SD, n=5, fill = NA), PeopleID, .SDcols = l_cols_exn] %>%
+        ## .[, (l_cols_exn_s4) := map(l_cols_exn, ~.SD[, get(paste0(.x, "_s4")) - get(.x)])] %>%
+        ## .[, (l_cols_exn_s3) := frollsum(.SD, n=4, fill = NA), PeopleID, .SDcols = l_cols_exn] %>%
+        ## .[, (l_cols_exn_s3) := map(l_cols_exn, ~.SD[, get(paste0(.x, "_s3")) - get(.x)])] %>%        
+        ## .[, (l_cols_exn_n5) := frollsum(.SD, n = 6, fill = NA, align = "left"), PeopleID,.SDcols=l_cols_exn] %>%
+        ## .[, (l_cols_exn_n5) := map(l_cols_exn, ~.SD[, get(paste0(.x, "_n5")) - get(.x)])] %>%
         .[, (l_cols_exn_cum) := fcumsum(.SD), PeopleID, .SDcols = l_cols_exn] %>%
         .[, (l_cols_exn_cum) := map(l_cols_exn, ~.SD[, get(paste0(.x, "_cum")) - get(.x)])]
 
-    dt_atyear_lagprep1[PeopleID ==44, .(PeopleID, age, year, exn_all, exn_all_s5, exn_all_n5, exn_all_cum)]
+    ## dt_atyear_lagprep1[PeopleID ==44, .(PeopleID, age, year, exn_all, exn_all_s5, exn_all_n5, exn_all_cum)]
     
     ## get cumsum of future by shifting years
     ## i think shifting by 5 is correct choice, but not 100% sure, maybe also 6?
-    dt_cumsum_n5 <- dt_atyear_lagprep1[, c(list(PeopleID = PeopleID, year = year-5), .SD), .SDcols = l_cols_exn_cum] %>%
-        setnames(old = l_cols_exn_cum, new = paste0(l_cols_exn_cum, "_n5"))
+    ## dt_cumsum_n5 <- dt_atyear_lagprep1[, c(list(PeopleID = PeopleID, year = year-5), .SD), .SDcols = l_cols_exn_cum] %>%
+    ##     setnames(old = l_cols_exn_cum, new = paste0(l_cols_exn_cum, "_n5"))
 
-    dt_atyear_lagprep2 <- merge(dt_atyear_lagprep1, dt_cumsum_n5, by = c("PeopleID", "year"), all.x = T)
+    ## dt_atyear_lagprep2 <- merge(dt_atyear_lagprep1, dt_cumsum_n5, by = c("PeopleID", "year"), all.x = T)
     
+    dt_atyear_lagprep2 <- dt_atyear_lagprep1
+
 
     ## dt_atyear_lagprep2[PeopleID ==44, .(PeopleID, age, year, exn_all, exn_all_s5, exn_all_n5, exn_all_cum, exn_all_cum_n5)] %>% print(n=80)
     # Apply transformations for all relevant columns
-    l_all_exhb_cols <- c(l_cols_exn, l_cols_exn_s5, l_cols_exn_n5, l_cols_exn_cum, l_cols_exn_s4, l_cols_exn_s3)
+    l_all_exhb_cols <- c(l_cols_exn, l_cols_exn_cum) # l_cols_exn_s5, l_cols_exn_n5,  l_cols_exn_s4, l_cols_exn_s3)
     
     # Define transformation functions
     ihs <- function(x) asinh(x)
     scld <- function(x) x / sd(x, na.rm = TRUE)
     
     dt_atyear_lagprep2[, (paste0(l_all_exhb_cols, "_ihs")) := lapply(.SD, ihs), .SDcols = l_all_exhb_cols]
-    dt_atyear_lagprep2[, (paste0(l_all_exhb_cols, "_scld")) := lapply(.SD, scld), .SDcols = l_all_exhb_cols]
+    ## dt_atyear_lagprep2[, (paste0(l_all_exhb_cols, "_scld")) := lapply(.SD, scld), .SDcols = l_all_exhb_cols]
     
     # IHS of scaled variables
     l_scld_cols <- paste0(l_all_exhb_cols, "_scld")
-    dt_atyear_lagprep2[, (paste0(l_all_exhb_cols, "_scldihs")) := lapply(.SD, ihs), .SDcols = l_scld_cols]
+    ## dt_atyear_lagprep2[, (paste0(l_all_exhb_cols, "_scldihs")) := lapply(.SD, ihs), .SDcols = l_scld_cols]
 
 
     attr(dt_atyear_lagprep2, "gnrtdby") <- as.character(match.call()[[1]])
@@ -131,6 +133,19 @@ gd_atyear_raw <- function(dt_af_exhbs, dt_af_people, dt_af_links_exhb_ppl, dt_af
         setnafill(type = "const", fill = 0, cols = keep(names(.), ~grepl("exn", .x))) %>% 
         .[, exn_all := rowSums(.SD), .SDcols = patterns("exn")]
     
+    ## add repeated/new events
+    dt_exhbppl <- gd_exhbppl(dt_af_people, dt_af_exhbs, dt_af_instns_rcd, dt_ls_af_aucres, dt_af_links_exhb_ppl)
+
+    dt_dypr_atyr <- dt_exhbppl[, .N, .(dypr_bin = fifelse(dypr_bin == 0, "new", "rep"), PeopleID, InstitutionType, year = begin_year)] %>%
+        dcast(PeopleID + year ~ dypr_bin + InstitutionType, value.var = "N")
+        
+    dt_cbn_prep2 <- join(dt_cbn_prep1, dt_dypr_atyr, on = c("PeopleID", "year")) %>%
+        setnafill(type = "const", fill = 0, cols = setdiff(names(dt_dypr_atyr), c("PeopleID", "year"))) %>%
+        .[, rep_all := rowSums(.SD), .SDcols = patterns("^rep_")] %>%
+        .[, new_all := rowSums(.SD), .SDcols = patterns("^new_")]
+        
+
+
     ## dt_cbn_prep1 <- Reduce(\(x,y) merge(x,y, by = c("year", "PeopleID"), all.x = T),
     ##                        list(dt_atyear_grid, dt_atyear_exhbcnt, dt_atyear_rcd_wide))
     
@@ -138,7 +153,7 @@ gd_atyear_raw <- function(dt_af_exhbs, dt_af_people, dt_af_links_exhb_ppl, dt_af
     ## l_cols_exn <- keep(names(dt_cbn_prep1), ~grepl("exn_", .x))
 
     ## fill up no exhibition with zero, calculate last exhibition year
-    dt_atyear_raw <- copy(dt_cbn_prep1) %>%
+    dt_atyear_raw <- copy(dt_cbn_prep2) %>%
         ## setnafill("const", cols = l_cols_exn, fill = 0) %>%
         .[, `:=`(year_last_exhb = max(year[which(exn_all > 0)])), PeopleID] %>% 
         .[, `:=`(last_exhb = (year == year_last_exhb)*1)] %>% # last year
