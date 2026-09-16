@@ -336,8 +336,21 @@ gd_exhbppl <- function(dt_af_people, dt_af_exhbs, dt_af_instns_rcd, dt_ls_af_auc
         .[, cnt_prevexhb := Reduce(`+`, .SD)-1] # calculate total
 
     
-    ## merge institution type dummies to main data (drop Nationality list, otherwise super slow)
+    ## create measures for previous dyads (dypr, dyads, previous)
+    dt_dypr <- dt_exhbppl_prep4 %>% copy %>% .[, .(PeopleID, InstitutionID, x= 1)] %>%
+        ## .[, x2 := fcumsum(x), .(PeopleID, InstitutionID)] %>% 
+        .[, dypr_cnt := fcumsum(x, list(PeopleID, InstitutionID))-1] %>%
+        .[, dypr_bin := as.integer(dypr_cnt > 0)]
+    
+    ## dt_dypr[, .N, dypr_cnt]
+    ## dt_dypr[1:1e5, .SD[any(dypr_cnt > 0)], PeopleID]
+
+    ## dt_dypr[PeopleID == 11] %>% print(n=80)
+
+    ##merge institution type dummies to main data (drop Nationality list, otherwise super slow)
     dt_exhbppl <- cbind(dt_exhbppl_prep4[, Nat_list := NULL], dt_instype_dummies) %>%
+        cbind(dt_dypr[, .(dypr_cnt, dypr_bin)]) %>%
+        .[, nbr_at := .N, ExhibitionID]%>%
         .[begin_year <= END_YEAR]
 
     ## dt_exhbppl[PeopleID == 879, .(cnt_prevexhb)]
