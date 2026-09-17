@@ -678,6 +678,87 @@ gd_test_outcome <- function() {
                info = "unknown dv errors")
 }
 
+# === cumulative outcomes (outcome_cols_cur: DiD base = t) ===
+gd_test_outcome_cur <- function() {
+  dt <- copy(gd_syn_dt(2500, 2006:2014))
+  ## a genuine CUMULATIVE column built from a treatment's own flow (year t
+  ## INCLUDED): exn_pi_cum2(t) = sum_{s<=t} exn_pi(s)
+  setorder(dt, PeopleID, year)
+  dt[, exn_pi_cum2 := cumsum(exn_pi), by = PeopleID]
+
+  ## --- validation ---
+  expect_error(gd_sbw_check(md_sbw_defaults(
+    gd_syn_config(dt, outcome_cols_cur = "not_a_col"))),
+    pattern = "outcome_cols_cur not in dt_panel", info = "cur outcome must exist")
+  expect_error(gd_sbw_check(md_sbw_defaults(
+    gd_syn_config(dt, outcome_cols_cur = "exn_pm"))),
+    pattern = "overlap treatment_cols", info = "cur outcome must not be a treatment")
+  expect_error(gd_sbw_check(md_sbw_defaults(
+    gd_syn_config(dt, outcome_cols_cur = "Gender"))),
+    pattern = "outcome_cols_cur must be numeric", info = "cur outcome must be numeric")
+  expect_error(gd_sbw_check(md_sbw_defaults(
+    gd_syn_config(dt, outcome_cols = "exn_pi_cum2", outcome_cols_cur = "exn_pi_cum2"))),
+    pattern = "both outcome_cols", info = "no column in both outcome families")
+
+  ## --- shift semantics: base cur anchors the window at t (excludes year t) ---
+  c_l1  <- gd_syn_config(dt, outcome_cols = "exn_pi_cum2", label = "test_curr")
+  c_cur <- gd_syn_config(dt, outcome_cols_cur = "exn_pi_cum2", label = "test_curr")
+  dt_l1  <- md_sbw_panel(c_l1)
+  dt_cur <- md_sbw_panel(c_cur)
+
+  expect_equal(sort(names(dt_l1)), sort(names(dt_cur)),
+               info = "identical generated columns for both outcome families")
+
+  ## l1 base: d1 = c(t+1) - c(t-1) = v(t) + v(t+1)
+  ## cur base: d1 = c(t+1) - c(t)   = v(t+1)
+  ## -> they differ by exactly the year-t flow v(t) = exn_pi
+  d_cmp <- na.omit(
+    merge(dt_cur[, .(PeopleID, year, cur = exn_pi_cum2_d1, flow_t = exn_pi)],
+          dt_l1[, .(PeopleID, year, l1 = exn_pi_cum2_d1)],
+          by = c("PeopleID", "year")))
+  expect_true(all(abs(d_cmp$l1 - d_cmp$cur - d_cmp$flow_t) < 1e-9),
+              info = "l1 base minus cur base = the year-t flow")
+
+  ## cur d2 = sum of the flow over t+1..t+2 (year t excluded), hand-checked
+  f_sum <- sum(dt[PeopleID == 1 & year %in% 2010:2011, exn_pi])
+  expect_equal(dt_cur[PeopleID == 1 & year == 2009, exn_pi_cum2_d2], f_sum,
+               info = "cur d2 = flow summed over t+1..t+2")
+  ## dm{k} identical across families (the pre-period already excludes year t)
+  expect_equal(dt_l1$exn_pi_cum2_dm2, dt_cur$exn_pi_cum2_dm2,
+               info = "dm unchanged by the outcome base")
+
+  ## --- end-to-end: base l1 adds exactly +1 to the OWN coefficient ---
+  ## weights depend on treatments/covariates only -> identical across the two
+  ## configs (the outcome set is excluded from the cache key)
+  r_l1  <- t_test("cur l1 base", gl_sbw_proc(c_l1))
+  r_cur <- t_test("cur base", gl_sbw_proc(c_cur))
+  expect_true(r_cur$cache$dir_run == r_l1$cache$dir_run,
+              info = "outcome family does not change the cache dir")
+  expect_equal(r_l1$dt_results$w_sbw, r_cur$dt_results$w_sbw,
+               info = "identical weights across outcome families")
+
+  dt_c1 <- gd_sbw_coef_did(gl_sbw_did(r_l1,  l_dvs = "exn_pi_cum2"))
+  dt_cc <- gd_sbw_coef_did(gl_sbw_did(r_cur, l_dvs = "exn_pi_cum2"))
+  d_m <- merge(dt_c1[, .(dv, tp, term, est_l1 = estimate, se_l1 = std.error)],
+               dt_cc[, .(dv, tp, term, est_cur = estimate, se_cur = std.error)],
+               by = c("dv", "tp", "term"))
+  expect_equal(nrow(d_m), nrow(dt_c1), info = "coef rows align across families")
+
+  ## post rows: the year-t exposure sits inside the l1-base window and is
+  ## itself a regressor, so the own coefficient is exactly +1 higher
+  expect_true(all(abs(d_m[term == "exn_pi" & tp > 0, est_l1 - est_cur - 1]) < 1e-6),
+              info = "cur base removes the mechanical +1 on the own coefficient")
+  ## pre (dm) rows are identical: the pre-window already excludes year t
+  expect_true(all(abs(d_m[term == "exn_pi" & tp < 0, est_l1 - est_cur]) < 1e-6),
+              info = "pre-period own coefficient unchanged by the base")
+  ## every other coefficient (incl. no_treatment) is unaffected
+  expect_true(all(abs(d_m[term != "exn_pi", est_l1 - est_cur]) < 1e-6),
+              info = "all other coefficients unaffected by the base")
+  ## SEs identical everywhere (the -1 is exact -> residuals unchanged)
+  expect_true(max(abs(d_m$se_l1 - d_m$se_cur)) < 1e-8,
+              info = "standard errors unaffected by the base")
+}
+
 # === run everything ===
 cat("\n--- config checks ---\n");       gd_test_check()
 cat("\n--- formulas ---\n");            gd_test_formulas()
@@ -690,6 +771,7 @@ cat("\n--- end-to-end pipeline ---\n"); gd_test_proc()
 cat("\n--- balance long ---\n");        gd_test_bal_long()
 cat("\n--- DiD ---\n");                 gd_test_did()
 cat("\n--- outcomes ---\n");            gd_test_outcome()
+cat("\n--- outcomes (cur base) ---\n"); gd_test_outcome_cur()
 cat("\n--- cache format + parallel ---\n"); gd_test_cache_format_and_parallel()
 cat("\n--- real-data smoke ---\n");     gd_test_real()
 
