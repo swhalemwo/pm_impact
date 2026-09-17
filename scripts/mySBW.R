@@ -1515,3 +1515,32 @@ gd_sbw_coef_did <- function(rx, c_sbw = attr(rx, "c_sbw")) {
         dv, tp)]
 
 }
+
+
+md_optweight_patch <- function() {
+  #' optweight 2.0.1: cbind_distinct() ends in cbind(), which drops the model
+  #' frame's terms/assign attributes; .process_targets_internal() then falls back
+  #' to "(Intercept)" and setNames() errors. Re-attach them.
+  #' (Would also carry optweightMV.fit's inherits() guard, but that only covers
+  #' an optweight.targets object, not the plain vector the docs allow.)
+
+  ns  <- asNamespace("optweight")
+  cln <- get("clear_null", ns)
+
+  cd_fixed <- function(x) {
+    nm <- lapply(x, colnames)
+    for (i in seq_along(x)[-1L]) {
+      x[[i]] <- x[[i]][, setdiff(colnames(x[[i]]), unlist(nm)), drop = FALSE]
+    }
+    z   <- cln(x)
+    out <- do.call("cbind", z)
+    for (a in c("terms", "assign", "contrasts")) {
+      v <- attr(z[[1L]], a)
+      if (!is.null(v)) attr(out, a) <- v
+    }
+    out
+  }
+
+  assignInNamespace("cbind_distinct", cd_fixed, ns = "optweight")
+  invisible(TRUE)
+}
