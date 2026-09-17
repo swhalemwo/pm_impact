@@ -212,7 +212,11 @@ gd_sbw_check <- function(c_sbw) {
 
   ## outcomes (additional future-outcome variables, not balanced)
   l_out <- c_sbw$outcome_cols
-  if (any(!l_out %in% names(c_sbw$dt_panel))) stop("some outcome_cols not in dt_panel")
+  if (any(!l_out %in% names(c_sbw$dt_panel))) {
+    stop(sprintf("some outcome_cols not in dt_panel: %s",
+                 paste0(setdiff(l_out, names(c_sbw$dt_panel)), collapse = ",")))
+  }
+  
   if (!all(map_lgl(l_out, ~is.numeric(c_sbw$dt_panel[[.x]])))) {
     stop("outcome_cols must be numeric (future outcome variables)")
   }
