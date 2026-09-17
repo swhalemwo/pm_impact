@@ -142,3 +142,19 @@ gp_coef_did <- function(dt_coef_did, ciscl = 1.96) {
       
 }
 
+
+gp_coef_did_compact <- function(dt_coef) {
+  #' more compact visualization: only last coef of cumulative outcomes
+  #' e.g. with impact after 6 years: only ATE for cum6
+  
+  
+  dt_coef %>% 
+    .[tp == max(tp) & grepl("cum2$", dv)] %>%
+    ggplot(aes(x=estimate, y = term, color = term,
+               xmin = estimate - 1.96 * std.error, xmax = estimate + 1.96 * std.error)) +
+    geom_point() +
+    geom_errorbar() +
+    facet_wrap(~dv, scales = "free_x")
+
+}
+  
