@@ -128,17 +128,32 @@ gd_coef_did <- function(rx) {
   
 }
 
+l_colors_treat = c(pm = "#00BFC4",
+                   pi = "#7CAE00",
+                   oes = "#F8766D",
+                   toti = "#C77CFF",
+                   ## no_treatment = "#A3A500"
+                   no_treatment = "#CD9600"
+                   )
+
+
+
 #' visualize dt_coef_did
 #' @param dt_coef_did data.table of did coefs produced by gd_coef_did
 gp_coef_did <- function(dt_coef_did, ciscl = 1.96) {
   
   dt_coef_did %>%
-    ## .[grepl("exn_", term)] %>% 
-    ggplot(aes(x=factor(tp), y = estimate, color = term,
+    ## .[grepl("exn_", term)] %>%
+    .[, term_pure := str_extract(term, paste0(c(gsub("exn_", "", l_treats), "no_treatment"), collapse = "|"))] %>% 
+    ggplot(aes(x=factor(tp), y = estimate, color = term_pure,
                ## ymin = estimate - 1.96*std.error, ymax = estimate + 1.96*std.error)) +
                ymin = estimate - ciscl*std.error, ymax = estimate + ciscl*std.error)) +
     geom_point() + geom_errorbar() +
-    facet_wrap(~dv, scales = "free_y")
+    facet_wrap(~dv, scales = "free_y") +
+    scale_color_manual(values = l_colors_treat) + 
+    guides(color = guide_legend(title = "treatment")) +
+    theme(legend.position=  "bottom") +
+    labs(x = "timepoint relative to treatment")
       
 }
 
@@ -150,11 +165,18 @@ gp_coef_did_compact <- function(dt_coef) {
   
   dt_coef %>% 
     .[tp == max(tp) & grepl("cum2$", dv)] %>%
-    ggplot(aes(x=estimate, y = term, color = term,
+    .[, term_pure := str_extract(term, paste0(c(gsub("exn_", "", l_treats), "no_treatment"), collapse = "|"))] %>% 
+    ggplot(aes(x=estimate, y = term_pure, color = term_pure,
                xmin = estimate - 1.96 * std.error, xmax = estimate + 1.96 * std.error)) +
     geom_point() +
     geom_errorbar() +
-    facet_wrap(~dv, scales = "free_x")
+    facet_wrap(~dv, scales = "free_x") +
+    scale_color_manual(values = l_colors_treat) + 
+    guides(color = guide_legend(title = "treatment")) +
+    theme(legend.position=  "bottom") +
+    labs(y = "")
+    
+
 
 }
   
