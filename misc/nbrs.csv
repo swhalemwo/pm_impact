@@ -10,6 +10,19 @@ ynkplt_p_dist_exn_pi,(eval (concat "#+label: fig:p_dist_exn_pi\n" "#+caption: di
 ynkplt_p_dist_aucturn,(eval (concat "#+label: fig:p_dist_aucturn\n" "#+caption: distribution of yearly aucturn turnover\n" "#+attr_latex: :width 14cm\n" "[[file:../figures/p_dist_aucturn.pdf]]")),pltcfgs
 ynkplt_p_coef_trans,(eval (concat "#+label: fig:p_coef_trans\n" "#+caption: coefs\n" "#+attr_latex: :width 14cm\n" "[[file:../figures/p_coef_trans.pdf]]")),pltcfgs
 ynkplt_p_pred_exncum,(eval (concat "#+label: fig:p_pred_exncum\n" "#+caption: coefs\n" "#+attr_latex: :width 14cm\n" "[[file:../figures/p_pred_exncum.pdf]]")),pltcfgs
+ynkplt_p_evst,(eval (concat "#+label: fig:p_evst\n" "#+caption: Event study plot\n" "#+attr_latex: :width 14cm\n" "[[file:../figures/p_evst.pdf]]")),pltcfgs
+ynkplt_p_evst_wintcpt,(eval (concat "#+label: fig:p_evst_wintcpt\n" "#+caption: Event study plot with no-treatment group\n" "#+attr_latex: :width 14cm\n" "[[file:../figures/p_evst_wintcpt.pdf]]")),pltcfgs
+ynkplt_p_evst_cum,(eval (concat "#+label: fig:p_evst_cum\n" "#+caption: Event study plot (cumulative DV)\n" "#+attr_latex: :width 14cm\n" "[[file:../figures/p_evst_cum.pdf]]")),pltcfgs
+ynkplt_p_evst_cum_wintcpt,(eval (concat "#+label: fig:p_evst_cum_wintcpt\n" "#+caption: Event study plot (cumulative DV) with no-treatment group\n" "#+attr_latex: :width 14cm\n" "[[file:../figures/p_evst_cum_wintcpt.pdf]]")),pltcfgs
+ynkplt_p_compact,(eval (concat "#+label: fig:p_compact\n" "#+caption: Event study coefficients (cumulative) at t=6\n" "#+attr_latex: :width 14cm\n" "[[file:../figures/p_compact.pdf]]")),pltcfgs
+ynkplt_p_cpct_intr_cpeqntl,(eval (concat "#+label: fig:p_cpct_intr_cpeqntl\n" "#+caption: Event study coefficients (cumulative) at t=6 interacted by prior exhibition count\n" "#+attr_latex: :width 14cm\n" "[[file:../figures/p_cpct_intr_cpeqntl.pdf]]")),pltcfgs
+ynkplt_p_dvauc,(eval (concat "#+label: fig:p_dvauc\n" "#+caption: Impact of exhibitions on auction turnover\n" "#+attr_latex: :width 14cm\n" "[[file:../figures/p_dvauc.pdf]]")),pltcfgs
+ynkplt_p_dvauc_cum,(eval (concat "#+label: fig:p_dvauc_cum\n" "#+caption: Impact of exhibitions on auction turnover (cumulative)\n" "#+attr_latex: :width 14cm\n" "[[file:../figures/p_dvauc_cum.pdf]]")),pltcfgs
+ynkplt_p_weightdist,(eval (concat "#+label: fig:p_weightdist\n" "#+caption: weight distribution by number of distinct treatments\n" "#+attr_latex: :width 14cm\n" "[[file:../figures/p_weightdist.pdf]]")),pltcfgs
+ynkplt_p_density_cprn,(eval (concat "#+label: fig:p_density_cprn\n" "#+caption: covariate distribution by treatment before and after SBW\n" "#+attr_latex: :width 14cm\n" "[[file:../figures/p_density_cprn.pdf]]")),pltcfgs
+ynkplt_p_corw,(eval (concat "#+label: fig:p_corw\n" "#+caption: treatment-covariate correlations before and after SBW\n" "#+attr_latex: :width 14cm\n" "[[file:../figures/p_corw.pdf]]")),pltcfgs
+ynkplt_p_sbw_raw_cprn,(eval (concat "#+label: fig:p_sbw_raw_cprn\n" "#+caption: covariate means by treatment before and after SBW\n" "#+attr_latex: :width 14cm\n" "[[file:../figures/p_sbw_raw_cprn.pdf]]")),pltcfgs
+ynkplt_p_ess,(eval (concat "#+label: fig:p_ess\n" "#+caption: effective sample size by treatment\n" "#+attr_latex: :width 14cm\n" "[[file:../figures/p_ess.pdf]]")),pltcfgs
 refplt_p_pminfl_cbn,\ref{fig:p_pminfl_cbn},figlbls
 refplt_p_pminfl_pi,\ref{fig:p_pminfl_pi},figlbls
 refplt_p_pminfl_auc,\ref{fig:p_pminfl_auc},figlbls
@@ -21,6 +34,19 @@ refplt_p_dist_exn_pi,\ref{fig:p_dist_exn_pi},figlbls
 refplt_p_dist_aucturn,\ref{fig:p_dist_aucturn},figlbls
 refplt_p_coef_trans,\ref{fig:p_coef_trans},figlbls
 refplt_p_pred_exncum,\ref{fig:p_pred_exncum},figlbls
+refplt_p_evst,\ref{fig:p_evst},figlbls
+refplt_p_evst_wintcpt,\ref{fig:p_evst_wintcpt},figlbls
+refplt_p_evst_cum,\ref{fig:p_evst_cum},figlbls
+refplt_p_evst_cum_wintcpt,\ref{fig:p_evst_cum_wintcpt},figlbls
+refplt_p_compact,\ref{fig:p_compact},figlbls
+refplt_p_cpct_intr_cpeqntl,\ref{fig:p_cpct_intr_cpeqntl},figlbls
+refplt_p_dvauc,\ref{fig:p_dvauc},figlbls
+refplt_p_dvauc_cum,\ref{fig:p_dvauc_cum},figlbls
+refplt_p_weightdist,\ref{fig:p_weightdist},figlbls
+refplt_p_density_cprn,\ref{fig:p_density_cprn},figlbls
+refplt_p_corw,\ref{fig:p_corw},figlbls
+refplt_p_sbw_raw_cprn,\ref{fig:p_sbw_raw_cprn},figlbls
+refplt_p_ess,\ref{fig:p_ess},figlbls
 reftbl_t_grow5_sumry,\ref{tbl:t_grow5_sumry},reftbl
 reftbl_t_insgrow5_topperc,\ref{tbl:t_insgrow5_topperc},reftbl
 reftbl_t_deg_info,\ref{tbl:t_deg_info},reftbl
