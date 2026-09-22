@@ -267,7 +267,9 @@ gd_sbw_check <- function(c_sbw) {
 
   ## covariates
   l_covs <- c_sbw$covariate_cols
-  if (any(!l_covs %in% names(c_sbw$dt_panel))) stop("some covariate_cols not in dt_panel")
+  if (any(!l_covs %in% names(c_sbw$dt_panel))) stop(sprintf("some covariate_cols not in dt_panel: %s",
+                                                            paste0(setdiff(l_covs, names(c_sbw$dt_panel)),
+                                                                   collapse = ",")))
   if (length(intersect(l_covs, l_treats)) > 0) stop("covariate_cols must not overlap treatment_cols")
   if (c_sbw$n_lag_cov < 0) stop("n_lag_cov must be >= 0")
 

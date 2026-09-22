@@ -23,6 +23,8 @@ library(rnaturalearth) # locating toti
 library(readr, include.only = "read_csv") # read google sheets
 library(R.utils, include.only = "withTimeout")
 library(MatchIt)
+library(purrr)
+library(ggridges) # for shitty plots
 set.seed(42)
 
 refresh_pipeline <- function() {
@@ -56,7 +58,10 @@ l_funcfiles <- c(
      ## paste0(c_dirs$code, "rem_funcs.R")
     paste0(c_dirs$code, "network.R"),
     ## paste0(c_dirs$code, "mymatch.R")
-    paste0(c_dirs$code, "mySBW.R")
+    paste0(c_dirs$code, "mySBW.R"),
+    ## paste0(c_dirs$code, "sbw_figs.R"),
+    paste0(c_dirs$code, "myci.R"),
+    paste0(c_dirs$code, "viz_sbw.R")
 )
 
 invisible(lapply(l_funcfiles, \(x) source(x, echo = F, verbose = F, print.eval = F)))
@@ -148,19 +153,62 @@ dt_atyear_foster <- gd_atyear_foster(dt_atyear_raw, c_datargs$baby)
 
 ## fwrite(dt_atyear_foster, "~/Dropbox/phd/papers/foster/misc/dt_atyear_foster.csv")
 
-if (b_min_mdls) { 
+## if (b_min_mdls) { 
 
-    dt_atyear_foster_smol <- dt_atyear_foster[year %between% c(2010, 2012)]
-    l_mdls <- gl_mdls(dt_atyear_foster_smol)
-} else {
-    l_mdls <- gl_mdls(dt_atyear_foster) # , dt_atyear_evc)
-}
+##     dt_atyear_foster_smol <- dt_atyear_foster[year %between% c(2010, 2012)]
+##     l_mdls <- gl_mdls(dt_atyear_foster_smol)
+## } else {
+##     l_mdls <- gl_mdls(dt_atyear_foster) # , dt_atyear_evc)
+## }
 
 
 ## dt_atyear_evc[, map(.SD, ~sum(is.na(.x)))] %>% t %>% adt %>% .[, .N, V1]
 
+## construct auction turnover:
+## cum: up to year in question
+## cum2: includes year in question
+## for matching: want to match on cum: before treatment
+
+l_treats <- paste0("exn_", c("pm", "pi", "oes", "toti"))
+
+dt_atyear_foster <- dt_atyear_foster %>%
+    .[, aucturn_cum2 := fcumsum(as.numeric(auc_turnover), g = PeopleID)] %>%
+    .[, aucturn_cum := aucturn_cum2 - auc_turnover] %>% 
+    .[, aucturn_cum_ihs := asinh(aucturn_cum)] %>%
+    .[, gender_rcd := ifelse(Gender %in% c("Male", "Female"), Gender, "Other")] %>%
+    .[, paste0(c(l_treats, "exn_all", "exn_gallery", "exn_event"), "_cum2") :=
+            fcumsum(.SD, g = PeopleID), .SDcols = c(l_treats, "exn_all", "exn_gallery", "exn_event")]
 
 
+## dt_atyear_foster[auc_turnover != 0, .N, PeopleID]
+
+## dt_atyear_foster[PeopleID == 259, .(aucturn_cum, aucturn_cum2, auc_turnover)] %>% print(n=80)
+
+
+c_sbw_pap6 <- list(dt_panel   = dt_atyear_foster,  # full panel, complete grid
+              label          = "fos_pap6",        # unique id -> cache folder + registry
+              uid            = "PeopleID", tid     = "year",
+              treatment_cols = c("exn_pm", "exn_pi", "exn_oes", "exn_toti"),
+              ## covariate_cols = c("gender_rcd", "career_year", "exn_all_s5_ihs"),  # NULL ok
+              covariate_cols = c("gender_rcd", "career_year", "exn_all_cum_ihs", "exn_gallery_cum_ihs",
+                                 "exn_event_cum_ihs", "aucturn_cum_ihs"),
+              outcome_cols_cur = c("exn_all_cum2", "exn_toti_cum2", "exn_pi_cum2", "exn_pm_cum2",
+                                   "exn_oes_cum2", "exn_gallery_cum2", "exn_event_cum2",
+                                   "auc_turnover", "aucturn_cum"),
+              n_lag          = 4L,                  # lags of all treatments balanced
+              n_lag_cov      = 0L,                  # lags of covariates (numeric only)
+              impact_years   = 6L,                  # outcome window d1..dK
+              years          = 2004:2016,            # NULL -> auto (gd_sbw_years)
+              verbose = T,
+              b_force = F,
+              n_cores = 5,
+              elig_col = "exn_all_cum",
+              elig_min = 10)
+
+r_sbw_pap6 <- gl_sbw_proc(c_sbw_pap6)
+r_did_pap6 <- gl_sbw_did(r_sbw_pap6)
+
+dt_coef_pap6 <- gd_sbw_coef_did(r_did_pap6)
 
 
 ## super weird EVC values: maybe extreme cases?

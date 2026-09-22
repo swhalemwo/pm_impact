@@ -60,7 +60,61 @@ gc_plts <- function() {
         p_pred_exncum = list(
             dt_atyear_foster = quote(dt_atyear_foster),
             width = 14, height = 7,
-            caption = "coefs")
+            caption = "coefs"),
+        p_evst = list(
+            dt_coef = quote(dt_coef_pap6),
+            width = 14, height = 12,
+            caption = "Event study plot"),
+        p_evst_wintcpt = list(
+            dt_coef = quote(dt_coef_pap6),
+            width = 14, height = 12,
+            caption = "Event study plot with no-treatment group"),
+        p_evst_cum = list(
+            dt_coef = quote(dt_coef_pap6),
+            width = 14, height = 12,
+            caption = "Event study plot (cumulative DV)"),
+        p_evst_cum_wintcpt = list(
+            dt_coef = quote(dt_coef_pap6),
+            width = 14, height = 12,
+            caption = "Event study plot (cumulative DV) with no-treatment group"),
+        p_compact = list(
+            dt_coef = quote(dt_coef_pap6),
+            width = 14, height = 12,
+            caption = "Event study coefficients (cumulative) at t=6"),
+        p_cpct_intr_cpeqntl = list(
+            dt_results = quote(r_sbw_pap6$dt_results),
+            width = 14, height = 12,
+            caption = "Event study coefficients (cumulative) at t=6 interacted by prior exhibition count"),
+        p_dvauc = list(
+            dt_coef = quote(dt_coef_pap6),
+            width = 14, height = 10,
+            caption = "Impact of exhibitions on auction turnover"),
+        p_dvauc_cum = list(
+            dt_coef = quote(dt_coef_pap6),
+            width = 14, height = 10,
+            caption = "Impact of exhibitions on auction turnover (cumulative)"),
+        p_weightdist = list(
+            dt_results = quote(r_sbw_pap6$dt_results),
+            width = 14, height = 10,
+            caption = "weight distribution by number of distinct treatments"),
+        p_density_cprn = list(
+            dt_results = quote(r_sbw_pap6$dt_results),
+            width = 14, height = 10,
+            caption = "covariate distribution by treatment before and after SBW"),
+        p_corw = list(
+            dt_results = quote(r_sbw_pap6$dt_results),
+            sbw_config = quote(r_sbw_pap6$config),
+            width = 14, height = 10,
+            caption = "treatment-covariate correlations before and after SBW"),
+        p_sbw_raw_cprn = list(
+            dt_results = quote(r_sbw_pap6$dt_results),
+            width = 14, height = 7,
+            caption = "covariate means by treatment before and after SBW"),
+        p_ess = list(
+            dt_results = quote(r_sbw_pap6$dt_results),
+            width = 14, height = 7,
+            caption = "effective sample size by treatment")
+        
         ## p_grow_arrow = list(#  dont re-render for now
         ##     dt_insgrow5 = quote(dt_insgrow5),
         ##     width = 12, height = 6,
