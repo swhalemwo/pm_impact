@@ -133,7 +133,14 @@ dt_af_instns_rcd <- md_instns_rcd(c_datargs$clsfcn_to_use, dt_af_instns,
     gd_instype_toti(dt_tanp_muyr_afid, dt_af_pmdb_matches, c_datargs$c_toti)
 
 ## --------- artist-year data
-dt_atyear_raw <- gd_atyear_raw(dt_af_exhbs, dt_af_people, dt_af_links_exhb_ppl, dt_af_instns_rcd, dt_ls_af_aucres)
+dt_exhbppl_wyeet <- gd_exhbppl(dt_af_people, dt_af_exhbs, dt_af_instns_rcd, dt_ls_af_aucres, dt_af_links_exhb_ppl)
+
+dt_exhbppl <- dt_exhbppl_wyeet[InstitutionType != "yeet"] %>%
+    .[eval(c_datargs$baby)]
+
+dt_atyear_raw <- gd_atyear_raw(dt_af_exhbs, dt_af_people, dt_af_links_exhb_ppl, dt_af_instns_rcd, dt_ls_af_aucres,
+                               dt_exhbppl_wyeet)
+
 
 
 ## calculate some before/after steps
@@ -175,6 +182,7 @@ walk(names(gc_plts()), ~lapply(c(gplt, wplt), \(f) f(.x)))
 
 
 jtls::gwd_clgrph()
+
 dt_nbrs <- gd_nbrs()
 fwrite(dt_nbrs, paste0(c_dirs$misc, "nbrs.csv"), quote = F)
 

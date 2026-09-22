@@ -96,13 +96,14 @@ gd_atyear_rcd <- function(dt_af_exhbs, dt_af_links_exhb_ppl, dt_af_instns_rcd) {
     return(dt_atyear_rcd_wide)
 }
 
-gd_atyear_raw <- function(dt_af_exhbs, dt_af_people, dt_af_links_exhb_ppl, dt_af_instns_rcd, dt_ls_af_aucres) {
+gd_atyear_raw <- function(dt_af_exhbs, dt_af_people, dt_af_links_exhb_ppl, dt_af_instns_rcd, dt_ls_af_aucres,
+                          dt_exhbppl_wyeet) {
     #' generate artist-year data.table
     #' @param dt_af_exhbs AF exhibition info
     #' @param dt_af_people AF people info
     #' @param dt_af_links_exhb_ppl AF links exhibition-people
     #' @param dt_af_instns_rcd recoded institutions
-
+    #' @param dt_exhbppl_wyeet for dyadic variables, to distinguish between new and repeated events
     if (as.character(match.call()[[1]]) %in% fstd){browser()}
     1;1;1;1;1;1;1;1;1;1;1;1;1;1;1;1;1;1;1;1;1;1;1;1;1;1;1;
     gw_fargs(match.call())
@@ -134,9 +135,8 @@ gd_atyear_raw <- function(dt_af_exhbs, dt_af_people, dt_af_links_exhb_ppl, dt_af
         .[, exn_all := rowSums(.SD), .SDcols = patterns("exn")]
     
     ## add repeated/new events
-    dt_exhbppl <- gd_exhbppl(dt_af_people, dt_af_exhbs, dt_af_instns_rcd, dt_ls_af_aucres, dt_af_links_exhb_ppl)
-
-    dt_dypr_atyr <- dt_exhbppl[, .N, .(dypr_bin = fifelse(dypr_bin == 0, "new", "rep"), PeopleID, InstitutionType, year = begin_year)] %>%
+    dt_dypr_atyr <- dt_exhbppl_wyeet[, .N, .(dypr_bin = fifelse(dypr_bin == 0, "new", "rep"),
+                                       PeopleID, InstitutionType, year = begin_year)] %>%
         dcast(PeopleID + year ~ dypr_bin + InstitutionType, value.var = "N")
         
     dt_cbn_prep2 <- join(dt_cbn_prep1, dt_dypr_atyr, on = c("PeopleID", "year")) %>%

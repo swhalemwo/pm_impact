@@ -204,15 +204,71 @@ gt_insgrow5_topcnt <- function(dt_insgrow5, dt_af_instns_rcd, l_cols_summary) {
 
 gd_nbrs <- function() {
 
-    dt_ynkplt <- gc_ynkplt()
-    dt_refplt <- gc_refplt()
+  l_af_desc_prep <- list(
+    list(nbr_name = "N_af_people", nbr_fmt = dt_af_people[, format(.N, big.mark = " ")]),
+    list(nbr_name = "N_af_instns", nbr_fmt = dt_af_instns[, format(.N, big.mark = " ")]),
+    list(nbr_name = "N_af_exhbs", nbr_fmt = dt_af_exhbs[, format(.N, big.mark = " ")]),
+    list(nbr_name = "N_af_instntype", nbr_fmt = dt_af_instns[, uniqueN(InstitutionType)]),
+    list(nbr_name = "N_af_exhblinks", nbr_fmt = dt_af_links_exhb_ppl[, format(.N, big.mark = " ")]),
+    list(nbr_name = "N_pm_af_instn_matches", nbr_fmt = dt_af_pmdb_matches[AF_IID != "nomatch", .N]),
+    list(nbr_name = "perc_pm_af_instn_matches",
+         nbr_fmt = format(100*dt_af_pmdb_matches[AF_IID != "nomatch", .N]/dt_pmdb[, .N], digits = 3)),
+    list(nbr_name = "perc_af_top10_share",
+         nbr_fmt = dt_af_links_exhb_ppl[, .N, PeopleID][order(-N)][, rank := 1:.N] %>% 
+           .[, top_10perc := rank < .N * 0.1] %>% .[, .(exhbcnt = sum(N)), top_10perc] %>%
+           .[, ttl_cnt := sum(exhbcnt)] %>% .[top_10perc == T, format(100*exhbcnt/ttl_cnt, digits = 2)]
+         ))
 
-    ## dt_ynktbl <- gc_ynktbl()
-    dt_reftbl <- gc_reftbl()
+  dt_af_desc <- rbindlist(l_af_desc_prep)[, grp := "af_desc"]
+
+  ## organization-form exhibition info
+  dt_ofexbh <- merge(dt_af_exhbs, dt_af_instns_rcd, by = "InstitutionID") %>%
+    .[, .N, InstitutionType] %>% .[, `:=`(N= N*1.0, perc =100*N/sum(N))] %>%
+    melt(id.vars = "InstitutionType", variable.name = "mes",) %>%
+    .[, .(nbr_name = sprintf("ofexhb_%s_%s", mes, InstitutionType),
+          nbr_fmt= format(value, digits = 2), grp = "af_ofexhb_stats"), .I] %>% .[, I := NULL]
+
+  dt_tanp <- gd_tanp_muyr()[order(year, -total)][, head(.SD, 100), year]
+
+  ## instittution type counts
+  dt_instype_info <- dt_af_instns_rcd[, .N, InstitutionType] %>%
+    .[, .(nbr_name = sprintf("instype_cnt_%s", InstitutionType),
+          nbr_fmt = format(N, big.mark = " "), grp = "instype_cnts"), .I] %>% .[, I := NULL]
+  
+  ## dt_tanp[, .N, .(muci_id, muci_name, city_name)][!dt_tanp_muyr_afid[, .N, muci_id], on = "muci_id"][order(-N)]
+  ## tanp coverage
+  dt_tanp_info <- tribble(
+    ~nbr_name, ~nbr_fmt, 
+    "tanp_Nins_ttl", dt_tanp[, uniqueN(muci_id)],
+    "tanp_Nins_wafid", dt_tanp_muyr_afid[, uniqueN(muci_id)],
+    "tanp_Nins_woafid", dt_tanp[, uniqueN(muci_id)]- dt_tanp_muyr_afid[, uniqueN(muci_id)]) %>% adt %>%
+    .[, grp := "tanp"]
+
+  ## dt_exhbppl numbers
+  dt_datasize <- merge(
+    dt_exhbppl[, .(N_link = .N, N_instn = uniqueN(InstitutionID),
+                   N_at = uniqueN(PeopleID), N_exhb = uniqueN(ExhibitionID))] %>%
+    melt(measure.vars = names(.), variable.factor = F, value.name = "vlu_exhbppl"),
+    dt_exhbppl_wyeet[, .(N_link = .N, N_instn = uniqueN(InstitutionID),
+                         N_at = uniqueN(PeopleID), N_exhb = uniqueN(ExhibitionID))] %>%
+    melt(measure.vars = names(.), variable.factor = F, value.name = "vlu_wyeet"),
+    by = "variable") %>% setnames(old = "variable", new = "vrbl") %>% 
+    .[, perc_of_wyeet := 100*(vlu_exhbppl/vlu_wyeet)] %>% 
+    melt(id.vars = "vrbl", measure.vars = c("vlu_exhbppl", "perc_of_wyeet")) %>%
+    .[, .(nbr_name = sprintf("%s_%s", vrbl, variable),
+          nbr_fmt = format(value, big.mark = " ", scientific = F,  trim = T, digits= 3)), variable] %>%
+    .[, `:=`(variable  = NULL, grp = "datasize")]
+
+  dt_ynkplt <- gc_ynkplt()
+  dt_refplt <- gc_refplt()
+
+  ## dt_ynktbl <- gc_ynktbl()
+  dt_reftbl <- gc_reftbl()
 
 
-    dt_nbrs_cbnd <- rbindlist(list(dt_ynkplt, dt_refplt, dt_reftbl))
-    return(dt_nbrs_cbnd)
+  dt_nbrs_cbnd <- rbindlist(list(dt_ynkplt, dt_refplt, dt_reftbl, dt_af_desc, dt_ofexbh, dt_tanp_info,
+                                 dt_instype_info, dt_datasize))
+  return(dt_nbrs_cbnd)
 
 }
 

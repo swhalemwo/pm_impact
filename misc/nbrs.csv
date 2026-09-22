@@ -25,3 +25,43 @@ reftbl_t_grow5_sumry,\ref{tbl:t_grow5_sumry},reftbl
 reftbl_t_insgrow5_topperc,\ref{tbl:t_insgrow5_topperc},reftbl
 reftbl_t_deg_info,\ref{tbl:t_deg_info},reftbl
 reftbl_t_insgrow5_topcnt,\ref{tbl:t_insgrow5_topcnt},reftbl
+N_af_people,39 471,af_desc
+N_af_instns,37 151,af_desc
+N_af_exhbs,544 982,af_desc
+N_af_instntype,23,af_desc
+N_af_exhblinks,1 740 124,af_desc
+N_pm_af_instn_matches,335,af_desc
+perc_pm_af_instn_matches,57.3,af_desc
+perc_af_top10_share,39,af_desc
+ofexhb_N_gallery,306893,af_ofexhb_stats
+ofexhb_N_yeet,4619,af_ofexhb_stats
+ofexhb_N_oes,78348,af_ofexhb_stats
+ofexhb_N_pi,134703,af_ofexhb_stats
+ofexhb_N_pm,5637,af_ofexhb_stats
+ofexhb_N_toti,9471,af_ofexhb_stats
+ofexhb_N_event,4783,af_ofexhb_stats
+ofexhb_perc_gallery,56,af_ofexhb_stats
+ofexhb_perc_yeet,0.85,af_ofexhb_stats
+ofexhb_perc_oes,14,af_ofexhb_stats
+ofexhb_perc_pi,25,af_ofexhb_stats
+ofexhb_perc_pm,1,af_ofexhb_stats
+ofexhb_perc_toti,1.7,af_ofexhb_stats
+ofexhb_perc_event,0.88,af_ofexhb_stats
+tanp_Nins_ttl,403,tanp
+tanp_Nins_wafid,320,tanp
+tanp_Nins_woafid,83,tanp
+instype_cnt_gallery,17 496,instype_cnts
+instype_cnt_yeet,1 167,instype_cnts
+instype_cnt_oes,8 896,instype_cnts
+instype_cnt_pi,7 318,instype_cnts
+instype_cnt_pm,334,instype_cnts
+instype_cnt_toti,143,instype_cnts
+instype_cnt_event,1 797,instype_cnts
+N_at_vlu_exhbppl,38 912,datasize
+N_exhb_vlu_exhbppl,511 360,datasize
+N_instn_vlu_exhbppl,33 189,datasize
+N_link_vlu_exhbppl,1 588 392,datasize
+N_at_perc_of_wyeet,98.6,datasize
+N_exhb_perc_of_wyeet,98.1,datasize
+N_instn_perc_of_wyeet,96.7,datasize
+N_link_perc_of_wyeet,96.9,datasize
