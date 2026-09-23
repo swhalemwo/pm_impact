@@ -203,3 +203,110 @@ gp_ess <- function(dt_results) {
     scale_x_continuous(labels = drop_leading_zero)
 
 }
+
+
+gp_cpr_range_raw_sbw <- function(dt_results, c_sbw) {
+
+  l_balcols <- gl_sbw_balcols(c_sbw)
+  
+  l_probs <- c(0.25, 0.5, 0.75)
+
+  dt_sbw <- dt_results[, map(.SD, ~wtd.quantile(.x, weights = w_sbw, probs = l_probs)), .SDcols = l_balcols] %>% t %>%
+    adt(keep.rownames = "vrbl") %>% .[, src := "sbw"] %>% 
+    setnames(old = paste0("V", 1:3), new = paste0("vlu_", c("low", "med", "high")))
+
+  
+
+  dt_raw <- dt_results[, map(.SD, ~quantile(.x, probs = l_probs)), .SDcols = l_balcols] %>% t %>%
+    adt(keep.rownames = "vrbl") %>% .[, src := "raw"] %>% 
+    setnames(old = paste0("V", 1:3), new = paste0("vlu_", c("low", "med", "high")))
+
+
+  rbind(dt_sbw, dt_raw) %>%
+    ggplot(aes(x = vlu_med, y = vrbl, color = src, xmin = vlu_low, xmax = vlu_high)) +
+    geom_point(position = position_dodge(width = 0.3)) +
+    geom_errorbar(position = position_dodge(width = 0.3))
+    ## facet_wrap(~vrbl, scales = "free")
+ 
+}
+
+gp_cpr_density_rawsbw <- function(dt_results, c_sbw) {
+
+  l_balcols <- gl_sbw_balcols(c_sbw)
+
+  dt_raw <- dt_results[, imap(.SD, ~density(.x) %$% list(x=x,y=y, vrbl = .y)) %>%
+                         rbindlist, .SDcols = l_balcols] %>% .[, src := "raw"] 
+
+  ## custom bandwidth
+  ## my_bw <- 0.9 * min(weighted_sd, IQR(.x)/1.34) * length(.x)^(-1/5) # Weigh
+
+  dt_sd_w <- dt_results[, imap(.SD, ~list(sd_w = sqrt(Hmisc::wtd.var(.x, weights = w_sbw)),
+                                         iqr_adj = IQR(.x)/1.34, lenx = .N, vrbl = .y)) %>% rbindlist, .SDcols = l_balcols]
+
+  dt_sd_w[, min_sdiqr := pmin(sd_w, iqr_adj)] %>%
+    .[, bw := 0.9 * min_sdiqr * lenx^(-1/5)]
+
+  
+  dt_sbw <- dt_results[, imap(.SD, ~density(.x, weights = w_sbw/sum(w_sbw), bw = dt_sd_w[vrbl == .y, bw]) %$% list(x=x,y=y, vrbl = .y)) %>%
+                         rbindlist, .SDcols = dt_sd_w[bw > 0, vrbl]] %>%
+    .[, src := "sbw"] 
+    
+
+  dt_cbn <- rbind(dt_raw, dt_sbw)
+
+  ## dt_cbn[, .(mean_y = mean(y)), .(vrbl, src)] %>%
+  ##   dcast(vrbl ~ src, value.var = "mean_y")
+
+  dt_cbn %>%
+    .[y > 0.01] %>% 
+    ggplot(aes(x=x, y=y, color = src)) +
+    ## geom_line() +
+    geom_smooth(se = F, span = 0.5) + 
+    facet_wrap(~vrbl, scales = "free")
+  
+
+
+
+}
+
+
+gp_loweights <- function(dt_results, c_sbw) {
+
+  ## library(mgcv)
+
+  l_balcols <- gl_sbw_balcols(c_sbw)
+
+  ## dt_results[, .(low_w = mean(w_sbw)), .(exn_pi_l1)] %>%
+  ##   ggplot(aes(x=exn_pi_l1, y = low_w)) + # geom_line() +
+  ##   geom_smooth(se = F, span = 0.1)
+
+  
+
+  ## l_r_gam <- map(l_balcols[1:21] %>% setNames(.,.),
+  ##                ~gam(as.formula(sprintf("w_sbw ~ s(%s, bs = 'cs')", .x)), data = dt_results, method = "REML"))
+
+  ## l_pred <- imap(l_balcols[1:21], ~setnames(data.table(x = unique(dt_results[, get(.x)])), old = "x", new = .x) %>%
+  ##                                  .[, pred := predict(l_r_gam[[.x]], newdata = .SD), .SDcols = .x] %>%
+  ##                                  .[, .(x = get(.x), src = .x, pred)])
+                                   
+  ## dt_pred <- rbindlist(l_pred)
+
+  ## dt_pred %>% ggplot(aes(x=x, y=pred)) +
+  ##   geom_line() +
+  ##   geom_smooth(se = F) + 
+  ##   facet_wrap(~src, scales = "free")
+
+  ## idk predicton is just so annoying
+  ## 
+
+  dt_cbn <- map(l_balcols, ~dt_results[, .(mean_w = mean(w_sbw), vrbl = .x, .N), .(x = get(.x))]) %>% rbindlist
+
+  dt_cbn %>%
+    .[!grepl("gender_rcd", vrbl)] %>% 
+    ggplot(aes(x=x, y=mean_w, weight = N)) + # geom_point() +
+    facet_wrap(~vrbl, scales = "free") + geom_smooth(se = F, span = 0.3)
+
+
+
+  
+}
