@@ -10,7 +10,7 @@ dt_exhbppl <- dt_exhbppl_wyeet[InstitutionType != "yeet"] %>%
 
 
 
-dt_edges <- gd_edges(dt_exhbppl, sample_artists = 0)
+dt_edges <- gd_edges(dt_exhbppl, sample_artists = 100)
 dt_edges_wtd <- gd_edges_wtd(dt_edges) %>% .[InstitutionID != InstitutionID2]
 g_insflow <- gg_insflow(dt_edges_wtd)
 
