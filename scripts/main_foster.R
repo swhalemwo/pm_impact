@@ -211,6 +211,11 @@ r_did_pap6 <- gl_sbw_did(r_sbw_pap6)
 dt_coef_pap6 <- gd_sbw_coef_did(r_did_pap6)
 
 
+
+
+
+
+
 ## super weird EVC values: maybe extreme cases?
 ## dt_exhbppl_watyear %>% ggplot(aes(x=evc_grow5_prop, color = InstitutionType)) + geom_density() +
 ##     scale_x_continuous(trans = scales::log10_trans()) +
