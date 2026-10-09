@@ -1,7 +1,7 @@
 # MWE: stable balancing weights (optweightMV) + difference-in-differences for
 # the effect of exhibitions by institution type on artists' future exhibitions.
 #
-# Needs only greifer.csv and this script. Runtime ~1 minute.
+# Runtime ~1 minute.
 #
 # greifer.csv = 3000 randomly sampled artists x the treatment years 2010-2012.
 #   PeopleID, year
@@ -29,10 +29,11 @@
 library(data.table)
 library(optweight)
 library(fixest)
+library(parallel)
 
-data_file 
+data_file <- "~/Dropbox/phd/papers/foster/misc/greifer.csv"
 
-dt <- fread("greifer.csv")
+dt <- fread(data_file)
 dt <- dt[exn_all_cum >= 10]  # established artists only (>= 10 prior exhibitions)
 
 l_treat <- c("exn_pi", "exn_oes", "exn_pm", "exn_toti")
@@ -48,10 +49,10 @@ l_yrs   <- sort(unique(dt$year))
 ##    eps_rel/eps_abs are loosened to 1e-2 only so that this small sample fits
 ##    in ~20s per year (the paper uses 1e-3, i.e. ~2-3 min per year here).
 l_fm  <- lapply(l_treat, function(tv) reformulate(c(l_lags, l_cov), tv))
-l_sbw <- lapply(l_yrs, function(y) {
-    optweightMV(l_fm, data = dt[year == y], estimand = "ATE",
-                eps_rel = 1e-2, eps_abs = 1e-2)
-})
+
+l_sbw <- mclapply(l_yrs, \(y) optweightMV(l_fm, data = dt[year == y], estimand = "ATE",
+                                          eps_rel = 1e-2, eps_abs = 1e-2),
+    mc.cores = 3)
 
 dt[, w_sbw := NA_real_]
 for (i in seq_along(l_yrs)) dt[year == l_yrs[i], w_sbw := l_sbw[[i]]$weights]
