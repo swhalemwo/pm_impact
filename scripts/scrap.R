@@ -1439,3 +1439,50 @@ feols(exn_pi_l3 ~ exn_pi + exn_pm | PeopleID + year,  dt_broad_smol)
 feols(exn_pi_l3 ~ exn_pi * exn_pm | PeopleID + year,  dt_broad_smol)
 
 feols(exn_pi_l3 ~ exn_pi + exn_pm + exn_all_cum_ihs  | PeopleID + year,  dt_broad_smol)
+
+
+## * DiD regression
+
+df <- data.frame(
+  group = c("control", "control", "treat", "treat"),
+  time  = c("pre", "post", "pre", "post"),
+  gpa   = c(71.22, 82.10, 60.17, 96.37)
+)
+
+# 2. Convert variables to factors (R handles dummy creation automatically)
+df$group <- factor(df$group, levels = c("control", "treat"))
+df$time  <- factor(df$time, levels = c("pre", "post"))
+
+# 3. Run the DiD regression using the interaction term (*)
+# The asterisk (*) automatically includes group, time, and their interaction
+model <- lm(gpa ~ group * time, data = df)
+
+# 4. View the results
+summary(model)
+
+
+
+
+
+
+dt_wide <- dcast(as.data.table(df), group ~ time, value.var = "gpa") %>%
+    .[, diff_gp := post - pre]
+dt_wide
+
+lm(diff_gp ~ group, dt_wide)
+
+
+first differences
+Change score method
+first differenced DiD
+
+## * DiD regression2
+
+dt[, d_exn_toti := exn_toti - exn_toti_l1]
+
+feols(exn_pi_d6 ~ 0 + exn_toti + factor(year), dt, weights = ~w_sbw)
+feols(exn_pi_d6 ~ 0 + exn_toti + exn_oes + exn_pm + exn_pi + factor(year), dt, weights = ~w_sbw)
+
+feols(exn_pi_d6 ~ 0 + d_exn_toti + factor(year), dt, weights = ~w_sbw)
+
+
