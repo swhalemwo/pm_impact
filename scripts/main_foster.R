@@ -114,7 +114,7 @@ c_datargs <- list(
     clsfcn_to_use = "clsfcn5",
     b_rcd_to_pm = T,
     b_sample_dt_atyear = T,
-    c_toti = "TIV_5",
+    c_toti = "TIV_10",
     ## c_toti = "TIV_10",
     baby = list(
         keep_all = expr(T),
