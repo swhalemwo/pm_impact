@@ -166,9 +166,14 @@ gd_atyear_raw <- function(dt_af_exhbs, dt_af_people, dt_af_links_exhb_ppl, dt_af
         setnafill("const", cols = c("count", "price"), fill = 0) %>%
         .[, auc_turnover := count*price]
 
-    
-    attr(dt_atyear_wls, "gnrtdby") <- as.character(match.call()[[1]])
-    return(dt_atyear_wls)
+  
+  dt_atgeoinfo_wide <- gd_atgeoinfo_wide(dt_af_people)
+
+  dt_atyear_wgeo <- join(dt_atyear_wls, dt_atgeoinfo_wide, on = "Nationality")
+
+
+    attr(dt_atyear_wgeo, "gnrtdby") <- as.character(match.call()[[1]])
+    return(dt_atyear_wgeo)
 }
 
 
@@ -219,6 +224,43 @@ md_instns_rcd <- function(clsfcn_to_use, dt_af_instns, b_rcd_to_pm, dt_af_pmdb_m
 }
 
 
+gd_atgeoinfo_wide <- function(dt_af_people) {
+  #' expand nationality "stringlist" into dummies of UN region(6) and UN subregion
+
+
+  ## add some artist nationality values: don't need exhb info here
+  ## need dummies to deal with multiple nationalities
+
+  dt_natlist <- dt_af_people[, .(Nationality)] %>% funique %>% 
+    .[, .(Nationality, nat = trimws(unlist(tstrsplit(Nationality, ","))))] %>% na.omit %>% # somehow tstrsplit adds NAs -> yeet
+    .[, .(Nat_list = list(nat)), .(Nationality)]
+
+
+  c_crycode_reg <- c("Kosovo" = "Europe", "Micronesia" = "Oceania", "Taiwan" = "Asia",
+                     "Netherlands Antilles" = "Americas")
+  c_crycode_subreg_code <- c("Kosovo" = 39, "Micronesia" = 57, "Taiwan" = 30, "Netherlands Antilles" = 419)
+  
+  
+  dt_natinfo <- dt_natlist[, .(nat_long = unlist(Nat_list)), Nationality] %>%
+    .[, `:=`(reg_long = countrycode(nat_long, "country.name", "un.region.name", custom_match = c_crycode_reg),
+             reg6_long = rcd_iso3c_reg6(countrycode(nat_long, "country.name", "iso3c",
+                                                    custom_match = c(Kosovo = "SRB", Micronesia = "FSM"))),
+             ## minor cheating: kosovo is serbian clay for as long as issue is only rough 
+             subreg_long = countrycode(nat_long, "country.name", "un.regionsub.code",
+                                       custom_match = c_crycode_subreg_code))]
+
+  dt_reginfo_wide <- dcast(dt_natinfo[, reg6_long2 := paste0("atreg6_", reg6_long)],
+                           Nationality ~ reg6_long2, fun.aggregate = \(x) sign(length(x)), value.var = "reg6_long2")
+
+  dt_subreginfo_wide <- dcast(dt_natinfo[, subreg_long2 := paste0("atsubreg_", subreg_long)],
+                              Nationality ~ subreg_long2, fun.aggregate = \(x) sign(length(x)),
+                              value.var = "subreg_long2")
+  
+  dt_geoinfo_wide <- join(dt_reginfo_wide, dt_subreginfo_wide, on = "Nationality")
+  return(dt_geoinfo_wide)
+}
+
+
 gd_exhbppl <- function(dt_af_people, dt_af_exhbs, dt_af_instns_rcd, dt_ls_af_aucres, dt_af_links_exhb_ppl) {
     #' 
 
@@ -260,10 +302,15 @@ gd_exhbppl <- function(dt_af_people, dt_af_exhbs, dt_af_instns_rcd, dt_ls_af_auc
     ##     .[eval(c_filters_atyear$yeet_babies_completely)] 
 
 
-    c_crycode_reg <- c("Kosovo" = "Europe", "Micronesia" = "Oceania", "Taiwan" = "Asia",
-                       "Netherlands Antilles" = "Americas")
-    c_crycode_subreg <- c("Kosovo" = "Southern Europe", "Micronesia" = "Melanesia", "Taiwan" = "Eastern Asia",
-                          "Netherlands Antilles" = "Latin America and the Caribbean")
+  c_crycode_reg <- c("Kosovo" = "Europe", "Micronesia" = "Oceania", "Taiwan" = "Asia",
+                     "Netherlands Antilles" = "Americas")
+  c_crycode_subreg <- c("Kosovo" = "Southern Europe", "Micronesia" = "Micronesia", "Taiwan" = "Eastern Asia",
+                        "Netherlands Antilles" = "Latin America and the Caribbean")
+
+  
+  
+    
+    
 
     ## whether by exhibition country X artists is national/subregional/regional;
     ## need People ID because link to person required
@@ -323,7 +370,13 @@ gd_exhbppl <- function(dt_af_people, dt_af_exhbs, dt_af_instns_rcd, dt_ls_af_auc
         setnafill(fill = 0 , cols = c("auc_turnover_l0", "auc_turnover_l1")) %>%
         .[, aucturn_cum_grow := 100*((aucturn_cum/(aucturn_cum - auc_turnover_l1))-1)] %>%
         .[is.nan(aucturn_cum_grow), aucturn_cum_grow := 0]
-                
+
+
+  ## add artist region/subregion info
+  dt_atgeoinfo_wide <- gd_atgeoinfo_wide(dt_af_people)
+
+  dt_exhbppl_prep5 <- join(dt_exhbppl_prep4, dt_atgeoinfo_wide, on = "Nationality")
+
     
     ## manually inspecting auction numbers: 29, 44, 31
     ## dt_exhbppl_prep4[PeopleID == 31, c(list(PeopleID=PeopleID, begin_year = begin_year), .SD), .SDcols = patterns("auc*")] %>%
@@ -344,7 +397,7 @@ gd_exhbppl <- function(dt_af_people, dt_af_exhbs, dt_af_instns_rcd, dt_ls_af_auc
     ## dt_exhbppl_prep4[PeopleID == 958, .(PeopleID, begin_year, ExhibitionID, auc_turnover_l0, auc_turnover_l1, aucturn_cum)] %>% print(n=80)
 
     ## create dummies for institution types with dcast
-    dt_instype_dummies <- dt_exhbppl_prep4 %>% copy %>% .[, `:=`(x=1, nbr = 1:.N)] %>%
+    dt_instype_dummies <- dt_exhbppl_prep5 %>% copy %>% .[, `:=`(x=1, nbr = 1:.N)] %>%
         dcast(nbr + PeopleID ~ paste0("instype_", InstitutionType), value.var = "x", fill = 0) %>%
         .[, nbr := NULL] %>%
         .[, fcumsum(.SD, PeopleID), .SDcols = patterns("^instype")] %>% # use fcumsum for aggregation
@@ -352,7 +405,7 @@ gd_exhbppl <- function(dt_af_people, dt_af_exhbs, dt_af_instns_rcd, dt_ls_af_auc
 
     
     ## create measures for previous dyads (dypr, dyads, previous)
-    dt_dypr <- dt_exhbppl_prep4 %>% copy %>% .[, .(PeopleID, InstitutionID, x= 1)] %>%
+    dt_dypr <- dt_exhbppl_prep5 %>% copy %>% .[, .(PeopleID, InstitutionID, x= 1)] %>%
         ## .[, x2 := fcumsum(x), .(PeopleID, InstitutionID)] %>% 
         .[, dypr_cnt := fcumsum(x, list(PeopleID, InstitutionID))-1] %>%
         .[, dypr_bin := as.integer(dypr_cnt > 0)]
@@ -363,7 +416,7 @@ gd_exhbppl <- function(dt_af_people, dt_af_exhbs, dt_af_instns_rcd, dt_ls_af_auc
     ## dt_dypr[PeopleID == 11] %>% print(n=80)
 
     ##merge institution type dummies to main data (drop Nationality list, otherwise super slow)
-    dt_exhbppl <- cbind(dt_exhbppl_prep4[, Nat_list := NULL], dt_instype_dummies) %>%
+    dt_exhbppl <- cbind(dt_exhbppl_prep5[, Nat_list := NULL], dt_instype_dummies) %>%
         cbind(dt_dypr[, .(dypr_cnt, dypr_bin)]) %>%
         .[, nbr_at := .N, ExhibitionID]%>%
         .[begin_year <= END_YEAR]

@@ -147,9 +147,18 @@ dt_atyear_raw <- gd_atyear_raw(dt_af_exhbs, dt_af_people, dt_af_links_exhb_ppl, 
                                dt_exhbppl_wyeet)
 
 
+l_treats <- paste0("exn_", c("pm", "pi", "oes", "toti"))
 
 ## calculate some before/after steps
-dt_atyear_foster <- gd_atyear_foster(dt_atyear_raw, c_datargs$baby)
+dt_atyear_foster <- gd_atyear_foster(dt_atyear_raw, c_datargs$baby) %>%
+  .[, aucturn_cum2 := fcumsum(as.numeric(auc_turnover), g = PeopleID)] %>%
+  .[, aucturn_cum := aucturn_cum2 - auc_turnover] %>% 
+  .[, aucturn_cum_ihs := asinh(aucturn_cum)] %>%
+  .[, gender_rcd := ifelse(Gender %in% c("Male", "Female"), Gender, "Other")] %>%
+  .[, paste0(c(l_treats, "exn_all", "exn_gallery", "exn_event"), "_cum2") :=
+        fcumsum(.SD, g = PeopleID), .SDcols = c(l_treats, "exn_all", "exn_gallery", "exn_event")]
+
+
 
 ## fwrite(dt_atyear_foster, "~/Dropbox/phd/papers/foster/misc/dt_atyear_foster.csv")
 
@@ -168,16 +177,6 @@ dt_atyear_foster <- gd_atyear_foster(dt_atyear_raw, c_datargs$baby)
 ## cum: up to year in question
 ## cum2: includes year in question
 ## for matching: want to match on cum: before treatment
-
-l_treats <- paste0("exn_", c("pm", "pi", "oes", "toti"))
-
-dt_atyear_foster <- dt_atyear_foster %>%
-    .[, aucturn_cum2 := fcumsum(as.numeric(auc_turnover), g = PeopleID)] %>%
-    .[, aucturn_cum := aucturn_cum2 - auc_turnover] %>% 
-    .[, aucturn_cum_ihs := asinh(aucturn_cum)] %>%
-    .[, gender_rcd := ifelse(Gender %in% c("Male", "Female"), Gender, "Other")] %>%
-    .[, paste0(c(l_treats, "exn_all", "exn_gallery", "exn_event"), "_cum2") :=
-            fcumsum(.SD, g = PeopleID), .SDcols = c(l_treats, "exn_all", "exn_gallery", "exn_event")]
 
 
 ## dt_atyear_foster[auc_turnover != 0, .N, PeopleID]

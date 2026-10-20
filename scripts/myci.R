@@ -157,6 +157,13 @@ gp_coef_did <- function(dt_coef_did, ciscl = 1.96) {
       
 }
 
+gd_coef_compact <- function(dt_coef) {
+
+    dt_coef[tp == max(tp) & grepl("cum2$", dv)] %>%
+        .[, term_pure := str_extract(term, paste0(c(gsub("exn_", "", l_treats), "no_treatment"), collapse = "|"))]
+}
+
+
 
 gp_coef_did_compact <- function(dt_coef) {
   #' more compact visualization: only last coef of cumulative outcomes
