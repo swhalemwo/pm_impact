@@ -143,6 +143,60 @@
 ## =====================================================================
 
 
+md_sbw_bal_lags_spec <- function(x) {
+  #' Canonicalize the balance_lags spec into a named list: base column name ->
+  #' integer vector of lag distances (0 = the column itself at year t).
+  #' Accepts (a) the canonical named list, (b) a character vector of
+  #' precomputed lag names in the pipeline namespace ("{base}_l{k}"), e.g.
+  #' c("auc_turnover_ihs_l1", "aucturn_cum_ihs_l2"), or (c) character(0)/
+  #' list(). Anything else is an error. Idempotent: an already canonical list
+  #' passes through unchanged (md_sbw_defaults is called more than once per
+  #' run).
+  #'
+  #' The base column is only split off the NAME here — its existence, type and
+  #' lag validity are checked in gd_sbw_check (config-level) and the columns
+  #' are built in md_sbw_bal_lags.
+  #'
+  #' @param x balance_lags entry of the config (may be NULL/empty)
+  #' @return named list (empty when nothing to balance)
+  if (is.null(x) || length(x) == 0) return(list())
+
+  if (is.list(x)) {
+    l_nm <- names(x)
+    if (is.null(l_nm) || any(is.na(l_nm)) || any(!nzchar(l_nm))) {
+      stop("balance_lags must be a NAMED list (name = panel column, ",
+           "value = lag distances), e.g. list(aucturn_cum_ihs = 1:3)")
+    }
+    l_out <- map(x, function(v) {
+      if (!is.numeric(v) || length(v) == 0 || anyNA(v) ||
+          any(v != round(v)) || any(v < 0)) {
+        stop("balance_lags distances must be non-negative whole numbers ",
+             "(0 = the column itself at year t, 1 = t-1, ...)")
+      }
+      sort(unique(as.integer(v)))
+    })
+    return(setNames(l_out, l_nm))
+  }
+
+  if (is.character(x)) {
+    ## shorthand: "{base}_l{k}" (k >= 1). The base is taken verbatim, so a
+    ## base whose own name ends in _l<digit> must use the list form.
+    b_ok <- grepl("_l[0-9]+$", x)
+    if (!all(b_ok)) {
+      stop(sprintf("balance_lags entries must look like '{column}_l{k}': %s",
+                   paste(x[!b_ok], collapse = ", ")),
+           " — or pass a named list (name = column, value = lag distances)")
+    }
+    l_base <- sub("_l[0-9]+$", "", x)
+    l_k    <- as.integer(sub("^.*_l([0-9]+)$", "\\1", x))
+    l_out  <- split(l_k, l_base)[sort(unique(l_base))]
+    return(setNames(map(l_out, ~sort(unique(as.integer(.x)))), names(l_out)))
+  }
+
+  stop("balance_lags must be a named list or a character vector of '{col}_l{k}' names")
+}
+
+
 md_sbw_defaults <- function(c_sbw) {
   #' Fill missing config fields with defaults. User-supplied entries always
   #' win. 
