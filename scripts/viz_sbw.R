@@ -81,7 +81,7 @@ gp_dvauc <- function(dt_coef) {
 }
 
 gp_dvauc_cum <- function(dt_coef) {
-  dt_coef[term != "no_treatment" & dv == "aucturn_cum"] %>% gp_coef_did + facet_wrap(~term) +
+  dt_coef[term != "no_treatment" & dv == "aucturn_cum2"] %>% gp_coef_did + facet_wrap(~term) +
     geom_hline(yintercept = 0, linetype = "dashed")
 }
 
