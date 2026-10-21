@@ -412,7 +412,11 @@ gl_sbw_balcols <- function(c_sbw) {
   #' @return character vector of column names
   c(gd_sbw_shiftcols(c_sbw$treatment_cols, c_sbw$n_lag, "l"),
     c_sbw$covariate_cols)
+  unique(c(gd_sbw_shiftcols(c_sbw$treatment_cols, c_sbw$n_lag, "l"),
+           c_sbw$covariate_cols,
+           c_sbw$balance_cols))
 }
+
 
 gd_sbw_balcol_names <- function(l_spec) {
   #' The lag column names that a balance_lags spec generates (only the k >= 1
