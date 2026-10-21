@@ -159,7 +159,7 @@ gp_coef_did <- function(dt_coef_did, ciscl = 1.96) {
 
 gd_coef_compact <- function(dt_coef) {
 
-    dt_coef[tp == max(tp) & grepl("cum2$", dv)] %>%
+    dt_coef[tp == max(tp)][grepl("cum2$", dv) | dv == "aucturn_cum"] %>%
         .[, term_pure := str_extract(term, paste0(c(gsub("exn_", "", l_treats), "no_treatment"), collapse = "|"))]
 }
 
