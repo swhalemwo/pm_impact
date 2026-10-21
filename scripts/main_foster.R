@@ -193,7 +193,7 @@ c_sbw_pap6 <- list(dt_panel   = dt_atyear_foster,  # full panel, complete grid
                                  "exn_event_cum_ihs", "aucturn_cum_ihs"),
               outcome_cols_cur = c("exn_all_cum2", "exn_toti_cum2", "exn_pi_cum2", "exn_pm_cum2",
                                    "exn_oes_cum2", "exn_gallery_cum2", "exn_event_cum2",
-                                   "auc_turnover", "aucturn_cum"),
+                                   "auc_turnover", "aucturn_cum2"),
               n_lag          = 4L,                  # lags of all treatments balanced
               n_lag_cov      = 0L,                  # lags of covariates (numeric only)
               impact_years   = 6L,                  # outcome window d1..dK
