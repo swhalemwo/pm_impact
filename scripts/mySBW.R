@@ -892,7 +892,7 @@ gl_sbw_fit_missing_years <- function(c_sbw, dt_working, v_miss, dir_run, l_fs,
                                 c_sbw = c_sbw, l_fs = l_fs,
                                 l_fit_args = l_fit_args,
                                 mc.cores = c_sbw$n_cores,
-                                mc.preschedule = TRUE, mc.set.seed = FALSE)
+                                mc.preschedule = FALSE, mc.set.seed = FALSE)
   } else {
     if (c_sbw$n_cores > 1) {
       warning("n_cores > 1 only parallelizes on Unix (fork); running sequentially")
