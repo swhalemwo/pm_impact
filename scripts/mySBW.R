@@ -9,6 +9,10 @@
 ##                 uid            = "PeopleID", tid     = "year",
 ##                 treatment_cols = c("exn_pm", "exn_pi", "exn_oes", "exn_toti"),
 ##                 covariate_cols = "Gender",           # factor: auto dummy expansion
+##                 balance_lags   = list(aucturn_cum_ihs = 1:3,
+##                                       auc_turnover_ihs = 1:2),  # EXTRA
+##                                                     # balancing columns, built
+##                                                     # as lags of panel cols
 ##                 outcome_cols   = "auc_turnover",     # ADDITIONAL future outcomes
 ##                                                     # (not balanced): f/d/dm built,
 ##                                                     # d{k} base t-1
@@ -31,6 +35,8 @@
 ##   md_sbw_panel                     treatment + outcome lags/leads/d/dm cols
 ##   md_sbw_expand_covs               factor covariates -> numeric dummies
 ##   md_sbw_cov_lags                  covariate lags (n_lag_cov), info-free lags dropped
+##   md_sbw_bal_lags                  extra balancing columns (balance_lags spec:
+##                                    lags of raw panel columns, not treatments)
 ##   gd_sbw_fitmask                   weight-fit row mask (completeness + elig filter)
 ##   gd_sbw_years                     year eligibility (fit cols + outcome coverage)
 ##   gf_sbw_formulas                  optweightMV formula list (one per treatment)
@@ -140,6 +146,26 @@
 ##   elig_col = "exn_all_cum", elig_min = 10).
 ## - Moments/interactions are not hard-wired: precompute e.g. I(x^2) or
 ##   product columns and list them in covariate_cols.
+## - balance_lags names ADDITIONAL balancing columns that are not treatments
+##   and not covariates, built by the pipeline as lags of raw panel columns:
+##     balance_lags = list(aucturn_cum_ihs = 1:4, auc_turnover_ihs = c(1, 3))
+##   (base column = name, value = lag distances; 0 = the column itself at t).
+##   The shorthand character form c("auc_turnover_ihs_l1", "aucturn_cum_ihs_l2")
+##   is parsed into the same spec (md_sbw_bal_lags_spec); every base column
+##   must be numeric and exist in dt_panel. The resolved column names are
+##   stored in config$balance_cols and enter EVERY treatment formula exactly
+##   like a covariate — same number of optweightMV formulas as treatment_cols,
+##   only more constraints per formula (do not add them to treatment_cols:
+##   that creates one formula per extra column and typically makes the joint
+##   problem primal infeasible). Lags that already exist because the base is a
+##   treatment (never allowed — the treatment lags are balanced anyway) or an
+##   outcome (their l1..l{n_lag} are already built) are reused, not rebuilt.
+##   Because NA balance columns drop a row from the fit (gd_sbw_fitmask), a
+##   long lag of a variable with a short history shrinks the fitted
+##   population: check n_use in dt_years/dt_diag. Every extra constraint also
+##   raises the infeasibility risk — relax `tols` (e.g. tols = 1e-3) before
+##   dropping the columns again. balance_lags/balance_cols are part of the
+##   cache key (spec + column content).
 ## =====================================================================
 
 
@@ -217,6 +243,13 @@ md_sbw_defaults <- function(c_sbw) {
                                    # would otherwise add a mechanical +1 to the
                                    # own-treatment coefficient).
     n_lag_cov      = 0L,           # lags of the covariate set (numeric + dummies)
+    balance_lags   = list(),       # EXTRA balancing columns: named list, base
+                                   # panel column -> lag distances (0 = the
+                                   # column at t). Built by md_sbw_bal_lags,
+                                   # balanced like a covariate (not a
+                                   # treatment: no formula, no d/dm columns)
+    balance_cols   = character(0), # RESOLVED balance_lags column names (set by
+                                   # md_sbw_bal_lags; do not set by hand)
     elig_col       = character(0), # fit-population filter: columns whose value
     elig_min       = numeric(0),   # must reach elig_min (row-wise >=), applied
                                    # AFTER the shifts are built (see header)
@@ -233,6 +266,8 @@ md_sbw_defaults <- function(c_sbw) {
     dir_cache      = "~/Dropbox/phd/papers/foster/misc/sbw_cache")
 
   for (nm in setdiff(names(l_dflt), names(c_sbw))) c_sbw[[nm]] <- l_dflt[[nm]]
+  ## canonical form of the balance-lags spec (named list; idempotent)
+  c_sbw$balance_lags <- md_sbw_bal_lags_spec(c_sbw$balance_lags)
   c_sbw$dir_cache <- path.expand(c_sbw$dir_cache)
   c_sbw
 }
@@ -327,6 +362,54 @@ gd_sbw_check <- function(c_sbw) {
   if (length(intersect(l_covs, l_treats)) > 0) stop("covariate_cols must not overlap treatment_cols")
   if (c_sbw$n_lag_cov < 0) stop("n_lag_cov must be >= 0")
 
+  ## extra balancing columns (balance_lags: lags of raw panel columns that are
+  ## neither treatments nor covariates — e.g. past auction performance)
+  l_bal <- c_sbw$balance_lags
+  if (length(l_bal) > 0) {
+    l_miss_b <- setdiff(names(l_bal), names(c_sbw$dt_panel))
+    if (length(l_miss_b) > 0) {
+      stop(sprintf("some balance_lags base columns not in dt_panel: %s",
+                   paste(l_miss_b, collapse = ", ")))
+    }
+    if (!all(map_lgl(names(l_bal), ~is.numeric(c_sbw$dt_panel[[.x]])))) {
+      stop("balance_lags base columns must be numeric (they are balanced as ",
+           "lags; expand/recode factors into numeric columns first)")
+    }
+    l_over_t <- intersect(names(l_bal), l_treats)
+    if (length(l_over_t) > 0) {
+      stop(sprintf("balance_lags must not name treatment columns: %s — ",
+                   paste(l_over_t, collapse = ", ")),
+           "the treatment lags t-1..t-n_lag are already balanced (n_lag); ",
+           "for a longer horizon raise n_lag instead")
+    }
+  }
+  ## balance_cols: the RESOLVED balance set (md_sbw_bal_lags output). Entries
+  ## may also be passed by hand — a column balanced verbatim, e.g. a
+  ## precomputed interaction — so each name must be either a dt_panel column
+  ## or a column balance_lags generates (that also makes a stored config
+  ## re-usable).
+  if (length(c_sbw$balance_cols) > 0) {
+    if (!is.character(c_sbw$balance_cols)) {
+      stop("balance_cols must be a character vector (normally derived from balance_lags)")
+    }
+    l_gen_b   <- gd_sbw_balcol_names(l_bal)
+    l_unknown <- setdiff(c_sbw$balance_cols, c(names(c_sbw$dt_panel), l_gen_b))
+    if (length(l_unknown) > 0) {
+      stop(sprintf("some balance_cols are neither dt_panel columns nor generated by balance_lags: %s",
+                   paste(l_unknown, collapse = ", ")))
+    }
+    l_in_panel <- intersect(c_sbw$balance_cols, names(c_sbw$dt_panel))
+    if (length(l_in_panel) > 0 &&
+        !all(map_lgl(l_in_panel, ~is.numeric(c_sbw$dt_panel[[.x]])))) {
+      stop("balance_cols must be numeric columns (balanced as lags/levels)")
+    }
+    l_over_bt <- intersect(c_sbw$balance_cols, l_treats)
+    if (length(l_over_bt) > 0) {
+      stop(sprintf("balance_cols must not contain treatment columns: %s",
+                   paste(l_over_bt, collapse = ", ")))
+    }
+  }
+
   ## outcomes (additional future-outcome variables, not balanced): two
   ## families that differ only in the DiD-outcome base year — outcome_cols
   ## (base t-1) and outcome_cols_cur (base t; for cumulative columns)
@@ -401,17 +484,18 @@ gd_sbw_shiftcols <- function(l_cols, n, dir = "l") {
 
 gl_sbw_balcols <- function(c_sbw) {
   #' The balance columns: everything each treatment formula balances on —
-  #' lagged treatments (t-1..t-n_lag of every treatment type) followed by the
-  #' covariate set. IMPORTANT: config$covariate_cols must already be the
-  #' FINAL covariate list — md_sbw_expand_covs turns factor columns into
-  #' numeric dummies and md_sbw_cov_lags appends their lags — so this
-  #' function just adds the names as-is (no lag expansion here; doing it here
-  #' would double-lag). 
+  #' lagged treatments (t-1..t-n_lag of every treatment type), the covariate
+  #' set, then the extra balance_lags columns. IMPORTANT: config$covariate_cols
+  #' and config$balance_cols must already be the FINAL column lists —
+  #' md_sbw_expand_covs turns factor columns into numeric dummies,
+  #' md_sbw_cov_lags appends the covariate lags and md_sbw_bal_lags builds the
+  #' balance-lag columns — so this function just adds the names as-is (no lag
+  #' expansion here; doing it here would double-lag). unique() only guards
+  #' against a deliberate overlap (e.g. a balance lag that is also a covariate
+  #' lag): a duplicated constraint is redundant, not wrong.
   #'
   #' @param c_sbw defaulted + covariate-expanded/lagged config
   #' @return character vector of column names
-  c(gd_sbw_shiftcols(c_sbw$treatment_cols, c_sbw$n_lag, "l"),
-    c_sbw$covariate_cols)
   unique(c(gd_sbw_shiftcols(c_sbw$treatment_cols, c_sbw$n_lag, "l"),
            c_sbw$covariate_cols,
            c_sbw$balance_cols))
@@ -513,18 +597,18 @@ gd_sbw_fitmask <- function(dt_working, c_sbw) {
 
 gf_sbw_formulas <- function(c_sbw) {
   #' One optweightMV formula per treatment: exn_X ~ <all treatment lags> +
-  #' <covariate set>. Same-year other treatments stay out of the RHS so each
-  #' fitted coefficient is a partial dose effect conditional on the observed
-  #' other treatments of that year.
+  #' <covariate set> + <extra balance_lags columns>. Same-year other
+  #' treatments stay out of the RHS so each fitted coefficient is a partial
+  #' dose effect conditional on the observed other treatments of that year.
+  #' The RHS is exactly gl_sbw_balcols(), so the constraints the solver gets
+  #' and the columns the balance diagnostics report can never drift apart.
   #'
-  #' @param c_sbw defaulted config; covariate_cols must be the FINAL set
-  #'   (numeric covariates + expanded factor dummies + their lags, as
-  #'   prepared by md_sbw_expand_covs / md_sbw_cov_lags)
+  #' @param c_sbw defaulted config; covariate_cols/balance_cols must be the
+  #'   FINAL sets (numeric covariates + expanded factor dummies + their lags,
+  #'   and the built balance-lag columns, as prepared by md_sbw_prepare)
   #' @return named list of formulas, names = treatment_cols
 
-  l_rhs <- paste(c(gd_sbw_shiftcols(c_sbw$treatment_cols, c_sbw$n_lag, "l"),
-                   c_sbw$covariate_cols),
-                 collapse = " + ")
+  l_rhs <- paste(gl_sbw_balcols(c_sbw), collapse = " + ")
 
   map(c_sbw$treatment_cols, ~as.formula(sprintf("%s ~ %s", .x, l_rhs))) %>%
     setNames(c_sbw$treatment_cols)
@@ -601,7 +685,9 @@ md_sbw_panel <- function(c_sbw) {
   #' Covariates are NOT lagged here — factor covariates must first be
   #' expanded to numeric dummies (md_sbw_expand_covs) and their lags are
   #' built afterwards (md_sbw_cov_lags), so that a lag of a factor level is a
-  #' lag of a dummy, not a lag of a character column.
+  #' lag of a dummy, not a lag of a character column. The base columns of
+  #' config$balance_lags are kept here (their lags are built later, by
+  #' md_sbw_bal_lags).
   #'
   #' @param c_sbw defaulted config
   #' @return data.table: the working panel
@@ -615,11 +701,12 @@ md_sbw_panel <- function(c_sbw) {
   l_dvs     <- c(l_treats, l_out, l_out_cur)
 
   ## generated names must not collide with base panel columns (the pipeline
-  ## owns the *_l/*_f/*_d/*_dm namespace)
+  ## owns the *_l/*_f/*_d/*_dm namespace; balance_lags lags live in it too)
   l_new <- c(gd_sbw_shiftcols(l_dvs, max_lag, "l"),       # lags
              gd_sbw_shiftcols(l_dvs, K, "f"),             # leads
              sprintf("%s_d%d", rep(l_dvs, each = K), seq_len(K)),  # forward diffs
-             if (max_lag > 1) sprintf("%s_dm%d", rep(l_dvs, each = max_lag - 1), 2:max_lag) else character(0))  # backward diffs
+             if (max_lag > 1) sprintf("%s_dm%d", rep(l_dvs, each = max_lag - 1), 2:max_lag) else character(0),  # backward diffs
+             gd_sbw_balcol_names(c_sbw$balance_lags))     # extra balance lags
   l_clash <- intersect(l_new, names(c_sbw$dt_panel))
   if (length(l_clash) > 0) {
     stop(sprintf("dt_panel already contains pipeline-generated columns: %s. ",
@@ -628,7 +715,12 @@ md_sbw_panel <- function(c_sbw) {
   }
 
   dt_working <- copy(c_sbw$dt_panel[,
-    unique(c(c_sbw$uid, c_sbw$tid, l_dvs, l_covs, c_sbw$elig_col)), with = FALSE])
+    unique(c(c_sbw$uid, c_sbw$tid, l_dvs, l_covs, c_sbw$elig_col,
+             names(c_sbw$balance_lags),
+             ## balance_cols supplied by hand are panel columns and must be
+             ## carried through; names that balance_lags generates are not in
+             ## dt_panel and are built later (md_sbw_bal_lags)
+             intersect(c_sbw$balance_cols, names(c_sbw$dt_panel)))), with = FALSE])
   setorderv(dt_working, c(c_sbw$uid, c_sbw$tid))
 
   ## shift family for treatments and for the two additional-outcome sets
@@ -852,11 +944,11 @@ gf_sbw_hash <- function(c_sbw, dt_years, dt_working) {
     paste(collapse = ";")
 
   ## content of all data columns the fit depends on: ids, treatments,
-  ## covariate set AND the future outcome leads (they define the fitted row
-  ## population — the coverage pattern is part of what the weights are
-  ## fitted on)
+  ## covariate set, extra balance columns AND the future outcome leads (they
+  ## define the fitted row population — the coverage pattern is part of what
+  ## the weights are fitted on)
   l_cols <- unique(c(c_sbw$uid, c_sbw$tid, c_sbw$treatment_cols,
-                     c_sbw$covariate_cols,
+                     c_sbw$covariate_cols, c_sbw$balance_cols,
                      c_sbw$elig_col,
                      gd_sbw_shiftcols(c_sbw$treatment_cols, c_sbw$impact_years, "f")))
   dt0 <- dt_working[, ..l_cols]
@@ -894,7 +986,8 @@ gd_sbw_fit_year <- function(dt_working, year, p_out, c_sbw, l_fs, l_fit_args) {
                  year, r$info$status),
          "Try: relax `tols`, drop/recode covariates (factors are auto-expanded ",
          "to dummies; avoid covariates containing the current-year treatment, ",
-         "e.g. cumulative counts as of year t), reduce n_lag, or trim extreme values.")
+         "e.g. cumulative counts as of year t), drop balance_lags entries, ",
+         "reduce n_lag, or trim extreme values.")
   }
 
   dt_w <- data.table(uid = dt_year[[c_sbw$uid]], tid = dt_year[[c_sbw$tid]],
@@ -1316,13 +1409,14 @@ gd_sbw_bal_wstats_year_cfg <- function(dt_results, year, tid_col, wcol) {
 
 md_sbw_prepare <- function(c_sbw) {
   #' Prepare the analysis table for a config: build the working panel,
-  #' expand factor covariates to numeric dummies, lag the covariate set and
-  #' update the config's covariate_cols to the final set. Pure (the input
-  #' dt_panel is never touched).
+  #' expand factor covariates to numeric dummies, lag the covariate set, build
+  #' the extra balance-lag columns, and update the config to the final column
+  #' sets. Pure (the input dt_panel is never touched).
   #'
   #' @param c_sbw defaulted config
   #' @return list(dt_results = prepared panel, c_sbw = config with the final
-  #'   covariate set: numeric columns + expanded dummies + surviving lags)
+  #'   covariate set (numeric columns + expanded dummies + surviving lags) and
+  #'   the resolved balance set (balance_cols))
   c_sbw <- md_sbw_defaults(c_sbw)
   gd_sbw_check(c_sbw)
 
@@ -1335,6 +1429,10 @@ md_sbw_prepare <- function(c_sbw) {
   l_lags <- md_sbw_cov_lags(dt_results, c_sbw)
   dt_results <- l_lags$dt
   c_sbw$covariate_cols <- l_lags$covs  ## final set incl. surviving lags
+
+  l_bal <- md_sbw_bal_lags(dt_results, c_sbw)
+  dt_results <- l_bal$dt
+  c_sbw$balance_cols <- unique(c(c_sbw$balance_cols, l_bal$cols))  ## resolved set
 
   list(dt_results = dt_results, c_sbw = c_sbw)
 }

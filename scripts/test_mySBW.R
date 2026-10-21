@@ -53,16 +53,11 @@ gd_syn_dt <- function(n_artists = 2500, years = 2006:2014, seed = 7) {
 }
 
 ## mimic gl_sbw_proc's preparation chain on a config: panel + factor
-## expansion + covariate lags; returns the prepared config (ready for
-## gf_sbw_formulas / gd_sbw_years)
+## expansion + covariate lags + balance lags; returns the prepared config
+## (ready for gf_sbw_formulas / gd_sbw_years)
 gd_prep_cfg <- function(c_sbw) {
-  c_sbw <- md_sbw_defaults(c_sbw)
-  dt_p <- md_sbw_panel(c_sbw)
-  l_exp <- md_sbw_expand_covs(dt_p, c_sbw$covariate_cols)
-  c_sbw$covariate_cols <- l_exp$covs
-  l_lags <- md_sbw_cov_lags(l_exp$dt, c_sbw)
-  c_sbw$covariate_cols <- l_lags$covs
-  list(cfg = c_sbw, dt = l_lags$dt)
+  l_prep <- md_sbw_prepare(c_sbw)
+  list(cfg = l_prep$c_sbw, dt = l_prep$dt_results)
 }
 
 ## test cache lives in a per-session temp dir
@@ -759,12 +754,185 @@ gd_test_outcome_cur <- function() {
               info = "standard errors unaffected by the base")
 }
 
+# === extra balancing columns (balance_lags: lags of raw panel columns) ===
+gd_test_bal_lags <- function() {
+  ## --- spec canonicalization ---
+  expect_equal(md_sbw_bal_lags_spec(list(auc = c(2L, 1L, 2L), b = 0L)),
+               list(auc = 1:2, b = 0L),
+               info = "named list: sorted, deduplicated, integer")
+  expect_equal(md_sbw_bal_lags_spec(c("auc_l1", "auc_l3", "b_l2")),
+               list(auc = c(1L, 3L), b = 2L),
+               info = "character shorthand '{col}_l{k}' parsed")
+  expect_equal(md_sbw_bal_lags_spec(NULL), list(), info = "NULL/empty spec")
+  expect_equal(md_sbw_bal_lags_spec(list()), list(), info = "empty list spec")
+  ## idempotent (md_sbw_defaults runs more than once per pipeline call)
+  expect_equal(md_sbw_bal_lags_spec(md_sbw_bal_lags_spec(c("auc_l1"))),
+               list(auc = 1L), info = "spec canonicalization is idempotent")
+  expect_error(md_sbw_bal_lags_spec(c("auc", "b_l1")), pattern = "must look like",
+               info = "unparseable shorthand errors")
+  expect_error(md_sbw_bal_lags_spec(list(1:2)), pattern = "NAMED list",
+               info = "unnamed list rejected")
+  expect_error(md_sbw_bal_lags_spec(list(auc = -1L)), pattern = "non-negative",
+               info = "negative distance rejected")
+  expect_error(md_sbw_bal_lags_spec(list(auc = 1.5)), pattern = "whole numbers",
+               info = "fractional distance rejected")
+
+  ## --- config validation ---
+  dt0 <- gd_syn_dt(50, 2006:2009, seed = 1)
+  c_ok <- gd_syn_config(dt0, years = NULL, min_n_year = 5L)
+  expect_true(gd_sbw_check(md_sbw_defaults(
+    utils::modifyList(c_ok, list(balance_lags = list(ar1 = 1:2))))),
+    info = "valid balance_lags passes check")
+  expect_error(gd_sbw_check(md_sbw_defaults(
+    utils::modifyList(c_ok, list(balance_lags = list(not_a_col = 1L))))),
+    pattern = "not in dt_panel", info = "balance base must exist")
+  expect_error(gd_sbw_check(md_sbw_defaults(
+    utils::modifyList(c_ok, list(balance_lags = list(Gender = 1L))))),
+    pattern = "must be numeric", info = "balance base must be numeric")
+  expect_error(gd_sbw_check(md_sbw_defaults(
+    utils::modifyList(c_ok, list(balance_lags = list(exn_pm = 1L))))),
+    pattern = "treatment columns", info = "treatment base rejected (n_lag covers it)")
+  expect_error(gd_sbw_check(md_sbw_defaults(
+    utils::modifyList(c_ok, list(balance_cols = "nope")))),
+    pattern = "neither dt_panel columns nor generated", info = "unknown balance_cols")
+
+  ## --- generation: hand-checked lag values, per-artist boundary ---
+  dt_h <- data.table(PeopleID = rep(1:2, each = 5), year = rep(2001:2005, 2),
+                     exn_pm = c(1, 2, 3, 4, 5, 0, 0, 0, 0, 0),
+                     auc = c(10, 20, 30, 40, 50, 100, 200, 300, 400, 500))
+  c_h <- gd_syn_config(dt_h, treatment_cols = "exn_pm", covariate_cols = NULL,
+                       years = 2004, label = "bal_hand", n_lag = 2L,
+                       impact_years = 1L,
+                       balance_lags = list(auc = c(0L, 1L, 2L)))
+  l_h <- gd_prep_cfg(c_h)
+  dt_hp <- l_h$dt
+  expect_equal(l_h$cfg$balance_cols, c("auc", "auc_l1", "auc_l2"),
+               info = "balance_cols resolved (level + lags)")
+  a1 <- dt_hp[PeopleID == 1]; a2 <- dt_hp[PeopleID == 2]
+  expect_equal(a1[year == 2003, auc_l1], 20, info = "balance lag1 value")
+  expect_equal(a1[year == 2003, auc_l2], 10, info = "balance lag2 value")
+  expect_true(is.na(a1[year == 2001, auc_l1]), info = "balance lag NA at panel start")
+  expect_equal(a2[year == 2003, auc_l1], 200, info = "lags do not cross artists")
+  expect_equal(a2[year == 2003, auc_l2], 100, info = "lag2 does not cross artists")
+  ## the level (k = 0) is the base column itself, not a copy
+  expect_true("auc" %in% l_h$cfg$balance_cols && "auc" %in% names(dt_hp),
+              info = "k = 0 balances the base column itself")
+  ## balance columns are NOT treatments: no formula, no d/dm columns
+  expect_equal(names(gf_sbw_formulas(l_h$cfg)), "exn_pm",
+               info = "no extra optweightMV formula per balance column")
+  expect_false(any(grepl("^auc_d", names(dt_hp))), info = "no d{k} columns for balance vars")
+  ## and they appear in the formula RHS exactly once
+  rhs_h <- as.character(gf_sbw_formulas(l_h$cfg)[[1]])[3]
+  expect_true(grepl("auc_l1", rhs_h) && grepl("auc_l2", rhs_h),
+              info = "balance lags in the formula RHS")
+
+  ## --- fit mask: a missing balance value drops that row from the fit ---
+  dt_h2 <- copy(dt_h)
+  dt_h2[PeopleID == 2 & year == 2003, auc := NA_real_]
+  c_m0 <- gd_syn_config(dt_h2, treatment_cols = "exn_pm", covariate_cols = NULL,
+                        years = 2001:2004, label = "bal_mask", n_lag = 2L,
+                        impact_years = 1L)
+  c_m1 <- gd_syn_config(dt_h2, treatment_cols = "exn_pm", covariate_cols = NULL,
+                        years = 2001:2004, label = "bal_mask", n_lag = 2L,
+                        impact_years = 1L, balance_lags = list(auc = 0L))
+  l_m0 <- gd_prep_cfg(c_m0); l_m1 <- gd_prep_cfg(c_m1)
+  b_m0 <- gd_sbw_fitmask(l_m0$dt, l_m0$cfg)
+  b_m1 <- gd_sbw_fitmask(l_m1$dt, l_m1$cfg)
+  l_fitcols <- c(l_m1$cfg$treatment_cols, gl_sbw_balcols(l_m1$cfg),
+                 gd_sbw_shiftcols(l_m1$cfg$treatment_cols, l_m1$cfg$impact_years, "f"))
+  expect_equal(b_m1, complete.cases(l_m1$dt[, .SD, .SDcols = l_fitcols]),
+               info = "mask == completeness over balance cols + leads")
+  expect_true(all(b_m1 <= b_m0), info = "balance columns only remove fit rows")
+  expect_equal(sum(b_m0) - sum(b_m1), 1L,
+               info = "exactly the one row with a missing balance value is dropped")
+  idx_bad <- l_m1$dt[, which(PeopleID == 2 & year == 2003)]
+  expect_true(length(idx_bad) == 1L && !b_m1[idx_bad],
+              info = "the incomplete balance row is not fitted")
+  ## a lag that is NA only where the treatment lags are NA already costs nothing
+  c_m2 <- gd_syn_config(dt_h, treatment_cols = "exn_pm", covariate_cols = NULL,
+                        years = 2003:2004, label = "bal_mask2", n_lag = 2L,
+                        impact_years = 1L, balance_lags = list(auc = 2L))
+  l_m2 <- gd_prep_cfg(c_m2)
+  expect_equal(sum(gd_sbw_fitmask(l_m2$dt, l_m2$cfg)),
+               sum(gd_sbw_fitmask(l_m0$dt, l_m0$cfg)),
+               info = "balance lag NAs only at panel start cost no fit rows")
+
+  ## --- reuse of prebuilt outcome lags (base is an outcome_col) ---
+  c_o <- gd_syn_config(dt_h, treatment_cols = "exn_pm", covariate_cols = NULL,
+                       years = 2004, label = "bal_reuse", n_lag = 2L,
+                       impact_years = 1L, outcome_cols = "auc",
+                       balance_lags = list(auc = 1:2))
+  l_o <- gd_prep_cfg(c_o)
+  expect_equal(l_o$cfg$balance_cols, c("auc_l1", "auc_l2"),
+               info = "outcome lags reused as balance columns")
+  expect_equal(l_o$dt$auc_l1, l_h$dt$auc_l1, info = "reused lag values unchanged")
+  ## a lag beyond n_lag is generated on demand
+  c_o2 <- gd_syn_config(dt_h, treatment_cols = "exn_pm", covariate_cols = NULL,
+                        years = 2004, label = "bal_reuse2", n_lag = 1L,
+                        impact_years = 1L, outcome_cols = "auc",
+                        balance_lags = list(auc = 3L))
+  l_o2 <- gd_prep_cfg(c_o2)
+  expect_true("auc_l3" %in% names(l_o2$dt), info = "balance lag beyond n_lag built")
+  expect_equal(l_o2$dt[PeopleID == 1 & year == 2004, auc_l3], 10,
+               info = "generated on-demand lag value")
+
+  ## --- end-to-end: balancing on past auction performance ---
+  ## a cumulative, zero-inflated 'auction' variable (like auc_turnover) that is
+  ## independent of the treatment histories
+  dt_fit <- copy(gd_syn_dt(2500, 2006:2014, seed = 8))
+  setorder(dt_fit, PeopleID, year)
+  set.seed(31)
+  dt_fit[, auc_lvl := asinh(cumsum(rpois(.N, 0.4))), by = PeopleID]
+
+  c_0 <- gd_syn_config(dt_fit, years = 2009:2010, label = "test_bal_fit", tols = 1e-3)
+  c_1 <- gd_syn_config(dt_fit, years = 2009:2010, label = "test_bal_fit", tols = 1e-3,
+                       balance_lags = list(auc_lvl = 1:2))
+  r_0 <- t_test("bal_lags off", gl_sbw_proc(c_0))
+  r_1 <- t_test("bal_lags on", gl_sbw_proc(c_1))
+  expect_true(all(r_1$dt_diag$status == "solved"), info = "fit with balance_lags solves")
+  expect_equal(r_1$config$balance_cols, c("auc_lvl_l1", "auc_lvl_l2"),
+               info = "resolved balance_cols in the fitted config")
+  expect_true(all(c("auc_lvl_l1", "auc_lvl_l2") %in% names(r_1$dt_results)),
+              info = "balance lag columns present in dt_results")
+  expect_true(all(c("auc_lvl_l1", "auc_lvl_l2") %in%
+                  gd_sbw_bal_long(r_1$dt_results, r_1$config)$balcol),
+              info = "balance lags reported in the balance table")
+  dt_bl <- gd_sbw_bal_long(r_1$dt_results, r_1$config)
+  expect_true(all(abs(dt_bl[grepl("^auc_lvl", balcol), cor_w]) < 0.02),
+              info = "weighted corr with past auction performance ~ 0")
+  expect_true(any(abs(dt_bl[grepl("^auc_lvl", balcol), cor_raw]) > 0.02),
+              info = "raw corr with past auction performance is material")
+  ## the extra constraints change the weights, the estimand and the cache key
+  expect_false(r_1$cache$dir_run == r_0$cache$dir_run,
+               info = "balance_lags enters the cache key")
+  expect_true(max(abs(r_1$dt_results$w_sbw - r_0$dt_results$w_sbw), na.rm = TRUE) > 1e-6,
+              info = "balance_lags change the weights")
+  expect_equal(r_1$dt_years$n_use, r_0$dt_years$n_use,
+               info = "no rows lost when the balance lags are observed everywhere")
+  ## DiD still estimable on the reweighted panel
+  dt_c <- gd_sbw_coef_did(gl_sbw_did(r_1, l_dvs = "exn_pm"))
+  expect_true(all(is.finite(dt_c$estimate)), info = "DiD estimable with balance_lags")
+  ## the balance columns are RHS-only: they never become DVs
+  expect_false("auc_lvl" %in% unique(dt_c$dv), info = "balance vars are not outcomes")
+
+  ## --- balance_cols escape hatch: a precomputed column balanced verbatim ---
+  dt_fit[, auc_bin := as.integer(auc_lvl > 0)]
+  c_verb <- gd_syn_config(dt_fit, years = 2009:2010, label = "test_bal_verb",
+                          tols = 1e-3, balance_cols = "auc_bin")
+  r_v <- gl_sbw_proc(c_verb)
+  expect_equal(r_v$config$balance_cols, "auc_bin",
+               info = "manually supplied balance_cols kept")
+  expect_true(any(gd_sbw_bal_long(r_v$dt_results, r_v$config)$balcol == "auc_bin"),
+              info = "verbatim balance column balanced")
+}
+
 # === run everything ===
 cat("\n--- config checks ---\n");       gd_test_check()
 cat("\n--- formulas ---\n");            gd_test_formulas()
 cat("\n--- covariate expansion ---\n"); gd_test_covexp()
 cat("\n--- panel builder ---\n");       gd_test_panel()
 cat("\n--- covariate lags ---\n");     gd_test_covlags()
+cat("\n--- extra balance lags ---\n");  gd_test_bal_lags()
 cat("\n--- year eligibility ---\n");    gd_test_years()
 cat("\n--- fit-population eligibility ---\n"); gd_test_elig()
 cat("\n--- end-to-end pipeline ---\n"); gd_test_proc()
