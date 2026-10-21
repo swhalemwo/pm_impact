@@ -414,6 +414,66 @@ gl_sbw_balcols <- function(c_sbw) {
     c_sbw$covariate_cols)
 }
 
+gd_sbw_balcol_names <- function(l_spec) {
+  #' The lag column names that a balance_lags spec generates (only the k >= 1
+  #' part: the k = 0 entries are the base columns themselves). Used by
+  #' md_sbw_panel to extend its "pipeline-owned namespace" clash check.
+  #'
+  #' @param l_spec canonical balance_lags spec (md_sbw_bal_lags_spec output)
+  #' @return character vector of column names
+  if (length(l_spec) == 0) return(character(0))
+  l_out <- map2(names(l_spec), l_spec, function(nm, v_k) {
+    v_k <- v_k[v_k > 0]
+    if (length(v_k) == 0) character(0) else sprintf("%s_l%d", nm, v_k)
+  })
+  unlist(l_out, use.names = FALSE) %||% character(0)
+}
+
+
+md_sbw_bal_lags <- function(dt_working, c_sbw) {
+  #' Build the extra balancing columns for config$balance_lags: for every base
+  #' column and every requested lag distance k, {base}_l{k} (k = 0 is the base
+  #' column itself and needs no column). Columns that ALREADY exist are reused
+  #' untouched — that is the case when the base column is an outcome (its
+  #' l1..l{n_lag} were built by md_sbw_panel) or when an earlier run of this
+  #' function created them; the construction is identical by definition, so no
+  #' rebuild and no clash. Treatment bases are rejected in gd_sbw_check.
+  #'
+  #' The columns are balanced exactly like covariates: they enter every
+  #' treatment formula's RHS (gf_sbw_formulas -> gl_sbw_balcols) and every
+  #' row the fit needs must be complete on them (gd_sbw_fitmask) — so a lag
+  #' of a variable with a short history removes rows from the fit population.
+  #' They are NOT treatments (no formula, no d/dm columns) and NOT outcomes.
+  #'
+  #' @param dt_working working panel (md_sbw_panel output, sorted by uid/tid;
+  #'   must still carry the base columns)
+  #' @param c_sbw      defaulted config (canonical balance_lags)
+  #' @return list(dt = dt_working with the lag columns added by reference,
+  #'              cols = the final balance column names to balance on)
+  l_spec <- c_sbw$balance_lags
+  if (length(l_spec) == 0) return(list(dt = dt_working, cols = character(0)))
+
+  l_out <- character(0)
+  for (nm in names(l_spec)) {
+    v_k   <- l_spec[[nm]]
+    v_pos <- v_k[v_k > 0]
+    if (0L %in% v_k) l_out <- c(l_out, nm)   ## contemporaneous value
+    if (length(v_pos) == 0) next
+
+    l_new <- sprintf("%s_l%d", nm, v_pos)
+    l_gen <- l_new[!l_new %in% names(dt_working)]
+    if (length(l_gen) > 0) {
+      ## ascending n, same order as l_gen (l_new is built from the sorted v_pos)
+      v_n <- as.integer(sub("^.*_l([0-9]+)$", "\\1", l_gen))
+      dt_working[, (l_gen) := collapse::L(.SD, n = v_n, by = get(c_sbw$uid)), .SDcols = nm]
+    }
+    l_out <- c(l_out, l_new)
+  }
+
+  list(dt = dt_working, cols = unique(l_out))
+}
+
+
 gd_sbw_fitmask <- function(dt_working, c_sbw) {
   #' Logical mask of the rows that belong to the WEIGHT-FIT population: rows
   #' complete on every column the fit needs (current treatments, balance
