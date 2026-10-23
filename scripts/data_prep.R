@@ -50,7 +50,7 @@ gd_atyear_foster <- function(dt_atyear_raw, c_filters_atyear) {
     ihs <- function(x) asinh(x)
     scld <- function(x) x / sd(x, na.rm = TRUE)
     
-    dt_atyear_lagprep2[, (paste0(l_all_exhb_cols, "_ihs")) := lapply(.SD, ihs), .SDcols = l_all_exhb_cols]
+    dt_atyear_lagprep2[, (paste0(l_all_exhb_cols, "_log")) := lapply(.SD, log1p), .SDcols = l_all_exhb_cols]
     ## dt_atyear_lagprep2[, (paste0(l_all_exhb_cols, "_scld")) := lapply(.SD, scld), .SDcols = l_all_exhb_cols]
     
     # IHS of scaled variables
