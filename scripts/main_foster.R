@@ -61,7 +61,8 @@ l_funcfiles <- c(
     paste0(c_dirs$code, "mySBW.R"),
     ## paste0(c_dirs$code, "sbw_figs.R"),
     paste0(c_dirs$code, "myci.R"),
-    paste0(c_dirs$code, "viz_sbw.R")
+  paste0(c_dirs$code, "viz_sbw.R"),
+  paste0(c_dirs$code, "aucexp.R")
 )
 
 invisible(lapply(l_funcfiles, \(x) source(x, echo = F, verbose = F, print.eval = F)))
@@ -192,31 +193,46 @@ dt_atyear_foster <- gd_atyear_foster(dt_atyear_raw, c_datargs$baby) %>%
 ## dt_atyear_foster[PeopleID == 259, .(aucturn_cum, aucturn_cum2, auc_turnover)] %>% print(n=80)
 
 
-c_sbw_pap6 <- list(dt_panel   = dt_atyear_foster,  # full panel, complete grid
-              label          = "fos_pap6",        # unique id -> cache folder + registry
-              uid            = "PeopleID", tid     = "year",
-              treatment_cols = c("exn_pm", "exn_pi", "exn_oes", "exn_toti"),
-              ## covariate_cols = c("gender_rcd", "career_year", "exn_all_s5_ihs"),  # NULL ok
-              covariate_cols = c("gender_rcd", "career_year", "exn_all_cum_ihs", "exn_gallery_cum_ihs",
-                                 "exn_event_cum_ihs", "aucturn_cum_ihs"),
-              outcome_cols_cur = c("exn_all_cum2", "exn_toti_cum2", "exn_pi_cum2", "exn_pm_cum2",
-                                   "exn_oes_cum2", "exn_gallery_cum2", "exn_event_cum2",
-                                   "auc_turnover", "aucturn_cum2"),
-              n_lag          = 4L,                  # lags of all treatments balanced
-              n_lag_cov      = 0L,                  # lags of covariates (numeric only)
-              impact_years   = 6L,                  # outcome window d1..dK
-              years          = 2004:2016,            # NULL -> auto (gd_sbw_years)
-              verbose = T,
-              b_force = F,
-              n_cores = 5,
-              elig_col = "exn_all_cum",
-              elig_min = 10)
+c_sbw_pap7 <- list(
+  dt_panel   = dt_atyear_foster,  # full panel, complete grid
+  label          = "fos_pap7",        # unique id -> cache folder + registry
+  uid            = "PeopleID", tid     = "year",
+  treatment_cols = c("exn_pm", "exn_pi", "exn_oes", "exn_toti"),
+  ## covariate_cols = c("gender_rcd", "career_year", "exn_all_s5_ihs"),  # NULL ok
+  ## covariate_cols = c("gender_rcd", "career_year", "exn_all_cum_ihs", "exn_gallery_cum_ihs",
+  ##                    "exn_event_cum_ihs", "aucturn_cum_ihs"),
+  ## outcome_cols_cur = c("exn_all_cum2", "exn_toti_cum2", "exn_pi_cum2", "exn_pm_cum2",
+  ##                      "exn_oes_cum2", "exn_gallery_cum2", "exn_event_cum2",
+  ##                      "auc_turnover", "aucturn_cum2"),
+  covariate_cols = c("gender_rcd", "career_year", "exn_all_cum_log", "exn_gallery_cum_log",
+                     "exn_event_cum_log", 
+                     "atsubreg_145","atsubreg_151","atsubreg_154","atsubreg_155","atsubreg_21",
+                     "atsubreg_30","atsubreg_39","atsubreg_419","atsubreg_53"),
+  outcome_cols_cur = c("exn_all_cum2", "exn_toti_cum2", "exn_pi_cum2", "exn_pm_cum2",
+                       "exn_oes_cum2", "exn_gallery_cum2", "exn_event_cum2",
+                       "auc_turnover", "aucturn_cum2", "aucturn_cum",
+                       "auc_turnover_log", "aucturn_cum2_log",
+                       "auc_any", "auc_ever"),
+  balance_lags = list(aucturn_cum2_log = c(1,3),
+                      auc_turnover_log = c(1,3),
+                      auc_any = c(1,3),
+                      auc_ever = c(1,3)),
+  n_lag          = 4L,                  # lags of all treatments balanced
+  n_lag_cov      = 0L,                  # lags of covariates (numeric only)
+  impact_years   = 6L,                  # outcome window d1..dK
+  years          = 2004:2016,            # NULL -> auto (gd_sbw_years)
+  verbose = T,
+  b_force = F,
+  n_cores = 5,
+  elig_col = "exn_all_cum",
+  elig_min = 10)
 
-r_sbw_pap6 <- gl_sbw_proc(c_sbw_pap6)
-r_did_pap6 <- gl_sbw_did(r_sbw_pap6)
+r_sbw <- gl_sbw_proc(c_sbw)
+r_did <- gl_sbw_did(r_sbw)
 
-dt_coef_pap6 <- gd_sbw_coef_did(r_did_pap6)
+dt_coef_did <- gd_sbw_coef_did(r_did)
 
+dt_euro <- gd_auc_euro(r_sbw, r_did, dt_coef_did)
 
 
 

@@ -99,7 +99,7 @@ gp_weightdist <- function(dt_results) {
 
 gp_density_cprn <- function(dt_results) {
 
-  l_cols_cpr <- c("exn_all_cum_ihs", "career_year", "aucturn_cum_ihs")
+  l_cols_cpr <- c("exn_all_cum_log", "career_year", "aucturn_cum_log")
 
   ## FIXME: should be global
   dt_results[, no_treatment := 1- sign(rowSums(.SD)), .SDcols = l_treats]
@@ -162,13 +162,13 @@ gp_sbw_raw_cprn <- function(dt_results) {
   dt_raw <- map(c(l_treats, "no_treatment") %>% setNames(.,.),
                 ## setNames(l_treats, l_treats),
                 ~dt_results[!is.na(w_sbw) & get(.x) > 0, colMeans(.SD) %>% as.list,
-                            .SDcols = c("exn_all_cum", "career_year", "aucturn_cum_ihs")]) %>%
+                            .SDcols = c("exn_all_cum", "career_year", "aucturn_cum_log")]) %>%
     rbindlist(idcol = "treat")
   
   dt_sbw <- map(c(l_treats, "no_treatment") %>% setNames(.,.),
                 ## setNames(l_treats, l_treats),
                 ~dt_results[!is.na(w_sbw) & get(.x) > 0, map(.SD, weighted.mean, w_sbw) %>% as.list,
-                            .SDcols = c("exn_all_cum", "career_year", "aucturn_cum_ihs")]) %>%
+                            .SDcols = c("exn_all_cum", "career_year", "aucturn_cum_log")]) %>%
     rbindlist(idcol = "treat")
 
   rbind(dt_raw[, src := "raw"], dt_sbw[, src := "sbw"]) %>%
