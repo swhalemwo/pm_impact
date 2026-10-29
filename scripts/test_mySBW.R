@@ -8,6 +8,7 @@ suppressMessages({
   library(broom)
 })
 source("~/Dropbox/phd/papers/foster/scripts/mySBW.R")
+source("~/Dropbox/phd/papers/foster/scripts/aucexp.R")
 cat("test_mySBW.R loaded\n")
 
 ## run via: Rscript -e 'tinytest::run_test_file("scripts/test_mySBW.R")'
@@ -47,8 +48,13 @@ gd_syn_dt <- function(n_artists = 2500, years = 2006:2014, seed = 7) {
                Gender = sample(c("Male", "Female"), 1),
                BirthYear = byr,
                ar1 = round(ar1, 3),
-               auc_turnover = cumsum(pm + pi),   ## deterministic "auction" proxy
-               exn_all_cum_ihs = asinh(cumsum(pm + pi + oes + toti)))
+               ## auction turnover: noisy and mostly zero, like the real one.
+               ## log1p-scale columns follow the project convention since
+               ## 2026-10 (_ihs balance/outcome columns were replaced by _log)
+               auc_turnover = rpois(n, 0.15 + 0.5 * pm + 0.3 * pi) * 1e4L,
+               auc_turnover_log = log1p(rpois(n, 0.15 + 0.5 * pm + 0.3 * pi) * 1e4),
+               aucturn_cum2_log = log1p(cumsum(rpois(n, 0.15 + 0.5 * pm + 0.3 * pi) * 1e4)),
+               exn_all_cum_log = log1p(cumsum(pm + pi + oes + toti)))
   })
 }
 
@@ -72,6 +78,68 @@ gd_syn_config <- function(dt, ...) {
     years = 2009:2010, min_n_year = 50L,
     estimand = "ATE", norm = "l2", eps = 1e-3, verbose = FALSE,
     n_cores = 1L, dir_cache = DIR_CACHE_TEST, wcol = "w_sbw"), list(...))
+}
+
+## --- fixtures for the aucexp tests --------------------------------
+## a minimal SBW config: only the pieces md_auc_sel/gc_auc_euro_cfg read
+C_CFG_AUC <- list(uid = "PeopleID",
+                  outcome_cols = character(0),
+                  outcome_cols_cur = c("x_log", "y_log"))
+
+## a real (tiny) fixest_multi with the lhs names gd_sbw_coef_did expects,
+## so the nobs cross-check and the coefficient extraction run on real
+## objects rather than on a hand-made list
+gd_fake_did <- function(n_obs = 12L) {
+  set.seed(4)
+  ## exn_pm must cross the year dummies, else fixest drops it as collinear
+  dt <- data.table(year = rep(2010:2012, length.out = n_obs),
+                   exn_pm = rep(c(0, 1, 2, 0, 2, 1), length.out = n_obs),
+                   x_log_d2 = rnorm(n_obs), x_log_dm2 = rnorm(n_obs))
+  rx <- feols(c(x_log_d2, x_log_dm2) ~ 0 + factor(year) + exn_pm, dt)
+  attr(rx, "c_sbw") <- list(tid = "year")
+  rx
+}
+
+## hand-built panel + coefficient table for the aucexp unit tests: no SBW,
+## no model, so every number is checkable by hand. The dv carries a "_log"
+## suffix because gd_auc_lvl_tr() infers the back-transform from it.
+gd_syn_auc_dt <- function(n_artists = 10, n_years = 5, seed = 11) {
+  set.seed(seed)
+  dt <- data.table(PeopleID = rep(seq_len(n_artists), each = n_years),
+                   year = rep(seq(2010, by = 1, length.out = n_years), n_artists))
+  ## zero-inflated turnover: ~1/3 zeros, rest log-normal, so the weighted
+  ## mean level is dominated by a few rows (as in the real data)
+  dt[, lvl := fifelse(runif(.N) < 1/3, 0, round(exp(rnorm(.N, 8, 2))))]
+  dt[, lvl_log := log1p(lvl)]
+  setorder(dt, PeopleID, year)
+  ## the panel columns the conversion reads, built by hand
+  dt[, x_log := lvl_log]                                  ## level at t
+  dt[, x_log_f2 := shift(lvl_log, -2), by = PeopleID]     ## level at t+2
+  dt[, x_log_d2 := x_log_f2 - lvl_log]                    ## d2 = v(t+2) - v(t)
+  dt[, x_log_l3 := shift(lvl_log, 3), by = PeopleID]      ## level at t-3
+  dt[, x_log_dm3 := x_log_l3 - shift(lvl_log, 1), by = PeopleID]
+  dt[, x_log_l1 := shift(lvl_log, 1), by = PeopleID]
+  dt[, w_sbw := runif(.N, 0.5, 2)]
+  dt
+}
+
+gd_syn_auc_cfg <- function(dt) {
+  list(dt = dt, wcol = "w_sbw", uid = "PeopleID", b_ref = "t+k")
+}
+
+## one post-period cell per treatment plus one pre-period (placebo) cell
+gd_syn_auc_coef <- function() {
+  data.table(dv = "x_log", tp = c(2L, 2L, -3L),
+             term = c("exn_pm", "exn_pi", "exn_pm"),
+             estimate = c(0.2, -0.1, 0.05),
+             std.error = c(0.05, 0.04, 0.03))
+}
+
+## built once and reused: a real fixest_multi with lhs names
+GD_FAKE_DID_AUC <- NULL
+gd_fake_did_get <- function() {
+  if (is.null(GD_FAKE_DID_AUC)) GD_FAKE_DID_AUC <<- gd_fake_did()
+  GD_FAKE_DID_AUC
 }
 
 # === config validation ===
@@ -167,11 +235,11 @@ gd_test_covexp <- function() {
   expect_equal(sum(l_exp$dt$Gender_Male == 1), sum(dt$Gender == "Male"),
                info = "dummy counts match levels")
   ## numeric covariates untouched
-  c_num <- gd_syn_config(dt, covariate_cols = "exn_all_cum_ihs")
+  c_num <- gd_syn_config(dt, covariate_cols = "exn_all_cum_log")
   dt_p2 <- md_sbw_panel(c_num)
-  l_num <- md_sbw_expand_covs(dt_p2, "exn_all_cum_ihs")
-  expect_equal(l_num$covs, "exn_all_cum_ihs", info = "numeric covariate kept as-is")
-  expect_true("exn_all_cum_ihs" %in% names(l_num$dt), info = "numeric covariate retained")
+  l_num <- md_sbw_expand_covs(dt_p2, "exn_all_cum_log")
+  expect_equal(l_num$covs, "exn_all_cum_log", info = "numeric covariate kept as-is")
+  expect_true("exn_all_cum_log" %in% names(l_num$dt), info = "numeric covariate retained")
 }
 
 # === panel builder ===
@@ -926,6 +994,317 @@ gd_test_bal_lags <- function() {
               info = "verbatim balance column balanced")
 }
 
+# === column-name resolution: level column, outcome column, back-transform ===
+gd_test_auc_names <- function() {
+  ## the reference level of a POST-period row lives at t+k, that of a
+  ## PRE-period row at t-k: dm{k} = v(t-k) - v(t-1) runs backwards
+  expect_equal(gd_auc_lvl_col("x_log", 2L, "t+k"), "x_log_f2",
+               info = "post period level is {dv}_f{k}")
+  expect_equal(gd_auc_lvl_col("x_log", -3L, "t+k"), "x_log_l3",
+               info = "pre period level is {dv}_l{k}")
+  expect_equal(gd_auc_lvl_col("x_log", 4L, "t-1"), "x_log_l1",
+               info = "t-1 level is {dv}_l1 whatever tp is")
+  expect_equal(gd_auc_lvl_col("x_log", -2L, "t"), "x_log",
+               info = "t level is the bare dv")
+  ## an unknown ref yields NULL; b_ref is validated by match.arg in
+  ## gc_auc_euro_cfg, so a bad value cannot reach here through the API
+  expect_null(gd_auc_lvl_col("x_log", 2L, 500),
+              info = "unknown ref has no level column")
+  ## the outcome column is d{k} for post, dm{k} for pre
+  expect_equal(gd_auc_ref_cols("x_log", 2L, "t+k"),
+               c(lvl_col = "x_log_f2", d_col = "x_log_d2"),
+               info = "post ref cols")
+  expect_equal(gd_auc_ref_cols("x_log", -3L, "t+k"),
+               c(lvl_col = "x_log_l3", d_col = "x_log_dm3"),
+               info = "pre ref cols use dm{k}")
+
+
+  ## back-transform inferred from the dv suffix, and it is a round trip
+  vec_raw <- c(0, 1, 5, 1e6)
+  expect_equal(gd_auc_lvl_tr("auc_log", log1p(vec_raw)), vec_raw,
+               info = "_log -> expm1 round trip")
+  expect_equal(gd_auc_lvl_tr("auc_ihs", asinh(vec_raw)), vec_raw,
+               info = "_ihs -> sinh round trip")
+  expect_equal(gd_auc_lvl_tr("auc_raw", vec_raw), vec_raw,
+               info = noquote("no suffix -> identity"))
+  ## this is the trap the helper exists for: name-based, not value-based
+  expect_false(isTRUE(all.equal(gd_auc_lvl_tr("auc", log1p(vec_raw)), vec_raw)),
+               info = "an unsuffixed log column is NOT back-transformed")
+}
+
+# === cluster-robust variance of a weighted mean (hand-computed) ===
+gd_test_auc_crvar <- function() {
+  vec_x <- c(1, 2, 3); vec_w <- c(1, 1, 1)
+  ## mean 2, e = (-1, 0, 1); clusters {1,2} and {3} -> rowsums (-1, 1)
+  ## sum of squares 2, divided by (sum w)^2 = 9
+  expect_equal(gd_auc_crvar(vec_x, vec_w, c(1, 1, 2)), 2/9,
+               info = "hand-computed CR0 variance")
+  ## one row per cluster is the same arithmetic
+  expect_equal(gd_auc_crvar(vec_x, vec_w, 1:3), 2/9,
+               info = "no clustering coincides with the iid formula here")
+  ## doubling every weight leaves a weighted mean unchanged and must leave
+  ## the variance unchanged too (both numerator and denominator scale by 4)
+  expect_equal(gd_auc_crvar(vec_x, rep(2, 3), c(1, 1, 2)), 2/9,
+               info = "scale invariance in the weights")
+  ## fewer clusters can only reduce the sum of squares (aggregation)
+  set.seed(5)
+  vec_r <- rnorm(200); vec_cl <- sample(1:5, 200, TRUE)
+  expect_true(gd_auc_crvar(vec_r, rep(1, 200), vec_cl) <=
+              gd_auc_crvar(vec_r, rep(1, 200), 1:200),
+              info = "clustering cannot increase the variance")
+}
+
+# === config + coefficient-table validation ===
+gd_test_auc_cfg <- function() {
+  dt <- gd_syn_auc_dt()
+  c_ok <- gd_syn_auc_cfg(dt)
+
+  ## r_sbw must be a gl_sbw_proc result
+  expect_error(gc_auc_euro_cfg(list(dt_results = dt)),
+               pattern = "gl_sbw_proc", info = "missing config rejected")
+  expect_error(gc_auc_euro_cfg(list(config = c_ok)),
+               pattern = "gl_sbw_proc", info = "missing dt_results rejected")
+  ## the weight and the cluster id are required
+  expect_error(gc_auc_euro_cfg(list(dt_results = as.list(dt), config = list(uid = "PeopleID"))),
+               pattern = "dt_results is not a data.frame",
+               info = "non-frame dt_results rejected")
+  r_no_w <- list(dt_results = dt[, .(PeopleID, year)],
+                 config = list(uid = "PeopleID"))
+  expect_error(gc_auc_euro_cfg(r_no_w), pattern = "weight column",
+               info = "missing weight column rejected")
+  r_no_id <- list(dt_results = dt[, .(w_sbw, year)],
+                  config = list(uid = "PeopleID"))
+  expect_error(gc_auc_euro_cfg(r_no_id), pattern = "uid column",
+               info = "missing uid rejected")
+  ## b_ref is matched against the allowed set unless numeric
+  r_ok <- list(dt_results = dt, config = C_CFG_AUC)
+  expect_error(gc_auc_euro_cfg(r_ok, b_ref = "banana"),
+               pattern = "should be one of", info = "bad b_ref rejected")
+  expect_error(gc_auc_euro_cfg(r_ok, b_ref = -2),
+               pattern = "b_ref must be one of", info = "numeric b_ref rejected")
+  ## defaults: wcol falls back to w_sbw, residuals are kept by construction
+  expect_equal(gc_auc_euro_cfg(r_ok)$wcol, "w_sbw", info = "default weight column")
+
+  ## coefficient table validation
+  expect_error(md_auc_coef_get(NULL, NULL), pattern = "either dt_coef",
+               info = "no coef source rejected")
+  expect_error(md_auc_coef_get(NULL, data.table(dv = "x")),
+               pattern = "missing column", info = "incomplete coef table rejected")
+  ## tp arrives from fixest as numeric/double and is coerced to integer,
+  ## because the pre/post switch and the column names are integer-based
+  dt_c <- md_auc_coef_get(NULL, data.table(dv = "x_log", tp = 2, term = "exn_pm",
+                                           estimate = 0.1, std.error = 0.02))
+  expect_true(is.integer(dt_c$tp), info = "tp coerced to integer")
+  ## a gl_sbw_did result is accepted as the only input: the table is then
+  ## rebuilt from the model, so every lhs of the fit appears
+  dt_from_did <- md_auc_coef_get(gd_fake_did_get(), NULL)
+  expect_true(all(c("x_log", "x_log") %in% dt_from_did$dv),
+              info = "coef table rebuilt from r_did")
+  expect_true("exn_pm" %in% dt_from_did$term,
+              info = "rebuilt coef table carries the treatment")
+  expect_true(any(dt_from_did$term == "no_treatment"),
+              info = "rebuilt coef table carries the no_treatment row")
+  expect_true(all(c(2L, -2L) %in% dt_from_did$tp),
+              info = "rebuilt coef table recovers post and pre periods")
+}
+
+# === row selection: which coefficients get a euro interpretation ===
+gd_test_auc_sel <- function() {
+  dt_c <- gd_syn_auc_coef()
+  ## add a no_treatment row and a second dv, as gd_sbw_coef_did emits them
+  dt_c <- rbind(dt_c,
+                data.table(dv = "x_log", tp = 2L, term = "no_treatment",
+                           estimate = 1.5, std.error = 0.1),
+                data.table(dv = "y_log", tp = 1L, term = "exn_pm",
+                           estimate = 0.3, std.error = 0.05))
+  c_did <- list(outcome_cols = character(0), outcome_cols_cur = c("x_log", "y_log"))
+
+  ## no_treatment rows are levels, not effects -> always dropped
+  dt_sel <- md_auc_sel(dt_c, c_did)
+  expect_false("no_treatment" %in% dt_sel$term, info = "no_treatment dropped")
+  ## pre and post rows both kept (placebos are diagnostics, see the file header)
+  expect_true(any(dt_sel$tp < 0) && any(dt_sel$tp > 0),
+              info = "pre and post periods both kept")
+  ## default dv set = the config's outcomes that were actually estimated
+  expect_true(setequal(unique(dt_sel$dv), c("x_log", "y_log")),
+              info = "default dv set from config")
+  ## l_tp restricts the periods, negative ones included
+  expect_equal(md_auc_sel(dt_c, c_did, l_tp = -3:-2)$tp, -3L,
+              info = "l_tp keeps only the requested pre period")
+  expect_equal(nrow(md_auc_sel(dt_c, c_did, l_tp = 2L)), 2L,
+              info = "l_tp keeps only the requested post period")
+  ## l_dv restricts the outcomes
+  expect_equal(unique(md_auc_sel(dt_c, c_did, l_dv = "y_log")$dv), "y_log",
+              info = "l_dv restricts the dv set")
+  ## unknown dv is an error, not a silent empty result
+  expect_error(md_auc_sel(dt_c, c_did, l_dv = "nope"), pattern = "not in the coefficient table",
+               info = "unknown dv rejected")
+  ## filtering everything away is an error
+  expect_error(md_auc_sel(dt_c, c_did, l_tp = 99L), pattern = "nothing left",
+               info = "empty selection rejected")
+  ## a config with no outcomes and no l_dv has nothing to convert
+  expect_error(md_auc_sel(dt_c, list(outcome_cols = character(0),
+                                     outcome_cols_cur = character(0))),
+               pattern = "pass l_dv", info = "no config outcomes rejected")
+  ## returned object is a copy (mutating it must not touch the input)
+  dt_sel[, term := "zzz"]
+  expect_true("exn_pm" %in% dt_c$term, info = "selection is a copy")
+}
+
+# === the core conversion, checked algebraically ===
+gd_test_auc_calc <- function() {
+  dt <- gd_syn_auc_dt()
+  c_eu <- gd_syn_auc_cfg(dt)
+  dt_sel <- md_auc_sel(gd_syn_auc_coef(), C_CFG_AUC, l_dv = "x_log")
+  dt_eu <- gd_auc_euro_calc(dt_sel, c_eu)
+
+  ## with log1p the retransformation is exact:
+  ##   expm1(log1p(y) + b) - y = (1 + y) * (exp(b) - 1)
+  expect_equal(dt_eu$euro, (exp(dt_eu$estimate) - 1) * (1 + dt_eu$ref_level),
+               info = "exact euro AME identity")
+  ## the sign of the euro effect follows the sign of beta
+  expect_true(all(sign(dt_eu$euro) == sign(dt_eu$estimate)),
+              info = "euro effect has the sign of the log coefficient")
+  ## the delta-method SE can only exceed the b-only SE (second variance term
+  ## is non-negative); on this outcome it is a large share of the total
+  expect_true(all(dt_eu$se_euro >= dt_eu$se_euro_b),
+              info = "total SE >= b-only SE")
+  expect_true(any(dt_eu$se_euro > 1.001 * dt_eu$se_euro_b),
+              info = "reference-level variance actually contributes")
+  ## reference level = weighted mean of the OBSERVED euro level on the
+  ## estimation sample (residuals kept); the mask is lvl & d_out & w
+  ## the column is {dv}_f2, i.e. log1p(turnover at t+2) -- NOT the level at t
+  msk <- !is.na(dt$x_log_f2) & !is.na(dt$x_log_d2) & !is.na(dt$w_sbw)
+  expect_equal(dt_eu[tp == 2, unique(ref_level)],
+               c(dt[msk, sum(w_sbw * expm1(x_log_f2)) / sum(w_sbw)]),
+               info = "post ref level is the weighted mean euro level at t+k")
+  expect_equal(dt_eu[tp == 2, unique(n_used)], sum(msk),
+               info = "post n_used is the reconstruction sample size")
+  ## the PRE period is anchored at its own level (t-k), which on a
+  ## cumulative outcome is SMALLER than the t+k level
+  msk_k <- !is.na(dt$x_log_l3) & !is.na(dt$x_log_dm3) & !is.na(dt$w_sbw)
+  expect_equal(dt_eu[tp == -3, ref_level],
+               dt[msk_k, sum(w_sbw * expm1(x_log_l3)) / sum(w_sbw)],
+               info = "pre ref level is the weighted mean euro level at t-k")
+  expect_equal(dt_eu[tp == -3, n_used], sum(msk_k),
+               info = "pre n_used counts only complete pre rows")
+  ## share_of_level is the effect relative to the level it is applied to
+  expect_equal(dt_eu$share_of_level,
+               (exp(dt_eu$estimate) - 1) * (1 + 1 / dt_eu$ref_level),
+               info = "share_of_level = euro / ref_level")
+  ## intervals are Wald intervals around the euro estimate
+  expect_equal(dt_eu$euro_hi - dt_eu$euro, dt_eu$euro - dt_eu$euro_lo,
+               info = "Wald interval is symmetric on the euro scale")
+  expect_equal(dt_eu$euro_lo, dt_eu$euro - 1.96 * dt_eu$se_euro,
+               info = "interval is 1.96 SE wide")
+  ## bookkeeping columns
+  expect_true(all(dt_eu$b_ref == "t+k"), info = "b_ref recorded")
+  expect_equal(attr(dt_eu, "gnrtdby"), "gd_auc_euro_calc", info = "stamp set")
+  expect_equal(unique(dt_eu$dv), "x_log", info = "l_dv honoured")
+
+}
+
+# === nobs cross-check ===
+gd_test_auc_check_n <- function() {
+  dt_eu <- data.table(dv = "x_log", tp = 2L, term = "exn_pm",
+                      estimate = 0.1, euro = 10, se_euro = 1,
+                      n_used = as.integer(nobs(gd_fake_did_get()[[1]])))
+  ## no model -> the column exists and is NA (kept for structural uniformity)
+  expect_true(all(is.na(md_auc_check_n(dt_eu, NULL)$n_model)),
+              info = "no r_did -> n_model is NA")
+  ## a matching model passes silently
+  expect_silent(md_auc_check_n(dt_eu, gd_fake_did_get()))
+  expect_equal(md_auc_check_n(dt_eu, gd_fake_did_get())$n_model,
+               dt_eu$n_used, info = "n_model read from the model's nobs")
+  ## a reconstruction on a different row set must warn
+  dt_bad <- copy(dt_eu); dt_bad[, n_used := n_used - 1L]
+  expect_warning(md_auc_check_n(dt_bad, gd_fake_did_get()),
+                 pattern = "row count mismatch", info = "mismatch warns")
+}
+
+# === end to end: synthetic panel -> SBW -> DiD -> coef -> euro ===
+gd_test_auc_e2e <- function() {
+  dt <- gd_syn_dt(1200, 2008:2014, seed = 21)
+  c_sbw <- gd_syn_config(
+    dt, years = 2011:2012, n_lag = 3L, impact_years = 2L, label = "test_auc_e2e",
+    covariate_cols = c("Gender", "ar1"),
+    outcome_cols_cur = c("auc_turnover_log", "aucturn_cum2_log"))
+
+  r_sbw  <- t_test("auc e2e proc", gl_sbw_proc(c_sbw))
+  expect_true(all(r_sbw$dt_diag$status == "solved"), info = "auc e2e years solved")
+
+  ## the log outcome columns got the shift family, "cur" base
+  expect_true(all(c("auc_turnover_log_f2", "auc_turnover_log_d2",
+                    "auc_turnover_log_l3", "auc_turnover_log_dm2") %in%
+                  names(r_sbw$dt_results)),
+              info = "log outcome shift columns present")
+  ## "cur" base: d{k} = v(t+k) - v(t) (exposure-year-free window)
+  dt_res <- r_sbw$dt_results
+  expect_equal(dt_res[!is.na(auc_turnover_log_d2), auc_turnover_log_d2],
+               dt_res[!is.na(auc_turnover_log_d2),
+                      auc_turnover_log_f2 - auc_turnover_log],
+               info = "outcome_cols_cur uses base t")
+
+  r_did   <- t_test("auc e2e did", gl_sbw_did(r_sbw, l_dvs = c("auc_turnover_log",
+                                                              "aucturn_cum2_log")))
+  dt_coef <- gd_sbw_coef_did(r_did)
+
+  ## default call: every period, both dvs
+  dt_eu <- t_test("auc e2e euro", gd_auc_euro(r_sbw, r_did, dt_coef, verbose = FALSE))
+  expect_true(all(c("dv", "tp", "term", "estimate", "euro", "se_euro",
+                    "ref_level", "n_used", "n_model") %in% names(dt_eu)),
+              info = "euro table has the documented columns")
+  expect_true(all(c("auc_turnover_log", "aucturn_cum2_log") %in% dt_eu$dv),
+              info = "both log outcomes converted")
+  expect_true(any(dt_eu$tp < 0) && any(dt_eu$tp > 0),
+              info = "e2e: pre and post periods both converted")
+  expect_false("no_treatment" %in% dt_eu$term, info = "e2e: no_treatment excluded")
+  ## the identity holds on a real fitted model, not just on the hand panel
+  expect_equal(dt_eu$euro, (exp(dt_eu$estimate) - 1) * (1 + dt_eu$ref_level),
+               info = "e2e: exact euro identity")
+  ## the reconstruction reproduces the model's own sample size
+  expect_true(all(dt_eu$n_used == dt_eu$n_model),
+              info = "e2e: reconstruction matches model nobs")
+  expect_true(all(is.finite(dt_eu$euro)) && all(dt_eu$se_euro > 0),
+              info = "e2e: euro estimates and SEs finite and positive")
+  ## post-period reference levels are the observed levels, so they must be
+  ## non-negative and, on a cumulative outcome, rising in tp
+  expect_true(all(dt_eu$ref_level >= 0), info = "e2e: euro levels non-negative")
+  ref_cum <- dt_eu[dv == "aucturn_cum2_log" & tp > 0 & term == "exn_pm"][order(tp)]
+  expect_true(all(diff(ref_cum$ref_level) > 0),
+              info = "e2e: cumulative reference level rises with the horizon")
+
+  ## l_tp / l_dv / b_ref plumbing
+  expect_equal(nrow(gd_auc_euro(r_sbw, r_did, dt_coef, l_tp = 1:2, verbose = FALSE)),
+               2L * 4L * 2L, info = "e2e: l_tp=1:2 -> (tp x term x dv) rows")
+  dt_pre <- gd_auc_euro(r_sbw, r_did, dt_coef, l_tp = -2L, verbose = FALSE)
+  expect_true(all(dt_pre$tp == -2L), info = "e2e: l_tp=-2 keeps only the placebo")
+  dt_one <- gd_auc_euro(r_sbw, r_did, dt_coef, l_dv = "aucturn_cum2_log",
+                        verbose = FALSE)
+  expect_equal(unique(dt_one$dv), "aucturn_cum2_log", info = "e2e: l_dv restricts")
+  ## b_ref = "t-1" anchors every horizon on the {dv}_l1 column instead, so
+  ## the reference level is the weighted mean of THAT column on each
+  ## horizon's own mask. It is therefore not constant across horizons, and
+  ## for a flow outcome it is not even ordered against the t+k level
+  ## (annual turnover fluctuates).
+  dt_b1 <- gd_auc_euro(r_sbw, r_did, dt_coef, b_ref = "t-1", verbose = FALSE)
+  msk_b1 <- !is.na(dt_res$aucturn_cum2_log_l1) & !is.na(dt_res$aucturn_cum2_log_d2) &
+            !is.na(dt_res$w_sbw)
+  expect_equal(dt_b1[dv == "aucturn_cum2_log" & tp == 2 & term == "exn_pm", ref_level],
+               dt_res[msk_b1, sum(w_sbw * expm1(aucturn_cum2_log_l1)) / sum(w_sbw)],
+               info = "e2e: t-1 anchor is the weighted mean of the l1 column")
+  ## on a CUMULATIVE outcome that anchor is below the t+k one for the same row
+  expect_true(all(dt_b1[dv == "aucturn_cum2_log" & tp > 0, ref_level] <=
+                  dt_eu[dv == "aucturn_cum2_log" & tp > 0, ref_level] + 1e-9),
+              info = "e2e: t-1 anchor is below t+k on the cumulative outcome")
+
+  ## dt_coef is optional: the coefficient table is rebuilt from r_did
+  dt_from_did <- gd_auc_euro(r_sbw, r_did, dt_coef = NULL, verbose = FALSE)
+  expect_equal(dt_from_did$euro, dt_eu$euro, info = "e2e: dt_coef is optional")
+  expect_equal(attr(dt_eu, "gnrtdby"), "gd_auc_euro", info = "e2e: stamp set")
+}
+
+
 # === run everything ===
 cat("\n--- config checks ---\n");       gd_test_check()
 cat("\n--- formulas ---\n");            gd_test_formulas()
@@ -941,6 +1320,13 @@ cat("\n--- DiD ---\n");                 gd_test_did()
 cat("\n--- outcomes ---\n");            gd_test_outcome()
 cat("\n--- outcomes (cur base) ---\n"); gd_test_outcome_cur()
 cat("\n--- cache format + parallel ---\n"); gd_test_cache_format_and_parallel()
+cat("\n--- aucexp: names ---\n");        gd_test_auc_names()
+cat("\n--- aucexp: crvar ---\n");        gd_test_auc_crvar()
+cat("\n--- aucexp: config/coef ---\n");  gd_test_auc_cfg()
+cat("\n--- aucexp: selection ---\n");    gd_test_auc_sel()
+cat("\n--- aucexp: conversion ---\n");   gd_test_auc_calc()
+cat("\n--- aucexp: nobs check ---\n");   gd_test_auc_check_n()
+cat("\n--- aucexp: end to end ---\n");   gd_test_auc_e2e()
 cat("\n--- real-data smoke ---\n");     gd_test_real()
 
 cat("\n========================================\n")
