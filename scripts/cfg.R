@@ -113,7 +113,12 @@ gc_plts <- function() {
         p_ess = list(
             dt_results = quote(r_sbw$dt_results),
             width = 14, height = 7,
-            caption = "effective sample size by treatment")
+            caption = "effective sample size by treatment"),
+        p_auc_euro_evst = list(
+            dt_euro = quote(dt_euro),
+            width = 14, height = 7,
+            caption = "Event study plot of exhibition effects on auction turnover")
+        
         
         ## p_grow_arrow = list(#  dont re-render for now
         ##     dt_insgrow5 = quote(dt_insgrow5),

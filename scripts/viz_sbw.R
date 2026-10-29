@@ -85,6 +85,24 @@ gp_dvauc_cum <- function(dt_coef) {
     geom_hline(yintercept = 0, linetype = "dashed")
 }
 
+gp_auc_euro_evst <- function(dt_euro) {
+  dt_euro[dv %in% c("auc_turnover_log", "aucturn_cum2_log")] %>%
+    .[, .(term, estimate = euro, std.error = se_euro, dv, tp, euro_hi, euro_lo)] %>% 
+    .[, term_pure := str_extract(term, paste0(c(gsub("exn_", "", l_treats), "no_treatment"), collapse = "|"))] %>% 
+    ggplot(aes(x=factor(tp), y = estimate, color = term_pure,
+               ## ymin = estimate - 1.96*std.error, ymax = estimate + 1.96*std.error)) +
+               ymin = euro_lo, ymax = euro_hi)) +
+    geom_point(position = position_dodge(width = 0.3)) +
+    geom_errorbar(position = position_dodge(width = 0.3)) +
+    facet_wrap(~dv, scales = "free_y") +
+    scale_color_manual(values = l_colors_treat) + 
+    guides(color = guide_legend(title = "treatment")) +
+    theme(legend.position=  "bottom") +
+    labs(x = "timepoint relative to treatment")
+
+
+}
+
 
 gp_weightdist <- function(dt_results) {
   
