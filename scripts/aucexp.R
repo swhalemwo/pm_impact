@@ -124,7 +124,7 @@ gc_auc_euro_cfg <- function(r_sbw, b_ref = "t+k") {
   #' @param r_sbw       result of gl_sbw_proc
   #' @param b_ref       reference level for the proportional rescaling:
   #'                    "t+k" (level at the outcome horizon, default),
-  #'                    "t-1" (pre-treatment level), "t", or a number
+  #'                    "t-1" (pre-treatment level) or "t"
   #' @return config list (dt, wcol, uid, b_ref)
   if (is.null(r_sbw$dt_results) || is.null(r_sbw$config)) {
     stop("gc_auc_euro_cfg: r_sbw must be the result of gl_sbw_proc ",
@@ -133,7 +133,11 @@ gc_auc_euro_cfg <- function(r_sbw, b_ref = "t+k") {
   if (!is.data.frame(r_sbw$dt_results)) {
     stop("gc_auc_euro_cfg: r_sbw$dt_results is not a data.frame")
   }
-  if (!is.numeric(b_ref)) b_ref <- match.arg(b_ref, c("t+k", "t-1", "t"))
+  ## match.arg() would accept this but complain unhelpfully on a non-character
+  if (!is.character(b_ref) || length(b_ref) != 1L) {
+    stop("gc_auc_euro_cfg: b_ref must be one of 't+k', 't-1', 't'")
+  }
+  b_ref <- match.arg(b_ref, c("t+k", "t-1", "t"))
 
   ## the weight column and the cluster id drive the whole estimation, so
   ## their absence is a config error, not a data problem -> check now
@@ -245,9 +249,8 @@ gd_auc_lvl_col <- function(dv, tp, b_ref) {
   #'
   #' @param dv    outcome variable name (panel column stem)
   #' @param tp    relative year (non-zero integer)
-  #' @param b_ref "t+k", "t-1", "t", or a numeric level
-  #' @return column name (character), NA when b_ref is numeric
-  if (is.numeric(b_ref)) return(NA_character_)
+  #' @param b_ref "t+k", "t-1" or "t"
+  #' @return column name (character)
   switch(b_ref,
          "t+k" = if (tp > 0) sprintf("%s_f%d", dv, as.integer(tp)) else
                               sprintf("%s_l%d", dv, abs(as.integer(tp))),
@@ -278,8 +281,7 @@ gd_auc_ref_cols <- function(dv, tp, b_ref) {
   #' @param dv    outcome variable name
   #' @param tp    relative year (non-zero integer)
   #' @param b_ref reference level choice (see gd_auc_lvl_col)
-  #' @return character vector (lvl_col, d_col); lvl_col is NA for a
-  #'   numeric b_ref
+  #' @return character vector (lvl_col, d_col)
   c(lvl_col = gd_auc_lvl_col(dv, tp, b_ref),
     d_col   = sprintf("%s_%s%d", dv, if (tp > 0) "d" else "dm", abs(as.integer(tp))))
 }
@@ -317,11 +319,7 @@ gd_auc_ref_one <- function(dv, tp, c_eu) {
 
   ## the euro reference level: the OBSERVED level (the residual is kept,
   ## see the file header), taken from the column b_ref points at
-  lvl <- if (is.na(l_col[["lvl_col"]])) {
-    stop("gd_auc_ref_one: a numeric b_ref needs an explicit level column")
-  } else {
-    dt_panel[[l_col[["lvl_col"]]]]
-  }
+  lvl <- dt_panel[[l_col[["lvl_col"]]]]
 
   ## estimation sample of the corresponding DiD model: the reference
   ## level, the weight and the d{k}/dm{k} outcome all observed (the level
