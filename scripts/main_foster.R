@@ -193,7 +193,7 @@ dt_atyear_foster <- gd_atyear_foster(dt_atyear_raw, c_datargs$baby) %>%
 ## dt_atyear_foster[PeopleID == 259, .(aucturn_cum, aucturn_cum2, auc_turnover)] %>% print(n=80)
 
 
-c_sbw_pap7 <- list(
+c_sbw <- list(
   dt_panel   = dt_atyear_foster,  # full panel, complete grid
   label          = "fos_pap7",        # unique id -> cache folder + registry
   uid            = "PeopleID", tid     = "year",
