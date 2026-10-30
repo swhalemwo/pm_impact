@@ -1,15 +1,9 @@
 nbr_name,nbr_fmt,grp
-ynkplt_p_pminfl_cbn,(eval (concat "#+label: fig:p_pminfl_cbn\n" "#+caption: influence of PM exhibitions\n" "#+attr_latex: :width 14cm\n" "[[file:../figures/p_pminfl_cbn.pdf]]")),pltcfgs
-ynkplt_p_pminfl_pi,(eval (concat "#+label: fig:p_pminfl_pi\n" "#+caption: influence of PM exhibitions\n" "#+attr_latex: :width 9cm\n" "[[file:../figures/p_pminfl_pi.pdf]]")),pltcfgs
-ynkplt_p_pminfl_auc,(eval (concat "#+label: fig:p_pminfl_auc\n" "#+caption: influence of PM exhibitions\n" "#+attr_latex: :width 13cm\n" "[[file:../figures/p_pminfl_auc.pdf]]")),pltcfgs
-ynkplt_p_hist_crap,(eval (concat "#+label: fig:p_hist_crap\n" "#+caption: nonsense hist\n" "#+attr_latex: :width 14cm\n" "[[file:../figures/p_hist_crap.pdf]]")),pltcfgs
 ynkplt_p_activity_jitter,(eval (concat "#+label: fig:p_activity_jitter\n" "#+caption: activity jitter\n" "#+attr_latex: :width 14cm\n" "[[file:../figures/p_activity_jitter.pdf]]")),pltcfgs
 ynkplt_p_cumad_jitter,(eval (concat "#+label: fig:p_cumad_jitter\n" "#+caption: cumulative advantage whatever\n" "#+attr_latex: :width 14cm\n" "[[file:../figures/p_cumad_jitter.pdf]]")),pltcfgs
 ynkplt_p_mainseq,(eval (concat "#+label: fig:p_mainseq\n" "#+caption: cumulative advantage\n" "#+attr_latex: :width 14cm\n" "[[file:../figures/p_mainseq.pdf]]")),pltcfgs
 ynkplt_p_dist_exn_pi,(eval (concat "#+label: fig:p_dist_exn_pi\n" "#+caption: distribution of yearly PES exhibitions\n" "#+attr_latex: :width 14cm\n" "[[file:../figures/p_dist_exn_pi.pdf]]")),pltcfgs
 ynkplt_p_dist_aucturn,(eval (concat "#+label: fig:p_dist_aucturn\n" "#+caption: distribution of yearly aucturn turnover\n" "#+attr_latex: :width 14cm\n" "[[file:../figures/p_dist_aucturn.pdf]]")),pltcfgs
-ynkplt_p_coef_trans,(eval (concat "#+label: fig:p_coef_trans\n" "#+caption: coefs\n" "#+attr_latex: :width 14cm\n" "[[file:../figures/p_coef_trans.pdf]]")),pltcfgs
-ynkplt_p_pred_exncum,(eval (concat "#+label: fig:p_pred_exncum\n" "#+caption: coefs\n" "#+attr_latex: :width 14cm\n" "[[file:../figures/p_pred_exncum.pdf]]")),pltcfgs
 ynkplt_p_evst,(eval (concat "#+label: fig:p_evst\n" "#+caption: Event study plot\n" "#+attr_latex: :width 14cm\n" "[[file:../figures/p_evst.pdf]]")),pltcfgs
 ynkplt_p_evst_wintcpt,(eval (concat "#+label: fig:p_evst_wintcpt\n" "#+caption: Event study plot with no-treatment group\n" "#+attr_latex: :width 14cm\n" "[[file:../figures/p_evst_wintcpt.pdf]]")),pltcfgs
 ynkplt_p_evst_cum,(eval (concat "#+label: fig:p_evst_cum\n" "#+caption: Event study plot (cumulative DV)\n" "#+attr_latex: :width 14cm\n" "[[file:../figures/p_evst_cum.pdf]]")),pltcfgs
@@ -23,17 +17,12 @@ ynkplt_p_density_cprn,(eval (concat "#+label: fig:p_density_cprn\n" "#+caption: 
 ynkplt_p_corw,(eval (concat "#+label: fig:p_corw\n" "#+caption: treatment-covariate correlations before and after SBW\n" "#+attr_latex: :width 14cm\n" "[[file:../figures/p_corw.pdf]]")),pltcfgs
 ynkplt_p_sbw_raw_cprn,(eval (concat "#+label: fig:p_sbw_raw_cprn\n" "#+caption: covariate means by treatment before and after SBW\n" "#+attr_latex: :width 14cm\n" "[[file:../figures/p_sbw_raw_cprn.pdf]]")),pltcfgs
 ynkplt_p_ess,(eval (concat "#+label: fig:p_ess\n" "#+caption: effective sample size by treatment\n" "#+attr_latex: :width 14cm\n" "[[file:../figures/p_ess.pdf]]")),pltcfgs
-refplt_p_pminfl_cbn,\ref{fig:p_pminfl_cbn},figlbls
-refplt_p_pminfl_pi,\ref{fig:p_pminfl_pi},figlbls
-refplt_p_pminfl_auc,\ref{fig:p_pminfl_auc},figlbls
-refplt_p_hist_crap,\ref{fig:p_hist_crap},figlbls
+ynkplt_p_auc_euro_evst,(eval (concat "#+label: fig:p_auc_euro_evst\n" "#+caption: Event study plot of exhibition effects on auction turnover\n" "#+attr_latex: :width 14cm\n" "[[file:../figures/p_auc_euro_evst.pdf]]")),pltcfgs
 refplt_p_activity_jitter,\ref{fig:p_activity_jitter},figlbls
 refplt_p_cumad_jitter,\ref{fig:p_cumad_jitter},figlbls
 refplt_p_mainseq,\ref{fig:p_mainseq},figlbls
 refplt_p_dist_exn_pi,\ref{fig:p_dist_exn_pi},figlbls
 refplt_p_dist_aucturn,\ref{fig:p_dist_aucturn},figlbls
-refplt_p_coef_trans,\ref{fig:p_coef_trans},figlbls
-refplt_p_pred_exncum,\ref{fig:p_pred_exncum},figlbls
 refplt_p_evst,\ref{fig:p_evst},figlbls
 refplt_p_evst_wintcpt,\ref{fig:p_evst_wintcpt},figlbls
 refplt_p_evst_cum,\ref{fig:p_evst_cum},figlbls
@@ -47,6 +36,7 @@ refplt_p_density_cprn,\ref{fig:p_density_cprn},figlbls
 refplt_p_corw,\ref{fig:p_corw},figlbls
 refplt_p_sbw_raw_cprn,\ref{fig:p_sbw_raw_cprn},figlbls
 refplt_p_ess,\ref{fig:p_ess},figlbls
+refplt_p_auc_euro_evst,\ref{fig:p_auc_euro_evst},figlbls
 reftbl_t_grow5_sumry,\ref{tbl:t_grow5_sumry},reftbl
 reftbl_t_insgrow5_topperc,\ref{tbl:t_insgrow5_topperc},reftbl
 reftbl_t_deg_info,\ref{tbl:t_deg_info},reftbl
@@ -61,27 +51,27 @@ perc_pm_af_instn_matches,57.3,af_desc
 perc_af_top10_share,39,af_desc
 ofexhb_N_gallery,306893,af_ofexhb_stats
 ofexhb_N_yeet,4619,af_ofexhb_stats
-ofexhb_N_oes,78348,af_ofexhb_stats
-ofexhb_N_pi,134703,af_ofexhb_stats
+ofexhb_N_oes,78569,af_ofexhb_stats
+ofexhb_N_pi,138187,af_ofexhb_stats
 ofexhb_N_pm,5637,af_ofexhb_stats
-ofexhb_N_toti,9471,af_ofexhb_stats
+ofexhb_N_toti,5766,af_ofexhb_stats
 ofexhb_N_event,4783,af_ofexhb_stats
 ofexhb_perc_gallery,56,af_ofexhb_stats
 ofexhb_perc_yeet,0.85,af_ofexhb_stats
 ofexhb_perc_oes,14,af_ofexhb_stats
 ofexhb_perc_pi,25,af_ofexhb_stats
 ofexhb_perc_pm,1,af_ofexhb_stats
-ofexhb_perc_toti,1.7,af_ofexhb_stats
+ofexhb_perc_toti,1.1,af_ofexhb_stats
 ofexhb_perc_event,0.88,af_ofexhb_stats
 tanp_Nins_ttl,403,tanp
 tanp_Nins_wafid,320,tanp
 tanp_Nins_woafid,83,tanp
 instype_cnt_gallery,17 496,instype_cnts
 instype_cnt_yeet,1 167,instype_cnts
-instype_cnt_oes,8 896,instype_cnts
-instype_cnt_pi,7 318,instype_cnts
+instype_cnt_oes,8 901,instype_cnts
+instype_cnt_pi,7 375,instype_cnts
 instype_cnt_pm,334,instype_cnts
-instype_cnt_toti,143,instype_cnts
+instype_cnt_toti,81,instype_cnts
 instype_cnt_event,1 797,instype_cnts
 N_at_vlu_exhbppl,38 912,datasize
 N_exhb_vlu_exhbppl,511 360,datasize
