@@ -271,6 +271,36 @@ fwrite(dt_nbrs, paste0(c_dirs$misc, "nbrs.csv"), quote = F)
 
 
 
+## look at exhibition counts
+dt_insyr_obs <- gd_insyr_obs(dt_exhbppl)
+
+l_vrbls_rol <- c("cpe_rol5", "aucturn_rol5")
+l_vrbls_torol <- c("cnt_prevexhb", "aucturn_cum")
+
+dt_insyr <- gd_insyr(dt_exhbppl, dt_insyr_obs, l_vrbls_torol, l_vrbls_rol)
+
+dt_exhbppl[begin_year >= 2000, .N, ]
+
+dt_insyr[begin_year >= 2000, .(InstitutionID, begin_year, nbr_at_exhbtd_unq, InstitutionType)]
+
+## mean
+dt_insyr[begin_year >= 2000,
+         .(mean_at_exhbtd_unq = mean(nbr_at_exhbtd_unq), mean_at_exhbtd_ttl = mean(nbr_at_exhbtd_ttl)),
+         .(InstitutionType)]
 
 
+dt_insyr[begin_year >= 2000,
+         .(mean_at_exhbtd_unq = mean(nbr_at_exhbtd_unq), mean_at_exhbtd_ttl = mean(nbr_at_exhbtd_ttl)),
+         .(InstitutionID, InstitutionType)] %>%
+    .[, map(.SD, mean), InstitutionType, .SDcols = patterns("^mean_")]
 
+
+## median
+
+dt_insyr[begin_year >= 2000,
+         .(med_at_exhbtd_unq = median(nbr_at_exhbtd_unq), med_at_exhbtd_ttl = median(nbr_at_exhbtd_ttl)),
+         .(InstitutionType)]
+dt_insyr[begin_year >= 2010,
+         .(med_at_exhbtd_unq = median(nbr_at_exhbtd_unq), med_at_exhbtd_ttl = median(nbr_at_exhbtd_ttl)),
+         .(InstitutionID, InstitutionType)] %>%
+    .[, map(.SD, median), InstitutionType, .SDcols = patterns("^med_")]

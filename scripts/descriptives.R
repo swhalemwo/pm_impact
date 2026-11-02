@@ -344,3 +344,50 @@ gp_grow_arrow <- function(dt_insgrow5) {
 }
 
 
+gd_insyr_obs <- function(dt_exhbppl) {
+    gw_fargs(match.call())
+    #' aggregate some stats to institution-year (insyr) level
+
+    
+
+
+    dt_insyr_obs <- dt_exhbppl[, .(cnt_prevexhb = mean(cnt_prevexhb),
+                                   aucturn_cum = mean(aucturn_cum),
+                                   career_year = mean(career_year),
+                                   cnt_prevexhb_log = log1p(mean(cnt_prevexhb)),
+                                   aucturn_cum_log = log1p(mean(aucturn_cum)),
+                                   nbr_at_exhbtd_ttl = .N,
+                                   nbr_at_exhbtd_unq = collapse::fnunique(PeopleID),
+                                   nbr_shows = collapse::fnunique(ExhibitionID)),
+                               .(InstitutionID, InstitutionType, begin_year)] %>%
+        .[, nbr_artists_pshow := nbr_at_exhbtd_ttl/nbr_shows] %>%
+        .[, qntl_cpe := ecdf(cnt_prevexhb)(cnt_prevexhb), begin_year]
+
+    attr(dt_insyr_obs, "gnrtdby") <- as.character(match.call()[[1]])
+
+    return(dt_insyr_obs)
+
+    
+}
+
+
+gd_insyr <- function(dt_exhbppl, dt_insyr_obs, l_vrbls_torol, l_vrbls_rol) {
+    gw_fargs(match.call())
+    #' make institution-year data complete (fill gaps by constructing grid from first to last year)
+
+    ## set up institution-year grid
+    dt_insgrid <- dt_exhbppl[, .(begin_year = min(begin_year):max(begin_year)), InstitutionID]
+
+    ## merge observed data
+    dt_insyr <- merge(dt_insgrid, dt_insyr_obs, by = c("InstitutionID", "begin_year"), all.x = T) %>%
+        .[, InstitutionType := NULL] %>% 
+        merge(dt_af_instns_rcd[, .(InstitutionID, InstitutionType)], all.x = T, by = "InstitutionID") %>%
+        setnafill(fill = 0, cols = c("nbr_shows", "nbr_at_exhbtd_ttl", "nbr_at_exhbtd_unq")) %>%
+        .[order(InstitutionID, begin_year)]
+
+    dt_insyr[, (l_vrbls_rol) := frollmean(.SD, n=5, na.rm = T), InstitutionID, .SDcols = l_vrbls_torol]
+
+    attr(dt_insyr, "gnrtdby") <- as.character(match.call()[[1]])
+
+    return(dt_insyr)
+}
