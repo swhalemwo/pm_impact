@@ -193,6 +193,8 @@ dt_atyear_foster <- gd_atyear_foster(dt_atyear_raw, c_datargs$baby) %>%
 ## dt_atyear_foster[PeopleID == 259, .(aucturn_cum, aucturn_cum2, auc_turnover)] %>% print(n=80)
 
 
+dt_atyear_foster[, aucturn_cum3_log := aucturn_cum2_log]
+
 c_sbw <- list(
   dt_panel   = dt_atyear_foster,  # full panel, complete grid
   label          = "fos_pap7",        # unique id -> cache folder + registry
@@ -213,6 +215,7 @@ c_sbw <- list(
                        "auc_turnover", "aucturn_cum2", "aucturn_cum",
                        "auc_turnover_log", "aucturn_cum2_log",
                        "auc_any", "auc_ever"),
+  outcome_cols   = c("aucturn_cum3_log"),
   balance_lags = list(aucturn_cum2_log = c(1,3),
                       auc_turnover_log = c(1,3),
                       auc_any = c(1,3),
@@ -238,6 +241,7 @@ dt_euro <- gd_auc_euro(r_sbw, r_did, dt_coef_did)
 r_sbw$dt_results[w_sbw > 1e-8, uniqueN(PeopleID)]
     
 r_sbw$dt_results[w_sbw > 1e-4 & exn_toti > 0, .(N = .N, unq = uniqueN(PeopleID))] 
+
 
 
 ## super weird EVC values: maybe extreme cases?
@@ -304,3 +308,13 @@ dt_insyr[begin_year >= 2010,
          .(med_at_exhbtd_unq = median(nbr_at_exhbtd_unq), med_at_exhbtd_ttl = median(nbr_at_exhbtd_ttl)),
          .(InstitutionID, InstitutionType)] %>%
     .[, map(.SD, median), InstitutionType, .SDcols = patterns("^med_")]
+
+## * auction checks
+
+dt_euro[dv == "auc_turnover_log" & term == "exn_pm" & tp > 0, .(tp, euro)]
+
+
+dt_euro[dv == "aucturn_cum2_log" & term == "exn_pm" & tp > 0, .(tp, euro)]
+
+
+dt_euro[dv == "aucturn_cum3_log" & term == "exn_pi" & tp > 0, .(tp, euro)]

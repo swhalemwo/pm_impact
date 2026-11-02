@@ -86,7 +86,7 @@ gp_dvauc_cum <- function(dt_coef) {
 }
 
 gp_auc_euro_evst <- function(dt_euro) {
-  dt_euro[dv %in% c("auc_turnover_log", "aucturn_cum2_log")] %>%
+  dt_euro[dv %in% c("auc_turnover_log", "aucturn_cum2_log", "aucturn_cum3_log" )] %>%
     .[, .(term, estimate = euro, std.error = se_euro, dv, tp, euro_hi, euro_lo)] %>% 
     .[, term_pure := str_extract(term, paste0(c(gsub("exn_", "", l_treats), "no_treatment"), collapse = "|"))] %>% 
     ggplot(aes(x=factor(tp), y = estimate, color = term_pure,
