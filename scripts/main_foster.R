@@ -235,8 +235,9 @@ dt_coef_did <- gd_sbw_coef_did(r_did)
 dt_euro <- gd_auc_euro(r_sbw, r_did, dt_coef_did)
 
 
-
-
+r_sbw$dt_results[w_sbw > 1e-8, uniqueN(PeopleID)]
+    
+r_sbw$dt_results[w_sbw > 1e-4 & exn_toti > 0, .(N = .N, unq = uniqueN(PeopleID))] 
 
 
 ## super weird EVC values: maybe extreme cases?
