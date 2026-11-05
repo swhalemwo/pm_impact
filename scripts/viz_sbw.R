@@ -330,3 +330,45 @@ gp_loweights <- function(dt_results, c_sbw) {
 
   
 }
+
+weighted_sd <- function(x,w) sqrt(Hmisc::wtd.var(x,w))
+
+gt_sumstats <- function(r_sbw) {
+  #' generate summary table
+
+  l_vrbls_tosum <- c(r_sbw$config$treatment_cols, r_sbw$config$covariate_cols)
+
+  ## functions to aggregate
+  l_fs_nowtd <- c(max = max, min = min)
+  l_fs_uwtd <- c(mean = mean, sd = sd)
+  l_fs_wtd <- c(mean = weighted.mean, sd = weighted_sd)
+
+  dt_res2 <- cbind(r_sbw$dt_res, r_sbw$dt_panel[, .(gender_rcd)])[!is.na(w_sbw)]
+
+  ## summarize those where weighting makes no sense (min, max)
+  dt_sum_nowtd <- CJ(f = names(l_fs_nowtd), v = l_vrbls_tosum)
+  dt_sum_nowtd[, vlu := apply(dt_sum_nowtd, 1, \(x) l_fs_nowtd[[x[["f"]]]](dt_res2[, get(x[["v"]])]))]
+
+  dt_sum_wtd <- CJ(f = names(l_fs_uwtd), v = l_vrbls_tosum)
+  dt_sum_wtd[, vlu_uw := apply(dt_sum_wtd, 1, \(x) l_fs_uwtd[[x[["f"]]]](dt_res2[, get(x[["v"]])]))]
+  # idk why this no work
+  dt_sum_wtd[, vlu_wtd := apply(dt_sum_wtd, 1, \(x) l_fs_wtd[[x[["f"]]]](dt_res2[, get(x[["v"]])], dt_res2[, w_sbw]))]
+
+  
+
+  weighted.mean(dt_res2[, exn_all_cum_log], dt_res2[, w_sbw])
+  mean(dt_res2[, exn_all_cum_log])
+  ## huh means are the same: i think this is maintained by SBW
+  ## but variances are not 
+  
+
+  rbind(dt_res2[, .(PeopleID, year, w_sbw, exn_all_cum_log, src = "sbw")],
+        dt_res2[, .(PeopleID, year, w_sbw = 1, exn_all_cum_log, src = "raw")]) %>% 
+    ## .[, weighted.mean(exn_all_cum_log, w_sbw), src] 
+    ggplot(aes(x=exn_all_cum_log, color = src, weight = w_sbw)) + geom_density()
+                
+
+  melt(dt_res2, id.vars = c("PeopleID", "year", "w_sbw"), measure.vars = "exn_all_cum_log")
+
+
+}
