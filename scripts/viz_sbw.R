@@ -377,17 +377,33 @@ gt_sumstats <- function(r_sbw) {
 
   dt_vrblinfo <- gc_vvs() %>% chuck("dt_vrblinfo")
 
-  dt_sumstats_viz2 <- dt_vrblinfo[, .(vrbl, vrbl_lbl)][dt_sumstats_viz, on  = "vrbl"][, vrbl := NULL]
+  ## order columns as the spanner reads them (min before max, CJ() sorts f alphabetically)
+  dt_sumstats_viz2 <- dt_vrblinfo[, .(vrbl, vrbl_lbl)][dt_sumstats_viz, on  = "vrbl"]
 
-  c_names <- c(vrbl_lbl = "Variable",
+  ## select order
+  ## first get 
+  l_orgforms <- gc_vvs() %>% chuck("l_orgforms")
+  l_orgforms_exn <- paste0("exn_", l_orgforms)
+  l_orgforms_cum <- keep(setdiff(dt_sumstats_viz2[, vrbl], l_orgforms_exn), ~grepl("exn", .x))
+  l_atsubreg <- dt_sumstats_viz2[grepl("atsubreg", vrbl), vrbl]
+  l_rest <- setdiff(dt_sumstats_viz2[, vrbl], c(l_orgforms_exn, l_orgforms_cum, l_atsubreg))
+
+  dt_sumstats_viz3 <- map(list(l_orgforms_exn, l_orgforms_cum, l_rest, l_atsubreg),
+                          ~dt_sumstats_viz2[vrbl %in% .x]) %>% rbindlist %>%   
+                      .[, vrbl := NULL] %>%
+                      setcolorder(c("vrbl_lbl", "mean_vlu_uw", "mean_vlu_wtd", "sd_vlu_uw", "sd_vlu_wtd",
+                                    "min", "max"))
+  
+
+  c_names <- c(vrbl_lbl = "",
                mean_vlu_uw = "Unweighted",
                mean_vlu_wtd = "Weighted",
                sd_vlu_uw = "Unweighted",
                sd_vlu_wtd = "Weighted",
-               max = "Max.",
-               min = "Min.")
+               max = "",
+               min = "")
                  
-  c_colnames <- gc_colnames(names(dt_sumstats_viz2), c_names, hline_above = T,
+  c_colnames <- gc_colnames(names(dt_sumstats_viz3), c_names, hline_above = F,
                             align = as.list(c("l", rep("r", 6))))
 
   c_spanner <- gc_spanner(c("Variable", "Mean", "SD", "Min", "Max"), c(1,2,2,1,1))
@@ -399,11 +415,11 @@ gt_sumstats <- function(r_sbw) {
 
 
   list(
-    dt_fmtd = dt_sumstats_viz2,
-    align_cfg = c("l", "l", rep("r", 6)),
-    hline_after = c(0, dt_sumstats_viz2[, .N]),
+    dt_fmtd = dt_sumstats_viz3,
+    align_cfg = c("l", "l", rep("r", 6)),  # xtable: rownames + one entry per column
+    hline_after = c(0, dt_sumstats_viz3[, .N]),
     add_to_row = c_atr,
-    number_cols = c(rep(F,2), rep(T,6)),
+    number_cols = c(F, rep(T, 6)),  # length must equal ncol (subset by position)
     landscape = T)
 
 
