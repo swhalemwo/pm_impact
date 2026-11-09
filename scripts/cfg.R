@@ -194,6 +194,10 @@ gc_vvs <- function() {
         atsubreg_53 = "Australia and New Zealand",
         exn_all_cum_log   = "Prior Exhibitions (all types, log)",  
         exn_event_cum_log  = "Prior Exhibitions (Events, log)",
+        exn_pi_cum_log   = "Prior Exhibitions (Public Institutions, log)",
+        exn_pm_cum_log   = "Prior Exhibitions (Private Museums, log)",  
+        exn_toti_cum_log  = "Prior Exhibitions (Top-tier Museums, log)",
+        exn_oes_cum_log  = "Prior Exhibitions (Other Exhibition Spaces, log)",
         exn_gallery_cum_log = "Prior Exhibitions (Galleries, log)") %>%
         setNames(names(.), .)  # adjust order to allow easy combinations
 
