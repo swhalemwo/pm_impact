@@ -193,8 +193,8 @@ gc_vvs <- function() {
         atsubreg_419 = "Latin America and the Caribbean",
         atsubreg_53 = "Australia and New Zealand",
         exn_all_cum_log   = "Prior Exhibitions (all types, log)",  
-        exn_event_cum_log  = "Prior Exhibitions (Events,log)",
-        exn_gallery_cum_log = "Prior Exhibitions (gallery, log)") %>%
+        exn_event_cum_log  = "Prior Exhibitions (Events, log)",
+        exn_gallery_cum_log = "Prior Exhibitions (Galleries, log)") %>%
         setNames(names(.), .)  # adjust order to allow easy combinations
 
 
