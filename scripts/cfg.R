@@ -156,8 +156,11 @@ gc_tbls <- function() {
             dt_insgrow5 = quote(dt_insgrow5),
             dt_af_instns_rcd = quote(dt_af_instns_rcd),
             l_cols_summary = quote(l_cols_summary),
-            caption = "most influential orgs (cnt)")
-        )
+            caption = "most influential orgs (cnt)"),
+        t_sumstats = list(
+            r_sbw = quote(r_sbw),
+            caption = "sumstats")
+    )
 }
 
 
@@ -171,14 +174,36 @@ gc_vvs <- function() {
 
     l_vrbl_lbls <- list(
         InstitutionType         = "Institution Type",
-        cnt_prevexhb_cum =   "# prev. Exhibitions") %>%
+        cnt_prevexhb_cum =   "# prev. Exhibitions",
+        exn_oes = "Exhibitions (Other Exhibition Space)",
+        exn_pi = "Exhibitions (Public Instiutiton)",
+        exn_pm = "Exhibitions (Private Museum)",
+        exn_toti = "Exhibitions (Top-tier museum)",
+        career_year             = "Career Year",
+        gender_rcd              = "Gender",
+        gender_rcd_Male              = "Gender (Male)",
+        gender_rcd_Other     = "Gender (Other)",
+        atsubreg_145 = "Western Asia",
+        atsubreg_151 = "Eastern Europe",
+        atsubreg_154 = "Northern Europe",
+        atsubreg_155 = "Western Europe",
+        atsubreg_21  = "Northern America",
+        atsubreg_30 = "Eastern Asia",
+        atsubreg_39 = "Southern Europe",
+        atsubreg_419 = "Latin America and the Caribbean",
+        atsubreg_53 = "Australia and New Zealand",
+        exn_all_cum_log   = "Prior Exhibitions (all types, log)",  
+        exn_event_cum_log  = "Prior Exhibitions (Events,log)",
+        exn_gallery_cum_log = "Prior Exhibitions (gallery, log)") %>%
         setNames(names(.), .)  # adjust order to allow easy combinations
 
 
     l_vrblgrp_mes <- list(
-        num = c("cnt_prevexhb_cum"),
-        ## bin = c(),
-        cat = c("InstitutionType"))
+        num = c("cnt_prevexhb_cum", "exn_oes", "exn_pi", "exn_toti", "exn_pm", "career_year",
+                "exn_all_cum_log","exn_event_cum_log","exn_gallery_cum_log"),
+        bin = c("gender_rcd_Male", "gender_rcd_Other", "atsubreg_145", "atsubreg_151", "atsubreg_154",
+                "atsubreg_155", "atsubreg_21", "atsubreg_30", "atsubreg_39", "atsubreg_419", "atsubreg_53"),
+        cat = c("InstitutionType", "gender_rcd"))
 
     l_vrblinfo <- list(
         vrbl_lbl = l_vrbl_lbls,

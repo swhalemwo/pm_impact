@@ -352,23 +352,69 @@ gt_sumstats <- function(r_sbw) {
   dt_sum_wtd <- CJ(f = names(l_fs_uwtd), v = l_vrbls_tosum)
   dt_sum_wtd[, vlu_uw := apply(dt_sum_wtd, 1, \(x) l_fs_uwtd[[x[["f"]]]](dt_res2[, get(x[["v"]])]))]
   # idk why this no work
-  dt_sum_wtd[, vlu_wtd := apply(dt_sum_wtd, 1, \(x) l_fs_wtd[[x[["f"]]]](dt_res2[, get(x[["v"]])], dt_res2[, w_sbw]))]
+  dt_sum_wtd[, vlu_wtd := apply(dt_sum_wtd, 1, \(x) l_fs_wtd[[x[["f"]]]](dt_res2[, get(x[["v"]])],
+    dt_res2[, w_sbw]))]
 
+  dt_sum_wtd2 <- melt(dt_sum_wtd, id.vars = c("f", "v"), value.vars = c("vlu_uw", "vlu_wtd"),
+                      variable.name = "b_w")
+
+  ## weighted.mean(dt_res2[, exn_all_cum_log], dt_res2[, w_sbw])
+  ## mean(dt_res2[, exn_all_cum_log])
+  ## ## huh means are the same: i think this is maintained by SBW
+  ## ## but variances are not 
   
 
-  weighted.mean(dt_res2[, exn_all_cum_log], dt_res2[, w_sbw])
-  mean(dt_res2[, exn_all_cum_log])
-  ## huh means are the same: i think this is maintained by SBW
-  ## but variances are not 
-  
-
-  rbind(dt_res2[, .(PeopleID, year, w_sbw, exn_all_cum_log, src = "sbw")],
-        dt_res2[, .(PeopleID, year, w_sbw = 1, exn_all_cum_log, src = "raw")]) %>% 
-    ## .[, weighted.mean(exn_all_cum_log, w_sbw), src] 
-    ggplot(aes(x=exn_all_cum_log, color = src, weight = w_sbw)) + geom_density()
+  ## rbind(dt_res2[, .(PeopleID, year, w_sbw, exn_all_cum_log, src = "sbw")],
+  ##       dt_res2[, .(PeopleID, year, w_sbw = 1, exn_all_cum_log, src = "raw")]) %>% 
+  ##   ## .[, weighted.mean(exn_all_cum_log, w_sbw), src] 
+  ##   ggplot(aes(x=exn_all_cum_log, color = src, weight = w_sbw)) + geom_density()
                 
+  dt_sumstats_viz <- join(
+    dcast(dt_sum_wtd2, v ~ f + b_w , value.var = "value"),
+    dcast(dt_sum_nowtd, v ~ f, value.var = "vlu"),
+    on = "v", verbose = 0) %>%
+    setnames(old = "v", new = "vrbl")
 
-  melt(dt_res2, id.vars = c("PeopleID", "year", "w_sbw"), measure.vars = "exn_all_cum_log")
+  dt_vrblinfo <- gc_vvs() %>% chuck("dt_vrblinfo")
+
+  dt_sumstats_viz2 <- dt_vrblinfo[, .(vrbl, vrbl_lbl)][dt_sumstats_viz, on  = "vrbl"][, vrbl := NULL]
+
+  c_names <- c(vrbl_lbl = "Variable",
+               mean_vlu_uw = "Unweighted",
+               mean_vlu_wtd = "Weighted",
+               sd_vlu_uw = "Unweighted",
+               sd_vlu_wtd = "Weighted",
+               max = "Max.",
+               min = "Min.")
+                 
+  c_colnames <- gc_colnames(names(dt_sumstats_viz2), c_names, hline_above = T,
+                            align = as.list(c("l", rep("r", 6))))
+
+  c_spanner <- gc_spanner(c("Variable", "Mean", "SD", "Min", "Max"), c(1,2,2,1,1))
+
+
+  c_atr <- list(
+    pos = list(-1,0),
+    command = c(c_spanner, c_colnames))
+
+
+  list(
+    dt_fmtd = dt_sumstats_viz2,
+    align_cfg = c("l", "l", rep("r", 6)),
+    hline_after = c(0, dt_sumstats_viz2[, .N]),
+    add_to_row = c_atr,
+    number_cols = c(rep(F,2), rep(T,6)),
+    landscape = T)
 
 
 }
+
+
+## countrycode(c(145, 151, 154, 155, 21 , 30 , 39 , 419, 53), "un.regionsub.code", "un.regionsub.name")
+
+## dtx <- dt_atyear_foster[, .N, Nationality] %>%
+##   .[, `:=`(regionsub.code = countrycode(Nationality, "country.name", "un.regionsub.code"),
+##            regionsub.name = countrycode(Nationality, "country.name", "un.regionsub.name"))] %>%
+##   .[, .(N = sum(N)), .(regionsub.code, regionsub.name)] %>% .[order(-N)]
+
+
