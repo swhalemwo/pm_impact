@@ -434,3 +434,6 @@ gt_sumstats <- function(r_sbw) {
 ##   .[, .(N = sum(N)), .(regionsub.code, regionsub.name)] %>% .[order(-N)]
 
 
+gt_sumstats_bytreat <- function(r_sbw) {
+
+}
