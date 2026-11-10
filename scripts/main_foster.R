@@ -197,7 +197,7 @@ dt_atyear_foster[, aucturn_cum3_log := aucturn_cum2_log]
 
 c_sbw <- list(
   dt_panel   = dt_atyear_foster,  # full panel, complete grid
-  label          = "fos_pap7",        # unique id -> cache folder + registry
+  label          = "fos_pap8",        # unique id -> cache folder + registry
   uid            = "PeopleID", tid     = "year",
   treatment_cols = c("exn_pm", "exn_pi", "exn_oes", "exn_toti"),
   ## covariate_cols = c("gender_rcd", "career_year", "exn_all_s5_ihs"),  # NULL ok
@@ -207,7 +207,7 @@ c_sbw <- list(
   ##                      "exn_oes_cum2", "exn_gallery_cum2", "exn_event_cum2",
   ##                      "auc_turnover", "aucturn_cum2"),
   covariate_cols = c("gender_rcd", "career_year", "exn_all_cum_log", "exn_gallery_cum_log",
-                     "exn_event_cum_log", 
+                     "exn_event_cum_log", "exn_pi_cum_log", "exn_pm_cum_log", "exn_oes_cum_log", "exn_toti_cum_log",
                      "atsubreg_145","atsubreg_151","atsubreg_154","atsubreg_155","atsubreg_21",
                      "atsubreg_30","atsubreg_39","atsubreg_419","atsubreg_53"),
   outcome_cols_cur = c("exn_all_cum2", "exn_toti_cum2", "exn_pi_cum2", "exn_pm_cum2",
