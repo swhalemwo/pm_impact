@@ -148,7 +148,7 @@ dt_atyear_raw <- gd_atyear_raw(dt_af_exhbs, dt_af_people, dt_af_links_exhb_ppl, 
                                dt_exhbppl_wyeet)
 
 
-l_treats <- paste0("exn_", c("pm", "pi", "oes", "toti"))
+l_treats <- paste0("exn_", c("oes", "pi", "pm", "toti"))
 
 ## calculate some before/after steps
 dt_atyear_foster <- gd_atyear_foster(dt_atyear_raw, c_datargs$baby) %>%

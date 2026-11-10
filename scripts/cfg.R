@@ -118,7 +118,13 @@ gc_plts <- function() {
         p_auc_euro_evst = list(
             dt_euro = quote(dt_euro),
             width = 14, height = 7,
-            caption = "Event study plot of exhibition effects on auction turnover")
+            caption = "Event study plot of exhibition effects on auction turnover"),
+        p_evst_annual_cum = list(
+            dt_coef_did = quote(dt_coef_did),
+            dt_euro = quote(dt_euro),
+            width = 14,
+            height = 18,
+            caption = "Event study plots (annual, cumulative)")
         
         
         ## p_grow_arrow = list(#  dont re-render for now
@@ -186,6 +192,7 @@ gc_vvs <- function() {
         pi = "Public Institution",
         pm = "Private Museum",
         toti = "Top-tier Museum",
+        auc = "Auction Turnover",
         exn_oes = "Exhibitions (Other Exhibition Space)",
         exn_pi = "Exhibitions (Public Instiutiton)",
         exn_pm = "Exhibitions (Private Museum)",

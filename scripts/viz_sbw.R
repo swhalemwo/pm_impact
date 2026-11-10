@@ -804,3 +804,52 @@ gt_bal_bytreat <- function(r_sbw, v_years = NULL, l_digits = NULL) {
 ##                         mean_twtd = weighted.mean(career_year, w_sbw*get(.x)),
 ##                         treat = .x)]) %>% rbindlist
 
+gp_evst_annual_cum <- function(dt_coef_did, dt_euro) {
+
+  c_vvs <- gc_vvs()
+  l_lbls <- c_vvs$dt_vrblinfo[, setNames(vrbl_lbl, vrbl)]
+
+
+
+  dt_cbns <- CJ(outcome = c(l_treats, "auc"), outcome_type = c("annual", "cum")) %>%
+    .[, outcome := factor(outcome, levels = c(l_treats, "auc"))] %>%
+    .[order(outcome)] %>% 
+    .[, dv := ifelse(outcome_type == "cum", sprintf("%s_cum2", outcome), as.character(outcome))] %>%
+    .[, outcome_lbl := ifelse(outcome_type == "cum", "Cum.", "Annual")] %>%
+    .[, vrbl_lbl := l_lbls[gsub("exn_", "", outcome)]] %>%
+    .[, facet_lbl := sprintf("%s (%s)", vrbl_lbl, outcome_lbl)]
+    
+  ## some manual specfication of auction turnover
+  dt_cbns[dv == "auc" & outcome_type == "annual", dv := "auc_turnover_log"]
+  dt_cbns[dv == "auc_cum2" & outcome_type == "cum", dv := "aucturn_cum2_log"]
+  dt_cbns[, dv := factor(dv, levels = dv)]
+
+  ## dt_cbns[, facet_key := paste0(dv
+
+  dt_coef_viz <- dt_coef_did[dv %in% l_treats | dv %in% sprintf("%s_cum2", l_treats)] %>%
+    rbind(dt_euro[dv %in% c("aucturn_cum2_log", "auc_turnover_log"),
+                  .(mdl, term, estimate = euro, std.error = se_euro, statistic, p.value, dv, tp)]) %>% 
+    .[, outcome_type := ifelse(grepl("cum2", dv), "cum", "annual")] %>%
+    .[term != "no_treatment"] %>% 
+    .[, term_pure := str_extract(term, paste0(c(gsub("exn_", "", l_treats), "no_treatment"), collapse = "|"))]
+
+  dt_coef_viz2 <- join(dt_coef_viz, dt_cbns[, .(dv, facet_lbl)], on = "dv") %>%
+    .[, dv := factor(dv, levels = dt_cbns[, dv])]
+
+
+  dt_coef_viz2 %>% 
+    ggplot(aes(x=factor(tp), y = estimate, color = term_pure,
+               ymin = estimate - 1.96*std.error, ymax = estimate + 1.96*std.error)) +
+    geom_point() + geom_errorbar() +
+    facet_wrap(~dv, scales = "free_y", nrow = 8, ncol = 2,
+               labeller = as_labeller(dt_cbns[, setNames(facet_lbl, dv)])) +
+    scale_color_manual(values = l_colors_treat, labels = l_lbls) + 
+    guides(color = guide_legend(title = "treatment")) +
+    theme(legend.position=  "bottom",
+          strip.text = element_text(margin = margin(.05, 0, .05, 0, "cm"))) +
+    labs(x = "timepoint relative to treatment") +
+    geom_hline(yintercept = 0, linetype = "dashed") +
+    guides(color = guide_legend(title = "Treatment", nrow = 2))
+
+  
+}
