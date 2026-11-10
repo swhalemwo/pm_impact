@@ -28,9 +28,50 @@ gp_evst_cum_wintcpt <- function(dt_coef) {
         gp_coef_did
 }
 
-gp_compact <- function(dt_coef) {
-    dt_coef[term != "no_treatment" & grepl(paste0(l_treats, collapse = "|"), dv)] %>%
-        gp_coef_did_compact
+gp_compact <- function(dt_coef, dt_euro) {
+  
+  c_vvs <- gc_vvs()
+  
+
+  dt_viz <- rbind(dt_coef[term != "no_treatment" & grepl(paste0(l_treats, collapse = "|"), dv)],
+        dt_euro[dv == "aucturn_cum2_log",
+                .(mdl, term, estimate = euro, std.error = se_euro, statistic, p.value, dv, tp)]) %>%
+    .[tp == max(tp) & grepl("cum2", dv)] %>%
+    # reorder treatments and facets (DVs)
+    .[, term_pure := str_extract(term, paste0(c(gsub("exn_", "", l_treats), "no_treatment"), collapse = "|"))] %>%
+    .[, dv_pure := str_extract(dv, paste0(c_vvs$l_orgforms, collapse = "|"))] %>% 
+    .[dv == "aucturn_cum2_log", dv_pure := "auc"] %>%
+    .[, dv_pure := factor(dv_pure, levels = c(gsub("exn_", "", l_treats), "auc"))] %>%
+    .[order(dv_pure)] %>%
+    .[, dv := factor(dv, levels = unique(dv))]
+    
+    
+  
+  l_lbls <- c_vvs$dt_vrblinfo[, setNames(vrbl_lbl, vrbl)]
+
+  dt_lbls <- dt_viz[, .N, .(dv_pure = as.character(dv_pure))] %>%
+    .[, lbl := l_lbls[dv_pure]] %>% 
+    .[dv_pure == "auc", lbl := "Auction Turnover"]
+
+  
+  ggplot(dt_viz, aes(x=estimate, y = term_pure, color = term_pure,
+             xmin = estimate - 1.96 * std.error, xmax = estimate + 1.96 * std.error)) +
+    geom_point() +
+    geom_errorbar() +
+    facet_wrap(~dv_pure, scales = "free_x", labeller = as_labeller(dt_lbls[, setNames(lbl, dv_pure)]), ncol = 2) +
+    scale_color_manual(values = l_colors_treat , labels = l_lbls) +
+    scale_y_discrete(labels = l_lbls) +
+    guides(color = guide_legend(title = "treatment")) +
+    theme(legend.position=  "bottom") +
+    labs(y = "", x = "Treatment Effect") +
+    guides(color = guide_legend(title = "Treatment", nrow = 2))
+
+
+  ## dt_treats <- dt_viz[, .N, dv] %>%
+  ##   .[, treat_raw := str_extract(dv, paste0(l_treats, collapse = "|"))] %>%
+  ##   .[dv == 
+
+
 }
 
 gp_cpct_intr_cpeqntl <- function(dt_results) {

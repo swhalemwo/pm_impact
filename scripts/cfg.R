@@ -79,6 +79,7 @@ gc_plts <- function() {
             caption = "Event study plot (cumulative DV) with no-treatment group"),
         p_compact = list(
             dt_coef = quote(dt_coef_did),
+            dt_euro = quote(dt_euro),
             width = 14, height = 12,
             caption = "Event study coefficients (cumulative) at t=6"),
         p_cpct_intr_cpeqntl = list(
@@ -181,6 +182,10 @@ gc_vvs <- function() {
     l_vrbl_lbls <- list(
         InstitutionType         = "Institution Type",
         cnt_prevexhb_cum =   "# prev. Exhibitions",
+        oes = "Other Exhibition Space",
+        pi = "Public Institution",
+        pm = "Private Museum",
+        toti = "Top-tier Museum",
         exn_oes = "Exhibitions (Other Exhibition Space)",
         exn_pi = "Exhibitions (Public Instiutiton)",
         exn_pm = "Exhibitions (Private Museum)",

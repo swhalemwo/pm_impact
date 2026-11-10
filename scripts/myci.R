@@ -171,7 +171,7 @@ gp_coef_did_compact <- function(dt_coef) {
   
   
   dt_coef %>% 
-    .[tp == max(tp) & grepl("cum2$", dv)] %>%
+    .[tp == max(tp) & grepl("cum2", dv)] %>%
     .[, term_pure := str_extract(term, paste0(c(gsub("exn_", "", l_treats), "no_treatment"), collapse = "|"))] %>% 
     ggplot(aes(x=estimate, y = term_pure, color = term_pure,
                xmin = estimate - 1.96 * std.error, xmax = estimate + 1.96 * std.error)) +
