@@ -163,6 +163,9 @@ gc_tbls <- function() {
         t_sumstats_bytreat = list(
             r_sbw = quote(r_sbw),
             caption = "analysis variables by treatment group"),
+        t_bal_bytreat = list(
+            r_sbw = quote(r_sbw),
+            caption = "Treatment-covariate correlations before and after weighting")
     )
 }
 

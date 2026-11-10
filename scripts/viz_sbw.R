@@ -434,7 +434,69 @@ gt_sumstats <- function(r_sbw) {
 ##   .[, .(N = sum(N)), .(regionsub.code, regionsub.name)] %>% .[order(-N)]
 
 
-gt_sumstats_bytreat <- function(r_sbw) {
+ess_w <- function(w) sum(w)^2 / sum(w^2)
+
+
+fmt_cor <- function(x, digits = 2L) {
+  #' format correlation cells for a table
+  #' @param x      numeric vector
+  #' @param digits number of decimals (scalar)
+  #' @return character vector, "--" where x is NA; rounded first so that a
+  #'   tiny negative correlation prints "0.000" rather than "-0.000"
+  ifelse(is.na(x), "--", sprintf(paste0("%.", digits, "f"), round(x, digits)))
+}
+
+
+gd_sbw_vrbl_lbl <- function(l_vrbls, dt_vrblinfo = gc_vvs() %>% chuck("dt_vrblinfo")) {
+  #' labels for SBW table rows
+  #'
+  #' Takes the project variable label (gc_vvs) where a variable is known, and
+  #' adds the lag distance for the pipeline-generated `_l<k>` columns, so that
+  #' `career_year_l2` reads "Career Year (t-2)" and `exn_all_cum2_log_l1` reads
+  #' "Prior Exhibitions (all types, log) (t-1)". Unknown columns keep their
+  #' column name.
+  #'
+  #' @param l_vrbls     column names, in table order
+  #' @param dt_vrblinfo variable info table (vrbl, vrbl_lbl), from gc_vvs()
+  #' @return character vector of labels, same length/order as l_vrbls
+
+  data.table(vrbl = l_vrbls) %>%
+    .[, base := sub("_l[0-9]+$", "", vrbl)] %>%
+    .[, dist := sub("^.*_l([0-9]+)$", "\\1", vrbl)] %>%
+    join(dt_vrblinfo[, .(base = vrbl, base_lbl = vrbl_lbl)], on = "base", how = "left", verbose = 0) %>%
+    .[, base_lbl := fifelse(is.na(base_lbl), base, base_lbl)] %>%
+    .[, fifelse(vrbl != base, sprintf("%s (t-%s)", base_lbl, dist), base_lbl)]
+
+}
+
+
+gd_sbw_bal_rows <- function(c_sbw) {
+  #' row metadata for the balance table
+  #'
+  #' The row set is the constraint set itself (gl_sbw_balcols), so the table
+  #' cannot drift from what the weights actually balance: treatment lags, then
+  #' covariates, then the extra balancing columns (in that order, as returned by
+  #' gl_sbw_balcols).
+  #'
+  #' @param c_sbw config (needs the FINAL covariate_cols / balance_cols, i.e.
+  #'   the config stored in a gl_sbw_proc result)
+  #' @return data.table (balcol, row_lbl, grp_lbl), in row order
+
+  c_sbw <- md_sbw_defaults(c_sbw)
+
+  l_bal <- gl_sbw_balcols(c_sbw)
+
+  ## three blocks: treatment history, covariates, extra balance columns
+  l_grp <- fifelse(l_bal %in% gd_sbw_shiftcols(c_sbw$treatment_cols, c_sbw$n_lag, "l"),
+                   "Exposure history (lags)",
+                   fifelse(l_bal %in% c_sbw$balance_cols,
+                           "Additional balance columns",
+                           "Covariates"))
+
+  data.table(balcol = l_bal, row_lbl = gd_sbw_vrbl_lbl(l_bal), grp_lbl = l_grp)
+}
+
+
 gd_sbw_bal_desc <- function(r_sbw, v_years = NULL) {
   #' group descriptives for the SBW report
   #'
@@ -495,6 +557,41 @@ gd_sbw_bal_desc <- function(r_sbw, v_years = NULL) {
 
   list(dt_mean = dt_mean, dt_supp = dt_supp)
 }
+
+
+gd_sbw_bal_cor <- function(r_sbw, v_years = NULL) {
+  #' balance correlations for the SBW report table
+  #'
+  #' The per-year raw and weighted treatment-balance correlations (one pair per
+  #' year, treat x balancing column) are averaged with EQUAL WEIGHT over years —
+  #' the same way the pooled DiD is an equal-weight fixed-effects average of the
+  #' per-year fits. A correlation is not pooled across the stacked panel on
+  #' purpose: the covariate distribution drifts over calendar time, so a pooled
+  #' correlation would mix within- and between-year variation.
+  #'
+  #' @param r_sbw   gl_sbw_proc output
+  #' @param v_years optional year subset; NULL = every year that has weights
+  #' @return list(dt_avg = (treat, balcol, cor_raw, cor_w),  # mean over years
+  #'              dt_max = (treat, max_raw, max_w))           # worst year
+
+  c_sbw <- md_sbw_defaults(r_sbw$config)
+  dt_long <- gd_sbw_bal_summary(r_sbw$dt_results, c_sbw, v_years = v_years, b_return_long = TRUE)
+
+  ## mean over years; NA where a balancing column had no variance in a year
+  dt_avg <- dt_long[, .(cor_raw = mean(cor_raw, na.rm = TRUE),
+                        cor_w = mean(cor_w, na.rm = TRUE)), .(treat, balcol)] %>%
+    .[is.nan(cor_raw), cor_raw := NA] %>%
+    .[is.nan(cor_w), cor_w := NA]
+
+  ## worst case over years and balancing columns, per treatment
+  dt_max <- dt_long[, .(max_raw = suppressWarnings(max(abs(cor_raw), na.rm = TRUE)),
+                        max_w = suppressWarnings(max(abs(cor_w), na.rm = TRUE))), treat] %>%
+    .[!is.finite(max_raw), max_raw := NA] %>%
+    .[!is.finite(max_w), max_w := NA]
+
+  list(dt_avg = dt_avg, dt_max = dt_max)
+}
+
 
 gt_sumstats_bytreat <- function(r_sbw, v_years = NULL) {
   #' descriptive table: analysis variables by treatment group (unweighted)
@@ -580,4 +677,89 @@ gt_sumstats_bytreat <- function(r_sbw, v_years = NULL) {
     landscape = T)
 
 }
+
+
+gt_bal_bytreat <- function(r_sbw, v_years = NULL, l_digits = NULL) {
+  #' balance table: raw vs weighted treatment-balance correlations
+  #'
+  #' One row per balancing column — treatment lags, covariates and the extra
+  #' balancing columns, i.e. exactly the constraint set (gd_sbw_bal_rows) — and
+  #' one column per treatment, with the unweighted and the weighted correlation
+  #' side by side. Cells are the equal-weighted mean over years (gd_sbw_bal_cor),
+  #' the footer holds the worst year x column |correlation| per treatment.
+  #'
+  #' @param r_sbw     gl_sbw_proc output
+  #' @param v_years   optional year subset; NULL = every year that has weights
+  #' @param l_digits  optional named vector of decimals per measure
+  #'   ("unw"/"wtd"); NULL = 2 unweighted, 3 weighted
+  #' @return jtls table object (see wtbl)
+
+  c_sbw <- md_sbw_defaults(r_sbw$config)
+  l_res <- gd_sbw_bal_cor(r_sbw, v_years = v_years)
+  dt_rows <- gd_sbw_bal_rows(c_sbw)
+  l_digits <- l_digits %||% c(unw = 2L, wtd = 3L)
+
+  ## long -> wide: treatment x (unweighted, weighted)
+  l_cols <- map(c_sbw$treatment_cols, ~paste0(.x, c("_unw", "_wtd"))) %>% unlist(use.names = FALSE)
+
+  dt_wide <- melt(l_res$dt_avg, id.vars = c("treat", "balcol"),
+                  measure.vars = c("cor_raw", "cor_w"), variable.name = "b_w",
+                  value.name = "vlu") %>%
+    .[, b_w := fcase(b_w == "cor_raw", "unw", default = "wtd")] %>%
+    dcast(balcol ~ treat + b_w, value.var = "vlu", fill = NA) %>%
+    setcolorder(c("balcol", l_cols))
+
+  ## format before any row reordering (the format step indexes the columns)
+  l_dig_cols <- l_digits[sub("^.*_(unw|wtd)$", "\\1", l_cols)] %>% setNames(l_cols)
+
+  dt_fmt <- copy(dt_wide) %>%
+    .[, (l_cols) := map(l_cols, ~fmt_cor(dt_wide[[.x]], l_dig_cols[[.x]]))] %>%
+    .[dt_rows, on = "balcol"] %>% # order by the constraint set, add labels
+    .[, .SD, .SDcols = c("row_lbl", "grp_lbl", l_cols)]
+
+  ## footer: worst case over years and balancing columns
+  dt_foot <- melt(l_res$dt_max, id.vars = "treat", variable.name = "b_w", value.name = "vlu") %>%
+    .[, b_w := fcase(b_w == "max_raw", "unw", default = "wtd")] %>%
+    .[, vlu := fmt_cor(vlu, 3L)] %>%
+    dcast(. ~ treat + b_w, value.var = "vlu") %>%
+    setcolorder(l_cols) %>%
+    .[, `:=`(row_lbl = "Max. abs. cor across years", grp_lbl = "")] %>%
+    .[, .SD, .SDcols = c("row_lbl", "grp_lbl", l_cols)]
+
+  dt_viz <- rbind(dt_fmt, dt_foot, fill = TRUE)
+
+  dt_out <- dt_viz[, .SD, .SDcols = setdiff(names(dt_viz), "grp_lbl")] # grp_lbl is only for the row-block labels
+
+  ## header: treatment spanner over each unw/wtd pair
+  l_collbls <- c(list(row_lbl = "Variable"),
+                 setNames(as.list(rep(c("raw", "SBW"), times = length(c_sbw$treatment_cols))),
+                          l_cols))
+
+  c_colnames <- gc_colnames(names(dt_out), l_collbls, hline_above = F,
+                            align = as.list(c("l", rep("r", length(l_cols)))))
+  c_spanner <- gc_spanner(c("", toupper(gsub("^exn_", "", c_sbw$treatment_cols))),
+                          c(1, rep(2, length(c_sbw$treatment_cols))))
+
+  ## row block labels (balancing rows only, the footer has no block)
+  dt_grpstrs <- gc_grpstrs(dt_fmt, grp = "grp_lbl", nbr_cols = ncol(dt_out))
+
+  c_atr <- list(
+    pos = c(list(-1, 0, 0), dt_grpstrs$pos),
+    command = c(c_spanner, c_colnames, "\\hline \n", dt_grpstrs$grpstr))
+
+  list(
+    dt_fmtd = dt_out,
+    align_cfg = c("l", "l", rep("r", length(l_cols))), # xtable: rownames + one entry per column
+    hline_after = c(nrow(dt_fmt), nrow(dt_viz)), # before the footer, and at the bottom
+    add_to_row = c_atr,
+    number_cols = c(F, rep(T, length(l_cols))), # length must equal ncol (subset by position)
+    landscape = T)
 }
+
+
+## map(c(l_treats, "no_treatment"),
+##     ~r_sbw$dt_results[get(.x) > 0 & !is.na(w_sbw),
+##                       .(mean_uw = mean(career_year), mean_wtd = weighted.mean(career_year, w_sbw),
+##                         mean_twtd = weighted.mean(career_year, w_sbw*get(.x)),
+##                         treat = .x)]) %>% rbindlist
+
