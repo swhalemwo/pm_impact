@@ -435,5 +435,149 @@ gt_sumstats <- function(r_sbw) {
 
 
 gt_sumstats_bytreat <- function(r_sbw) {
+gd_sbw_bal_desc <- function(r_sbw, v_years = NULL) {
+  #' group descriptives for the SBW report
+  #'
+  #' Groups are `exn_X > 0` for each treatment, `none` (no exposure of any type)
+  #' and `all`. Means are UNWEIGHTED on purpose: because the weights drive the
+  #' treatment-covariate correlation to (about) zero, every weighted group mean
+  #' collapses onto the overall mean, so a weighted version of this table
+  #' carries no treatment-specific information. The weighted side of the story
+  #' is the correlation table (gd_sbw_bal_cor).
+  #'
+  #' All group means are computed in one go as a (group x variable) crossproduct
+  #' divided by the group sizes — no per-variable loop.
+  #'
+  #' @param r_sbw   gl_sbw_proc output
+  #' @param v_years optional year subset; NULL = every year that has weights
+  #' @return list(dt_mean = long (grp, vrbl, vlu),
+  #'              dt_supp = (grp, n, n_artists, ess_ratio))
 
+  c_sbw <- md_sbw_defaults(r_sbw$config)
+  dt_res <- r_sbw$dt_results[!is.na(get(c_sbw$wcol))]
+  if (!is.null(v_years)) dt_res <- dt_res[get(c_sbw$tid) %in% v_years]
+
+  ## group membership: positive dose per type, none, all
+  m_trt <- as.matrix(dt_res[, .SD, .SDcols = c_sbw$treatment_cols])
+  m_grp <- cbind(sign(m_trt) > 0, rowSums(sign(m_trt)) == 0, rep(TRUE, nrow(m_trt)))
+  colnames(m_grp) <- c(c_sbw$treatment_cols, "none", "all")
+  l_grps <- colnames(m_grp)
+
+  ## group means: (group x variable) crossproduct / group size
+  m_vlu <- as.matrix(dt_res[, .SD, .SDcols = c(c_sbw$treatment_cols, c_sbw$covariate_cols)])
+  m_mean <- crossprod(m_grp * 1L, m_vlu) / colSums(m_grp)
+
+  dt_mean_wtd <- map(l_grps, ~dt_res[which(m_grp[,.x] == T), lapply(.SD, weighted.mean, w_sbw),
+                      .SDcols = c(c_sbw$treatment_cols, c_sbw$covariate_cols)]) %>% rbindlist %>%
+    .[, grp := l_grps] %>%
+    melt(id.vars = "grp", value.vars = c(c_sbw$treatment_cols, c_sbw$covariate_cols),
+         variable.name = "vrbl", value.name = "vlu") %>%
+    .[, src := "wtd"]
+
+  ## dt_res
+
+
+  dt_mean_uwtd <- adt(m_mean, keep.rownames = "grp") %>%
+    melt(id.vars = "grp", variable.name = "vrbl", value.name = "vlu", variable.factor = FALSE) %>%
+    .[, grp := factor(grp, levels = l_grps)] %>%
+    .[, src := "uwtd"]
+
+  dt_mean <- rbind(dt_mean_wtd, dt_mean_uwtd)
+
+
+  ## support: group size, artists (rows repeat within artist), ESS within group
+  w <- dt_res[[c_sbw$wcol]]
+  v_nart <- map(l_grps, ~dt_res[m_grp[, .x], uniqueN(get(c_sbw$uid))]) %>% unlist
+  v_ess <- map(l_grps, ~ess_w(w[m_grp[, .x]])) %>% unlist
+
+  dt_supp <- data.table(grp = l_grps, n = colSums(m_grp), n_artists = v_nart, ess = v_ess,
+                        ess_ratio = v_ess / colSums(m_grp))
+
+  list(dt_mean = dt_mean, dt_supp = dt_supp)
+}
+
+gt_sumstats_bytreat <- function(r_sbw, v_years = NULL) {
+  #' descriptive table: analysis variables by treatment group (unweighted)
+  #'
+  #' Rows are the variables (exposures at t, then covariates), columns the groups:
+  #' all artist-years, one column per treatment (positive dose), and the
+  #' no-exposure group. The footer carries the group size, the number of distinct
+  #' artists (rows repeat within artist) and the ESS as a share of the group size.
+  #'
+  #' @param r_sbw   gl_sbw_proc output
+  #' @param v_years optional year subset; NULL = every year that has weights
+  #' @return jtls table object (see wtbl)
+
+  c_sbw <- md_sbw_defaults(r_sbw$config)
+  l_res <- gd_sbw_bal_desc(r_sbw, v_years = v_years)
+
+  ## row metadata: exposures at t, then covariates, in config order
+  dt_rows <- data.table(vrbl = c(c_sbw$treatment_cols, c_sbw$covariate_cols)) %>%
+    .[, grp_lbl := c(rep("Exposure at t", length(c_sbw$treatment_cols)),
+                 rep("Covariates", length(c_sbw$covariate_cols)))] %>%
+    .[, row_lbl := gd_sbw_vrbl_lbl(vrbl)]
+
+  ## wide: rows x groups (all, treatments, none), formatted as means
+  l_grps <- c("all", c_sbw$treatment_cols, "none")
+
+  dt_fmt <- l_res$dt_mean %>% copy %>% 
+    .[, vlu_fmt := sprintf("%.2f", vlu)] %>%
+    dcast(vrbl + grp ~ src , value.var = "vlu_fmt") %>%
+    .[, cell_fmt := sprintf("%s (%s)", uwtd, wtd)] %>%
+    dcast(vrbl ~ grp, value.var = "cell_fmt") %>%
+    .[dt_rows, on = "vrbl"] %>% # reorder rows to the config order
+    .[, .SD, .SDcols = c("row_lbl", "grp_lbl", l_grps)]
+
+  ## l_grps2 <- outer(l_grps, c("_uwtd", "_wtd"), paste0) %>% t %>% as.vector
+
+  ## dt_fmt <- dcast(l_res$dt_mean, vrbl ~ grp + src, value.var = "vlu", fill = NA) %>% 
+  ##   ## setcolorder(paste0(c("vrbl", l_grps),) %>%
+  ##   .[, (l_grps2) := map(.SD, ~sprintf("%.2f", .x)), .SDcols = l_grps2] %>%
+  ##   .[dt_rows, on = "vrbl"] %>% # reorder rows to the config order
+  ##   .[, .SD, .SDcols = c("row_lbl", "grp_lbl", l_grps2)]
+
+  ## footer: group size, artists, ESS share
+  dt_foot <- copy(l_res$dt_supp) %>%
+    .[, `:=`(n = format(n, big.mark = " ", trim = TRUE),
+             n_artists = format(n_artists, big.mark = " ", trim = TRUE),
+             ess = format(round(ess), big.mark = " ", trim = TRUE),
+             ess_ratio = sprintf("%.1f", 100 * ess_ratio))] %>%
+    melt(id.vars = "grp", variable.name = "stat", value.name = "vlu") %>%
+    .[, stat := factor(stat, levels = c("n", "n_artists", "ess", "ess_ratio"))] %>%
+    dcast(stat ~ grp, value.var = "vlu") %>%
+    .[order(stat)] %>%
+    .[, `:=`(row_lbl = c("N (artist-years)", "N (artists)", "ESS", "ESS / N (\\%)")[stat], grp_lbl = "")] %>%
+    .[, .SD, .SDcols = c("row_lbl", "grp_lbl", l_grps)]
+
+  dt_viz <- rbind(dt_fmt, dt_foot, fill = TRUE) %>%
+    .[, (l_grps) := map(.SD, ~fifelse(is.na(.x), "", .x)), .SDcols = l_grps]
+
+  dt_out <- dt_viz[, .SD, .SDcols = setdiff(names(dt_viz), "grp_lbl")] # grp_lbl is only for the row-block labels
+
+  ## header: reference / treatment group spanner over the column labels
+  l_collbls <- c(list(row_lbl = "Variable", all = "All"),
+                 setNames(as.list(toupper(gsub("^exn_", "", c_sbw$treatment_cols))), c_sbw$treatment_cols),
+                 list(none = "None"))
+
+  c_colnames <- gc_colnames(names(dt_out), l_collbls, hline_above = F,
+                            align = as.list(c("l", rep("r", length(l_grps)))))
+  c_spanner <- gc_spanner(c("", "", "Exhibition type (positive dose)", ""),
+                          c(1, 1, length(c_sbw$treatment_cols), 1))
+
+  ## row block labels (variable rows only, the footer has no block)
+  dt_grpstrs <- gc_grpstrs(dt_fmt, grp = "grp_lbl", nbr_cols = ncol(dt_out))
+
+  c_atr <- list(
+    pos = c(list(-1, 0, 0), dt_grpstrs$pos),
+    command = c(c_spanner, c_colnames, "\\hline \n", dt_grpstrs$grpstr))
+
+  list(
+    dt_fmtd = dt_out,
+    align_cfg = c("l", "l", rep("r", length(l_grps))), # xtable: rownames + one entry per column
+    hline_after = c(nrow(dt_fmt), nrow(dt_viz)), # before the footer, and at the bottom
+    add_to_row = c_atr,
+    number_cols = c(F, rep(T, length(l_grps))), # length must equal ncol (subset by position)
+    landscape = T)
+
+}
 }

@@ -159,7 +159,10 @@ gc_tbls <- function() {
             caption = "most influential orgs (cnt)"),
         t_sumstats = list(
             r_sbw = quote(r_sbw),
-            caption = "sumstats")
+            caption = "sumstats"),
+        t_sumstats_bytreat = list(
+            r_sbw = quote(r_sbw),
+            caption = "analysis variables by treatment group"),
     )
 }
 
