@@ -204,7 +204,11 @@ gc_vvs <- function() {
         exn_pm_cum_log   = "Prior Exhibitions (Private Museums, log)",  
         exn_toti_cum_log  = "Prior Exhibitions (Top-tier Museums, log)",
         exn_oes_cum_log  = "Prior Exhibitions (Other Exhibition Spaces, log)",
-        exn_gallery_cum_log = "Prior Exhibitions (Galleries, log)") %>%
+        exn_gallery_cum_log = "Prior Exhibitions (Galleries, log)",
+        aucturn_cum2_log = "Prior Auction Turnover (log)",
+        auc_turnover_log = "Auction Turnover (log)",
+        auc_any = "Any Auction Turnover",
+        auc_ever = "Any Prior Auction Turnover") %>%
         setNames(names(.), .)  # adjust order to allow easy combinations
 
 
