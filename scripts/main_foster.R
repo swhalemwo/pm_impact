@@ -236,6 +236,11 @@ r_did <- gl_sbw_did(r_sbw)
 dt_coef_did <- gd_sbw_coef_did(r_did)
 
 dt_euro <- gd_auc_euro(r_sbw, r_did, dt_coef_did)
+## dt_euro2 <- gd_auc_euro(r_sbw, r_did, dt_coef_did, b_ref = "t-1")
+
+## dt_euro2[dv == "aucturn_cum2_log"] %>%
+##     .[, .(dv, tp, mdl, term, estimate = euro, std.error = se_euro)] %>% 
+##     gp_coef_did
 
 
 r_sbw$dt_results[w_sbw > 1e-8, uniqueN(PeopleID)]
