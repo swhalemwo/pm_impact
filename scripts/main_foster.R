@@ -216,10 +216,14 @@ c_sbw <- list(
                        "auc_turnover_log", "aucturn_cum2_log",
                        "auc_any", "auc_ever"),
   outcome_cols   = c("aucturn_cum3_log"),
-  balance_lags = list(aucturn_cum2_log = c(1,3),
-                      auc_turnover_log = c(1,3),
-                      auc_any = c(1,3),
-                      auc_ever = c(1,3)),
+  ## balance_lags = list(aucturn_cum2_log = c(1,3),
+  ##                     auc_turnover_log = c(1,3),
+  ##                     auc_any = c(1,3),
+  ##                     auc_ever = c(1,3)),
+  balance_lags = list(aucturn_cum2_log = 1:4,
+                      auc_turnover_log = 1:4,
+                      auc_any = 1:4,
+                      auc_ever = 1:4),
   n_lag          = 4L,                  # lags of all treatments balanced
   n_lag_cov      = 0L,                  # lags of covariates (numeric only)
   impact_years   = 6L,                  # outcome window d1..dK
