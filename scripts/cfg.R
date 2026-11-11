@@ -124,7 +124,7 @@ gc_plts <- function() {
             dt_euro = quote(dt_euro),
             width = 14,
             height = 18,
-            caption = "Event study plots (annual, cumulative)")
+            caption = "Event study plots (annual and cumulative)")
         
         
         ## p_grow_arrow = list(#  dont re-render for now

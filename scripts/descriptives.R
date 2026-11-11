@@ -204,6 +204,67 @@ gt_insgrow5_topcnt <- function(dt_insgrow5, dt_af_instns_rcd, l_cols_summary) {
 
 gd_nbrs <- function() {
 
+  ## PMDB descriptives
+
+  l_pmdb_desc <- list(
+    list(nbr_name = "pmdb_n_all",    nbr_fmt = dt_pmdb[, .N]),
+    list(nbr_name = "pmdb_open_atm", nbr_fmt = dt_pmdb[museum_status == "private museum", .N]),
+    list(nbr_name = "pm_n_closed",   nbr_fmt = dt_pmdb[museum_status == "closed", .N]),
+    list(nbr_name = "nbr_cry_wal1pm", nbr_fmt = dt_pmdb[, uniqueN(iso3c)]),
+    list(nbr_name = "nbr_pm_opnd_snc2k", nbr_fmt = dt_pmdb[year_opened >= 2000, .N]),
+    list(nbr_name = "perc_pm_opnd_snc2k", nbr_fmt = round(dt_pmdb[year_opened >= 2000, 100*.N]/dt_pmdb[, .N]))
+  )
+
+  dt_pm_regsub <- dt_pmdb %>% copy() %>% .[, region := countrycode(iso3c, "iso3c", "un.regionsub.name",
+                                                                   custom_match = c("TWN" = "South-eastern Asia"))] %>%
+    .[, .N, region] %>% .[order(-N)] %>% .[1:5] %>%
+    .[, .(nbr_name = paste0("regsub_cnt_", gsub(" ", "_", region)), nbr_fmt = N, grp = "pm_desc")]
+  
+  dt_pmdb_desc <- rbind(rbindlist(l_pmdb_desc)[, grp := "pm_desc"], dt_pm_regsub)
+
+  dt_af_exhbs[dt_af_instns_rcd[InstitutionType == "pm"], on = "InstitutionID"][, .N]
+  
+
+  ## Lotsearch descriptives
+  l_ls_desc <- list(
+        list(nbr_name = "ls_n_artist", nbr_fmt = dt_ls_aucres[, format(uniqueN(url), big.mark = " ")]),
+        list(nbr_name = "ls_n_sales", nbr_fmt = dt_ls_aucres[, format(sum(count), big.mark = " ")]),
+        list(nbr_name = "ls_af_match", nbr_fmt = dt_af_ls_matches[, .N]),
+        list(nbr_name = "ls_af_count", nbr_fmt = dt_ls_af_aucres[, format(sum(count), big.mark = " ")]),
+        ## list(nbr_name = "ls_ap_frac_mean", nbr_fmt = dt_aucinfo_agg[, format(mean(frac_ls_aprep)*100,digits = 2)]),
+        ## list(nbr_name = "ls_ap_frac_min", nbr_fmt = dt_aucinfo_agg[, format(min(frac_ls_aprep)*100,digits = 2)]),
+        ## list(nbr_name = "ls_ap_frac_max", nbr_fmt = dt_aucinfo_agg[, format(max(frac_ls_aprep)*100,digits = 2)]),
+        list(nbr_name = "ls_af_perc_included",
+             nbr_fmt = format(round(100*dt_af_ls_matches[, .N]/dt_exhbppl[, uniqueN(PeopleID)],1))),
+        list(nbr_name = "ls_af_turnover_ttl", nbr_fmt = dt_ls_af_aucres[, format(sum(count*price)/1e9, digits = 3)])
+    )
+        
+  dt_ls_desc <- rbindlist(l_ls_desc)[, grp := "ls_desc"]
+
+  
+
+  ## processing descriptives
+
+  dt_proc_desc <- tribble(
+    ~nbr_name, ~nbr_fmt,
+    "panel_atyear_N", dt_atyear_foster[, .N],
+    "panel_atyear_filter_elig_N", dt_atyear_foster[exn_all_cum > 10, .N],
+    "panel_atyear_active", r_sbw$dt_result[!is.na(w_sbw), .N]) %>% adt %>%
+    .[, `:=`(grp = "proc_desc", nbr_fmt = format(nbr_fmt, big.mark = " "))]
+
+
+  dt_treatnbrs <- r_sbw$dt_result[!is.na(w_sbw), map(.SD, sum), .SDcols = l_treats] %>%
+    .[, exn_all := sum(.SD)] %>% 
+    melt(measure.vars = names(.)) %>%
+    .[, .(nbr_name = paste0("nbr_treats_", variable), nbr_fmt = format(value, big.mark = " ", trim = T),
+          grp = "treatnbrs")]
+
+
+
+  ## ESS descriptives
+
+
+  ## artfacts descriptives
   l_af_desc_prep <- list(
     list(nbr_name = "N_af_people", nbr_fmt = dt_af_people[, format(.N, big.mark = " ")]),
     list(nbr_name = "N_af_instns", nbr_fmt = dt_af_instns[, format(.N, big.mark = " ")]),
@@ -267,7 +328,7 @@ gd_nbrs <- function() {
 
 
   dt_nbrs_cbnd <- rbindlist(list(dt_ynkplt, dt_refplt, dt_reftbl, dt_af_desc, dt_ofexbh, dt_tanp_info,
-                                 dt_instype_info, dt_datasize))
+                                 dt_instype_info, dt_datasize, dt_pmdb_desc, dt_ls_desc, dt_proc_desc, dt_treatnbrs))
   return(dt_nbrs_cbnd)
 
 }
