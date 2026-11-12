@@ -193,7 +193,8 @@ dt_atyear_foster <- gd_atyear_foster(dt_atyear_raw, c_datargs$baby) %>%
 ## dt_atyear_foster[PeopleID == 259, .(aucturn_cum, aucturn_cum2, auc_turnover)] %>% print(n=80)
 
 
-dt_atyear_foster[, aucturn_cum3_log := aucturn_cum2_log]
+dt_atyear_foster[, aucturn_cum3_log := aucturn_cum2_log] %>%
+    .[, auc_turnover2_log := auc_turnover_log]
 
 c_sbw <- list(
   dt_panel   = dt_atyear_foster,  # full panel, complete grid
@@ -210,12 +211,13 @@ c_sbw <- list(
                      "exn_event_cum_log", "exn_pi_cum_log", "exn_pm_cum_log", "exn_oes_cum_log", "exn_toti_cum_log",
                      "atsubreg_145","atsubreg_151","atsubreg_154","atsubreg_155","atsubreg_21",
                      "atsubreg_30","atsubreg_39","atsubreg_419","atsubreg_53"),
-  outcome_cols_cur = c("exn_all_cum2", "exn_toti_cum2", "exn_pi_cum2", "exn_pm_cum2",
-                       "exn_oes_cum2", "exn_gallery_cum2", "exn_event_cum2",
-                       "auc_turnover", "aucturn_cum2", "aucturn_cum",
-                       "auc_turnover_log", "aucturn_cum2_log",
-                       "auc_any", "auc_ever"),
-  outcome_cols   = c("aucturn_cum3_log"),
+  outcome_cols_cur = c(# "exn_all_cum2", "exn_event_cum2", "exn_gallery_cum2",  "aucturn_cum",
+      ## "auc_any", "auc_ever"
+      "exn_toti_cum2", "exn_pi_cum2", "exn_pm_cum2",
+      "exn_oes_cum2", 
+      "auc_turnover", "aucturn_cum2", 
+      "auc_turnover_log", "aucturn_cum2_log"),
+  outcome_cols   = c("aucturn_cum3_log", "auc_turnover2_log"),
   ## balance_lags = list(aucturn_cum2_log = c(1,3),
   ##                     auc_turnover_log = c(1,3),
   ##                     auc_any = c(1,3),
