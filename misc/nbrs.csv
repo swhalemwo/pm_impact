@@ -111,3 +111,25 @@ nbr_treats_exn_pi,266 263,treatnbrs
 nbr_treats_exn_pm,19 436,treatnbrs
 nbr_treats_exn_toti,12 071,treatnbrs
 nbr_treats_exn_all,407 681,treatnbrs
+termtoti_dvexn_pi_annual_1,0.37,coefs
+termoes_dvexn_pi_annual_1,0.12,coefs
+termpi_dvexn_oes_cum2_cum_6,0.29,coefs
+termpm_dvexn_oes_cum2_cum_6,0.31,coefs
+termpi_dvexn_pi_cum2_cum_6,1.2,coefs
+termpm_dvexn_pi_cum2_cum_6,1.3,coefs
+termpi_dvauc_turnover_log_sum_cum_6,4497,coefs
+termpm_dvauc_turnover_log_sum_cum_6,12279,coefs
+termpi_dvexn_toti_cum2_cum_6,0.058,coefs
+termpm_dvexn_toti_cum2_cum_6,0.1,coefs
+sizechng_ess_exn_pm,3913,sizechng
+sizechng_ess_exn_pi,48861,sizechng
+sizechng_ess_exn_oes,26342,sizechng
+sizechng_ess_exn_toti,1733,sizechng
+sizechng_ess_none,21467,sizechng
+sizechng_ess_all,79344,sizechng
+sizechng_ess_perc_exn_pm,26,sizechng
+sizechng_ess_perc_exn_pi,45,sizechng
+sizechng_ess_perc_exn_oes,38,sizechng
+sizechng_ess_perc_exn_toti,18,sizechng
+sizechng_ess_perc_none,24,sizechng
+sizechng_ess_perc_all,35,sizechng

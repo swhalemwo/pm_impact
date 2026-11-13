@@ -262,6 +262,31 @@ gd_nbrs <- function() {
 
 
   ## ESS descriptives
+  dt_sizechng <- gd_sbw_bal_desc(r_sbw)$dt_supp %>%
+                         .[, ess_perc := ess_ratio *100] %>% 
+                         melt(id.vars = "grp", measure.vars = c("ess","ess_perc")) %>%
+                         .[, .(nbr_name = sprintf("sizechng_%s_%s", variable, grp),
+                               nbr_fmt = format(value, digits = 2)), .I] %>%
+                         .[, `:=`(I = NULL, grp = "sizechng")]
+
+
+  ## coef descriptives
+  dt_coefs <- rbind(
+    dt_coef_viz[tp == 1 & term == "exn_toti" & dv == "exn_pi"],
+    dt_coef_viz[tp == 1 & term == "exn_oes" & dv == "exn_pi"],
+    dt_coef_viz[tp == 6 & term == "exn_pi" & dv == "exn_oes_cum2"],
+    dt_coef_viz[tp == 6 & term == "exn_pm" & dv == "exn_oes_cum2"],
+    dt_coef_viz[tp == 6 & term == "exn_pi" & dv == "exn_pi_cum2"],
+    dt_coef_viz[tp == 6 & term == "exn_pm" & dv == "exn_pi_cum2"],
+    dt_coef_viz[tp == 6 & term == "exn_pi" & dv == "auc_turnover_log_sum"],
+    dt_coef_viz[tp == 6 & term == "exn_pm" & dv == "auc_turnover_log_sum"],
+    dt_coef_viz[tp == 6 & term == "exn_pi" & dv == "exn_toti_cum2"],
+    dt_coef_viz[tp == 6 & term == "exn_pm" & dv == "exn_toti_cum2"]
+    ) %>%
+    .[, .(nbr_name = sprintf("term%s_dv%s_%s_%s", term_pure, dv, outcome_type, tp),
+          nbr_fmt = format(estimate, digits = 2)), .I] %>%
+    .[, `:=`(I = NULL, grp = "coefs")]
+  
 
 
   ## artfacts descriptives
@@ -328,7 +353,8 @@ gd_nbrs <- function() {
 
 
   dt_nbrs_cbnd <- rbindlist(list(dt_ynkplt, dt_refplt, dt_reftbl, dt_af_desc, dt_ofexbh, dt_tanp_info,
-                                 dt_instype_info, dt_datasize, dt_pmdb_desc, dt_ls_desc, dt_proc_desc, dt_treatnbrs))
+                                 dt_instype_info, dt_datasize, dt_pmdb_desc, dt_ls_desc, dt_proc_desc,
+                                 dt_treatnbrs, dt_coefs, dt_sizechng))
   return(dt_nbrs_cbnd)
 
 }
