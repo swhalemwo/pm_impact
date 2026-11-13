@@ -78,8 +78,9 @@ gc_plts <- function() {
             width = 14, height = 12,
             caption = "Event study plot (cumulative DV) with no-treatment group"),
         p_compact = list(
-            dt_coef = quote(dt_coef_did),
-            dt_euro = quote(dt_euro),
+            ## dt_coef = quote(dt_coef_did),
+            ## dt_euro = quote(dt_euro),
+            dt_coef_viz = quote(dt_coef_viz),
             width = 14, height = 12,
             caption = "Event study coefficients (cumulative) at t=6"),
         p_cpct_intr_cpeqntl = list(
@@ -120,9 +121,7 @@ gc_plts <- function() {
             width = 14, height = 7,
             caption = "Event study plot of exhibition effects on auction turnover"),
         p_evst_annual_cum = list(
-            dt_coef_did = quote(dt_coef_did),
-            dt_euro = quote(dt_euro),
-            dt_auccum = quote(dt_auccum),            
+            dt_coef_viz = quote(dt_coef_viz),
             width = 14,
             height = 18,
             caption = "Event study plots (annual and cumulative)")

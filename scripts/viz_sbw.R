@@ -28,32 +28,40 @@ gp_evst_cum_wintcpt <- function(dt_coef) {
         gp_coef_did
 }
 
-gp_compact <- function(dt_coef, dt_euro) {
+gp_compact <- function(dt_coef_viz) {
   
+  #' only look at last time point
   c_vvs <- gc_vvs()
   
-
-  dt_viz <- rbind(dt_coef[term != "no_treatment" & grepl(paste0(l_treats, collapse = "|"), dv)],
-        dt_euro[dv == "aucturn_cum2_log",
-                .(mdl, term, estimate = euro, std.error = se_euro, statistic, p.value, dv, tp)]) %>%
-    .[tp == max(tp) & grepl("cum2", dv)] %>%
-    # reorder treatments and facets (DVs)
-    .[, term_pure := str_extract(term, paste0(c(gsub("exn_", "", l_treats), "no_treatment"), collapse = "|"))] %>%
-    .[, dv_pure := str_extract(dv, paste0(c_vvs$l_orgforms, collapse = "|"))] %>% 
-    .[dv == "aucturn_cum2_log", dv_pure := "auc"] %>%
-    .[, dv_pure := factor(dv_pure, levels = c(gsub("exn_", "", l_treats), "auc"))] %>%
+  ## dt_viz <- rbind(dt_coef[term != "no_treatment" & grepl(paste0(l_treats, collapse = "|"), dv)],
+  ##       dt_euro[dv == "aucturn_cum2_log",
+  ##               .(mdl, term, estimate = euro, std.error = se_euro, statistic, p.value, dv, tp)]) %>%
+  ##   .[tp == max(tp) & grepl("cum2", dv)] %>%
+  ##   # reorder treatments and facets (DVs)
+  ##   .[, term_pure := str_extract(term, paste0(c(gsub("exn_", "", l_treats), "no_treatment"), collapse = "|"))] %>%
+  ##   .[, dv_pure := str_extract(dv, paste0(c_vvs$l_orgforms, collapse = "|"))] %>% 
+  ##   .[dv == "aucturn_cum2_log", dv_pure := "auc"] %>%
+  ##   .[, dv_pure := factor(dv_pure, levels = c(gsub("exn_", "", l_treats), "auc"))] %>%
+  ##   .[order(dv_pure)] %>%
+  ##   .[, dv := factor(dv, levels = unique(dv))]
+    
+  dt_viz <- dt_coef_viz[(outcome_type == "cum" | dv == "auc_turnover_log_sum") & tp == 6] %>% copy %>%
+    .[, dv_pure := str_extract(dv, paste0(c_vvs$l_orgforms, collapse = "|"))] %>%
+    .[dv == "auc_turnover_log_sum", dv_pure := "auc"] %>%
     .[order(dv_pure)] %>%
-    .[, dv := factor(dv, levels = unique(dv))]
-    
-    
+    .[, dv_pure := factor(dv_pure, levels = c(gsub("exn_", "", l_treats), "auc"))]
+  
   
   l_lbls <- c_vvs$dt_vrblinfo[, setNames(vrbl_lbl, vrbl)]
 
-  dt_lbls <- dt_viz[, .N, .(dv_pure = as.character(dv_pure))] %>%
-    .[, lbl := l_lbls[dv_pure]] %>% 
-    .[dv_pure == "auc", lbl := "Auction Turnover"]
+  ## dt_lbls <- dt_viz[, .N, .(dv_pure = as.character(dv_pure))] %>%
+  ##   .[, lbl := l_lbls[dv_pure]] %>% 
+  ##   .[dv_pure == "auc", lbl := "Auction Turnover"]
 
-  
+  dt_lbls <- dt_viz[, .(dv_pure = unique(dv_pure))] %>%
+    .[, lbl := l_lbls[dv_pure]]
+
+
   ggplot(dt_viz, aes(x=estimate, y = term_pure, color = term_pure,
              xmin = estimate - 1.96 * std.error, xmax = estimate + 1.96 * std.error)) +
     geom_point() +
@@ -804,13 +812,10 @@ gt_bal_bytreat <- function(r_sbw, v_years = NULL, l_digits = NULL) {
 ##                         mean_twtd = weighted.mean(career_year, w_sbw*get(.x)),
 ##                         treat = .x)]) %>% rbindlist
 
-gp_evst_annual_cum <- function(dt_coef_did, dt_euro, dt_auccum) {
-
+gd_coef_viz <- function(dt_coef_did, dt_euro, dt_auccum) {
   c_vvs <- gc_vvs()
   l_lbls <- c_vvs$dt_vrblinfo[, setNames(vrbl_lbl, vrbl)]
-
-
-
+  
   dt_cbns <- CJ(outcome = c(l_treats, "auc"), outcome_type = c("annual", "cum")) %>%
     .[, outcome := factor(outcome, levels = c(l_treats, "auc"))] %>%
     .[order(outcome)] %>% 
@@ -818,7 +823,7 @@ gp_evst_annual_cum <- function(dt_coef_did, dt_euro, dt_auccum) {
     .[, outcome_lbl := ifelse(outcome_type == "cum", "Cum.", "Annual")] %>%
     .[, vrbl_lbl := l_lbls[gsub("exn_", "", outcome)]] %>%
     .[, facet_lbl := sprintf("%s (%s)", vrbl_lbl, outcome_lbl)]
-    
+  
   ## some manual specfication of auction turnover
   dt_cbns[dv == "auc" & outcome_type == "annual", dv := "auc_turnover2_log"]
   dt_cbns[dv == "auc_cum2" & outcome_type == "cum", dv := "auc_turnover_log_sum"]
@@ -839,8 +844,20 @@ gp_evst_annual_cum <- function(dt_coef_did, dt_euro, dt_auccum) {
   dt_coef_viz2 <- join(dt_coef_viz, dt_cbns[, .(dv, facet_lbl)], on = "dv") %>%
     .[, dv := factor(dv, levels = dt_cbns[, dv])]
 
+  return(dt_coef_viz2)
+}
 
-  dt_coef_viz2 %>% 
+
+gp_evst_annual_cum <- function(dt_coef_viz) {
+
+  c_vvs <- gc_vvs()
+  l_lbls <- c_vvs$dt_vrblinfo[, setNames(vrbl_lbl, vrbl)]
+
+
+  dt_cbns <- dt_coef_viz[, .(dv, facet_lbl)] %>% unique 
+
+
+  dt_coef_viz %>% 
     ggplot(aes(x=factor(tp), y = estimate, color = term_pure,
                ymin = estimate - 1.96*std.error, ymax = estimate + 1.96*std.error)) +
     geom_point() + geom_errorbar() +
