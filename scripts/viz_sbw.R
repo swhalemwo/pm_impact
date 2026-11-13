@@ -45,7 +45,7 @@ gp_compact <- function(dt_coef_viz) {
   ##   .[order(dv_pure)] %>%
   ##   .[, dv := factor(dv, levels = unique(dv))]
     
-  dt_viz <- dt_coef_viz[(outcome_type == "cum" | dv == "auc_turnover_log_sum") & tp == 6] %>% copy %>%
+  dt_viz <- dt_coef_viz[(outcome_type == "cum") & tp == 6] %>% copy %>%
     .[, dv_pure := str_extract(dv, paste0(c_vvs$l_orgforms, collapse = "|"))] %>%
     .[dv == "auc_turnover_log_sum", dv_pure := "auc"] %>%
     .[order(dv_pure)] %>%
@@ -59,9 +59,9 @@ gp_compact <- function(dt_coef_viz) {
   ##   .[dv_pure == "auc", lbl := "Auction Turnover"]
 
   dt_lbls <- dt_viz[, .(dv_pure = unique(dv_pure))] %>%
-    .[, lbl := l_lbls[dv_pure]]
+    .[, lbl := l_lbls[as.character(dv_pure)]]
 
-
+  
   ggplot(dt_viz, aes(x=estimate, y = term_pure, color = term_pure,
              xmin = estimate - 1.96 * std.error, xmax = estimate + 1.96 * std.error)) +
     geom_point() +
@@ -813,6 +813,7 @@ gt_bal_bytreat <- function(r_sbw, v_years = NULL, l_digits = NULL) {
 ##                         treat = .x)]) %>% rbindlist
 
 gd_coef_viz <- function(dt_coef_did, dt_euro, dt_auccum) {
+
   c_vvs <- gc_vvs()
   l_lbls <- c_vvs$dt_vrblinfo[, setNames(vrbl_lbl, vrbl)]
   
@@ -837,7 +838,7 @@ gd_coef_viz <- function(dt_coef_did, dt_euro, dt_auccum) {
     rbind(dt_auccum[dv == "auc_turnover2_log",
                     .(term, estimate = sum_euro, std.error = se_euro, statistic = 1, p.value = p_euro,
                       dv = "auc_turnover_log_sum", tp = tp_end)]) %>% 
-    .[, outcome_type := ifelse(grepl("cum2", dv), "cum", "annual")] %>%
+    .[, outcome_type := ifelse(grepl("cum2|_sum", dv), "cum", "annual")] %>%
     .[term != "no_treatment"] %>% 
     .[, term_pure := str_extract(term, paste0(c(gsub("exn_", "", l_treats), "no_treatment"), collapse = "|"))]
 
