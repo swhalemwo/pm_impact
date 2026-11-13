@@ -240,8 +240,9 @@ r_sbw <- gl_sbw_proc(c_sbw)
 r_did <- gl_sbw_did(r_sbw)
 
 dt_coef_did <- gd_sbw_coef_did(r_did)
-
 dt_euro <- gd_auc_euro(r_sbw, r_did, dt_coef_did)
+dt_auccum <- gd_auc_euro_sum(r_sbw, r_did, dt_coef_did, b_pre = T)
+
 ## dt_euro2 <- gd_auc_euro(r_sbw, r_did, dt_coef_did, b_ref = "t-1")
 
 ## dt_euro2[dv == "aucturn_cum2_log"] %>%

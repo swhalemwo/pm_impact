@@ -804,7 +804,7 @@ gt_bal_bytreat <- function(r_sbw, v_years = NULL, l_digits = NULL) {
 ##                         mean_twtd = weighted.mean(career_year, w_sbw*get(.x)),
 ##                         treat = .x)]) %>% rbindlist
 
-gp_evst_annual_cum <- function(dt_coef_did, dt_euro) {
+gp_evst_annual_cum <- function(dt_coef_did, dt_euro, dt_auccum) {
 
   c_vvs <- gc_vvs()
   l_lbls <- c_vvs$dt_vrblinfo[, setNames(vrbl_lbl, vrbl)]
@@ -820,15 +820,18 @@ gp_evst_annual_cum <- function(dt_coef_did, dt_euro) {
     .[, facet_lbl := sprintf("%s (%s)", vrbl_lbl, outcome_lbl)]
     
   ## some manual specfication of auction turnover
-  dt_cbns[dv == "auc" & outcome_type == "annual", dv := "auc_turnover_log"]
-  dt_cbns[dv == "auc_cum2" & outcome_type == "cum", dv := "aucturn_cum2_log"]
+  dt_cbns[dv == "auc" & outcome_type == "annual", dv := "auc_turnover2_log"]
+  dt_cbns[dv == "auc_cum2" & outcome_type == "cum", dv := "auc_turnover_log_sum"]
   dt_cbns[, dv := factor(dv, levels = dv)]
 
   ## dt_cbns[, facet_key := paste0(dv
 
-  dt_coef_viz <- dt_coef_did[dv %in% l_treats | dv %in% sprintf("%s_cum2", l_treats)] %>%
-    rbind(dt_euro[dv %in% c("aucturn_cum2_log", "auc_turnover_log"),
-                  .(mdl, term, estimate = euro, std.error = se_euro, statistic, p.value, dv, tp)]) %>% 
+  dt_coef_viz <- dt_coef_did[dv %in% l_treats | dv %in% sprintf("%s_cum2", l_treats)][, mdl := NULL] %>%
+    rbind(dt_euro[dv  == "auc_turnover2_log",
+                  .(term, estimate = euro, std.error = se_euro, statistic, p.value, dv, tp)]) %>%
+    rbind(dt_auccum[dv == "auc_turnover2_log",
+                    .(term, estimate = sum_euro, std.error = se_euro, statistic = 1, p.value = p_euro,
+                      dv = "auc_turnover_log_sum", tp = tp_end)]) %>% 
     .[, outcome_type := ifelse(grepl("cum2", dv), "cum", "annual")] %>%
     .[term != "no_treatment"] %>% 
     .[, term_pure := str_extract(term, paste0(c(gsub("exn_", "", l_treats), "no_treatment"), collapse = "|"))]

@@ -122,6 +122,7 @@ gc_plts <- function() {
         p_evst_annual_cum = list(
             dt_coef_did = quote(dt_coef_did),
             dt_euro = quote(dt_euro),
+            dt_auccum = quote(dt_auccum),            
             width = 14,
             height = 18,
             caption = "Event study plots (annual and cumulative)")
@@ -219,6 +220,7 @@ gc_vvs <- function() {
         exn_gallery_cum_log = "Prior Exhibitions (Galleries, log)",
         aucturn_cum2_log = "Prior Auction Turnover (log)",
         auc_turnover_log = "Auction Turnover (log)",
+        auc_turnover2_log = "Auction Turnover (log)",
         auc_any = "Any Auction Turnover",
         auc_ever = "Any Prior Auction Turnover") %>%
         setNames(names(.), .)  # adjust order to allow easy combinations
