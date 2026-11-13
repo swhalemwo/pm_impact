@@ -245,6 +245,25 @@ dt_auccum <- gd_auc_euro_sum(r_sbw, r_did, dt_coef_did, b_pre = T)
 
 dt_coef_viz <- gd_coef_viz(dt_coef_did, dt_euro, dt_auccum)
 
+## compare toti and pm auc coefs
+## dt_coef_viz[term %in% c("exn_toti", "exn_pm") & tp == 6 & grepl("auc", dv) & outcome_type == "cum"]
+
+## b1 = 12279
+## se1 = 3116
+## b2 = 28269
+## se2 = 6325
+
+
+## z_stat <- (b1 - b2) / sqrt(se1^2 + se2^2)
+
+## # Calculate two-tailed p-value
+## p_val <- 2 * pnorm(-abs(z_stat))
+
+## # Print results
+## cat("Z-statistic:", z_stat, "\n")
+## cat("P-value:", p_val, "\n")
+
+
 
 ## dt_euro2 <- gd_auc_euro(r_sbw, r_did, dt_coef_did, b_ref = "t-1")
 
