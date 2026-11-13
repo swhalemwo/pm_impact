@@ -82,7 +82,7 @@ gd_syn_config <- function(dt, ...) {
 
 ## --- fixtures for the aucexp tests --------------------------------
 ## a minimal SBW config: only the pieces md_auc_sel/gc_auc_euro_cfg read
-C_CFG_AUC <- list(uid = "PeopleID",
+C_CFG_AUC <- list(uid = "PeopleID", tid = "year",
                   outcome_cols = character(0),
                   outcome_cols_cur = c("x_log", "y_log"))
 
