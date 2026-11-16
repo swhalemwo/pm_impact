@@ -168,29 +168,13 @@ dt_atyear_foster <- gd_atyear_foster(dt_atyear_raw, c_datargs$baby) %>%
 
 
 
-
 ## fwrite(dt_atyear_foster, "~/Dropbox/phd/papers/foster/misc/dt_atyear_foster_v2.csv")
-
-## if (b_min_mdls) { 
-
-##     dt_atyear_foster_smol <- dt_atyear_foster[year %between% c(2010, 2012)]
-##     l_mdls <- gl_mdls(dt_atyear_foster_smol)
-## } else {
-##     l_mdls <- gl_mdls(dt_atyear_foster) # , dt_atyear_evc)
-## }
-
-
-## dt_atyear_evc[, map(.SD, ~sum(is.na(.x)))] %>% t %>% adt %>% .[, .N, V1]
 
 ## construct auction turnover:
 ## cum: up to year in question
 ## cum2: includes year in question
 ## for matching: want to match on cum: before treatment
 
-
-## dt_atyear_foster[auc_turnover != 0, .N, PeopleID]
-
-## dt_atyear_foster[PeopleID == 259, .(aucturn_cum, aucturn_cum2, auc_turnover)] %>% print(n=80)
 
 
 dt_atyear_foster[, aucturn_cum3_log := aucturn_cum2_log] %>%
@@ -245,31 +229,6 @@ dt_auccum <- gd_auc_euro_sum(r_sbw, r_did, dt_coef_did, b_pre = T)
 
 dt_coef_viz <- gd_coef_viz(dt_coef_did, dt_euro, dt_auccum)
 
-## compare toti and pm auc coefs
-## dt_coef_viz[term %in% c("exn_toti", "exn_pm") & tp == 6 & grepl("auc", dv) & outcome_type == "cum"]
-
-## b1 = 12279
-## se1 = 3116
-## b2 = 28269
-## se2 = 6325
-
-
-## z_stat <- (b1 - b2) / sqrt(se1^2 + se2^2)
-
-## # Calculate two-tailed p-value
-## p_val <- 2 * pnorm(-abs(z_stat))
-
-## # Print results
-## cat("Z-statistic:", z_stat, "\n")
-## cat("P-value:", p_val, "\n")
-
-
-
-## dt_euro2 <- gd_auc_euro(r_sbw, r_did, dt_coef_did, b_ref = "t-1")
-
-## dt_euro2[dv == "aucturn_cum2_log"] %>%
-##     .[, .(dv, tp, mdl, term, estimate = euro, std.error = se_euro)] %>% 
-##     gp_coef_did
 
 
 r_sbw$dt_results[w_sbw > 1e-8, uniqueN(PeopleID)]
@@ -277,14 +236,6 @@ r_sbw$dt_results[w_sbw > 1e-8, uniqueN(PeopleID)]
 r_sbw$dt_results[w_sbw > 1e-4 & exn_toti > 0, .(N = .N, unq = uniqueN(PeopleID))] 
 
 
-
-## super weird EVC values: maybe extreme cases?
-## dt_exhbppl_watyear %>% ggplot(aes(x=evc_grow5_prop, color = InstitutionType)) + geom_density() +
-##     scale_x_continuous(trans = scales::log10_trans()) +
-##     coord_cartesian(xlim = c(1e-3,1e3))
-
-
-## dt_exhbppl_watyear[is.infinite(exn_grow5_perc), uniqueN(PeopleID)]
 
 
 ## distribution of institution-level growth factors (ability of individual museums to promote)
@@ -304,51 +255,3 @@ fwrite(dt_nbrs, paste0(c_dirs$misc, "nbrs.csv"), quote = F)
 
 
     
-## gp_pminfl_cbn(l_mdls$r_pes2, l_mdls$r_auc2)
-## huh wtf is happening with that PES coef.. really hard to believe
-
-
-
-## look at exhibition counts
-dt_insyr_obs <- gd_insyr_obs(dt_exhbppl)
-
-l_vrbls_rol <- c("cpe_rol5", "aucturn_rol5")
-l_vrbls_torol <- c("cnt_prevexhb", "aucturn_cum")
-
-dt_insyr <- gd_insyr(dt_exhbppl, dt_insyr_obs, l_vrbls_torol, l_vrbls_rol)
-
-dt_exhbppl[begin_year >= 2000, .N, ]
-
-dt_insyr[begin_year >= 2000, .(InstitutionID, begin_year, nbr_at_exhbtd_unq, InstitutionType)]
-
-## mean
-dt_insyr[begin_year >= 2000,
-         .(mean_at_exhbtd_unq = mean(nbr_at_exhbtd_unq), mean_at_exhbtd_ttl = mean(nbr_at_exhbtd_ttl)),
-         .(InstitutionType)]
-
-
-dt_insyr[begin_year >= 2000,
-         .(mean_at_exhbtd_unq = mean(nbr_at_exhbtd_unq), mean_at_exhbtd_ttl = mean(nbr_at_exhbtd_ttl)),
-         .(InstitutionID, InstitutionType)] %>%
-    .[, map(.SD, mean), InstitutionType, .SDcols = patterns("^mean_")]
-
-
-## median
-
-dt_insyr[begin_year >= 2000,
-         .(med_at_exhbtd_unq = median(nbr_at_exhbtd_unq), med_at_exhbtd_ttl = median(nbr_at_exhbtd_ttl)),
-         .(InstitutionType)]
-dt_insyr[begin_year >= 2010,
-         .(med_at_exhbtd_unq = median(nbr_at_exhbtd_unq), med_at_exhbtd_ttl = median(nbr_at_exhbtd_ttl)),
-         .(InstitutionID, InstitutionType)] %>%
-    .[, map(.SD, median), InstitutionType, .SDcols = patterns("^med_")]
-
-## * auction checks
-
-dt_euro[dv == "auc_turnover_log" & term == "exn_pm" & tp > 0, .(tp, euro)]
-
-
-dt_euro[dv == "aucturn_cum2_log" & term == "exn_pm" & tp > 0, .(tp, euro)]
-
-
-dt_euro[dv == "aucturn_cum3_log" & term == "exn_pi" & tp > 0, .(tp, euro)]
